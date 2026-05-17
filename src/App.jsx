@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { supabase } from './supabase.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //   HOOKS · UTILITIES
@@ -139,6 +140,32 @@ const textOn = (hex) => {
   return `rgb(${Math.round(r * 0.18)},${Math.round(g * 0.18)},${Math.round(b * 0.18)})`;
 };
 
+// ─── AUTH · CRYPTO ────────────────────────────────────────────────────────────
+// Las contraseñas y PINs se hashean con PBKDF2-SHA256 (100 000 iteraciones + salt
+// aleatorio por usuario). El hash vive en localStorage; el texto plano nunca.
+const generateSalt = () => {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+};
+
+const hashCredential = async (credential, salt) => {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", enc.encode(credential), "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: enc.encode(salt), iterations: 100000 },
+    keyMaterial, 256
+  );
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, "0")).join("");
+};
+
+const verifyCredential = async (credential, hash, salt) => {
+  const computed = await hashCredential(credential, salt);
+  return computed === hash;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 //   DOMAIN CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -207,12 +234,6 @@ const INIT_EXERCISES = [
   },
 ];
 
-const DEMO_STUDENTS = [
-  { id: 1, name: "Ana García" },
-  { id: 2, name: "Carlos López" },
-  { id: 3, name: "María Fdez." },
-];
-
 const INIT_COURSES = [];
 const INIT_UNITS   = [];
 
@@ -274,51 +295,209 @@ const S = {
 //   COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function HomeView({ onStudent, onTeacher }) {
+// ─── SetupView ────────────────────────────────────────────────────────────────
+// Se muestra sólo la primera vez (aún no existe ninguna cuenta admin).
+function SetupView({ onSetup }) {
+  const [displayName, setDisplayName] = useState("");
+  const [username,    setUsername]    = useState("admin");
+  const [pass,        setPass]        = useState("");
+  const [pass2,       setPass2]       = useState("");
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState("");
+
+  const mismatch = pass && pass2 && pass !== pass2;
+  const canSave  = displayName.trim() && username.trim() && pass.length >= 6 && pass === pass2 && !loading;
+
+  const handleSubmit = async () => {
+    if (!canSave) return;
+    setLoading(true); setError("");
+    try {
+      const salt = generateSalt();
+      const hash = await hashCredential(pass, salt);
+      onSetup({
+        id: `admin-${Date.now()}`,
+        username: username.trim().toLowerCase(),
+        displayName: displayName.trim(),
+        role: "admin",
+        credType: "password",
+        passwordHash: hash,
+        salt,
+        createdAt: Date.now(),
+      });
+    } catch { setError("Error al configurar la cuenta. Inténtalo de nuevo."); }
+    finally   { setLoading(false); }
+  };
+
   return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ textAlign: "center", maxWidth: 380, padding: "2rem 1rem" }}>
+      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
+          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 6 }}>Primera configuración</h1>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Crea tu cuenta de administrador para comenzar</p>
+        </div>
+        <label style={S.label}>Tu nombre (visible para los alumnos)</label>
+        <input style={{ ...S.input, marginBottom: 14 }} value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Ej: Prof. García" autoFocus />
+        <label style={S.label}>Nombre de usuario (para el login)</label>
+        <input style={{ ...S.input, marginBottom: 14 }} value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))} placeholder="admin" autoComplete="username" />
+        <label style={S.label}>Contraseña (mínimo 6 caracteres)</label>
+        <input type="password" style={{ ...S.input, marginBottom: 14 }} value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••" autoComplete="new-password" />
+        <label style={S.label}>Confirmar contraseña</label>
+        <input type="password" style={{ ...S.input, marginBottom: mismatch ? 6 : 22, borderColor: mismatch ? "#B84A3A" : undefined }} value={pass2} onChange={e => setPass2(e.target.value)} placeholder="••••••" autoComplete="new-password" onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+        {mismatch && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 16px" }}>Las contraseñas no coinciden</p>}
+        {error && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 12px" }}>{error}</p>}
+        <button onClick={handleSubmit} disabled={!canSave} style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, opacity: canSave ? 1 : 0.45, cursor: canSave ? "pointer" : "not-allowed", fontSize: 15 }}>
+          {loading ? "Configurando…" : "Crear cuenta y comenzar →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── LoginView ────────────────────────────────────────────────────────────────
+function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
+  const [username,   setUsername]   = useState("");
+  const [credential, setCredential] = useState("");
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState("");
+
+  const targetUsers = useMemo(() => (users || []).filter(u => u.role === filterRole), [users, filterRole]);
+  const matchedUser = useMemo(() => {
+    if (!username.trim()) return null;
+    return targetUsers.find(u => u.username === username.trim().toLowerCase()) || null;
+  }, [username, targetUsers]);
+
+  const isPin     = matchedUser?.credType === "pin";
+  const credLabel = matchedUser ? (isPin ? "PIN" : "Contraseña") : "Contraseña / PIN";
+  const canSubmit = username.trim() && credential && !loading;
+
+  const handleLogin = async () => {
+    if (!canSubmit) return;
+    setLoading(true); setError("");
+    try {
+      const found = targetUsers.find(u => u.username === username.trim().toLowerCase());
+      if (!found) { setError("Usuario no encontrado."); setLoading(false); return; }
+      const ok = await verifyCredential(credential, found.passwordHash, found.salt);
+      if (!ok) { setError(`${found.credType === "pin" ? "PIN" : "Contraseña"} incorrecta.`); setLoading(false); return; }
+      onLogin(found);
+    } catch { setError("Error al verificar. Inténtalo de nuevo."); }
+    finally   { setLoading(false); }
+  };
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ ...S.card, maxWidth: 400, width: "90vw", marginBottom: 0 }}>
+        <button onClick={onBack} style={{ ...S.btn, marginBottom: 22, fontSize: 13 }}>← Volver</button>
+        <div style={{ marginBottom: 26 }}>
+          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 4 }}>Acceso {roleLabel}</h1>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Introduce tus credenciales</p>
+        </div>
+        <label style={S.label}>Nombre de usuario</label>
+        <input style={{ ...S.input, marginBottom: 14 }} value={username} onChange={e => { setUsername(e.target.value); setError(""); }} placeholder="usuario" autoFocus autoComplete="username" />
+        <label style={S.label}>{credLabel}</label>
+        <input
+          type={isPin ? "tel" : "password"}
+          inputMode={isPin ? "numeric" : undefined}
+          style={{ ...S.input, marginBottom: 22, letterSpacing: isPin ? "0.3em" : undefined }}
+          value={credential} onChange={e => { setCredential(e.target.value); setError(""); }}
+          placeholder={isPin ? "• • • •" : "••••••"} autoComplete="current-password"
+          onKeyDown={e => e.key === "Enter" && handleLogin()}
+        />
+        {error && <p style={{ fontSize: 12, color: "#B84A3A", margin: "-14px 0 14px" }}>{error}</p>}
+        <button onClick={handleLogin} disabled={!canSubmit} style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, opacity: canSubmit ? 1 : 0.45, cursor: canSubmit ? "pointer" : "not-allowed", fontSize: 15 }}>
+          {loading ? "Verificando…" : "Entrar →"}
+        </button>
+        {onGuest && (
+          <>
+            <div style={{ ...S.row, margin: "18px 0 14px", gap: 0 }}>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+              <span style={{ color: C.muted2, fontSize: 11, padding: "0 10px", whiteSpace: "nowrap" }}>o sin cuenta</span>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+            </div>
+            <button onClick={onGuest} style={{ ...S.btn, width: "100%", padding: "11px 20px", borderRadius: 12, fontSize: 14, color: C.muted }}>
+              Entrar como invitado
+            </button>
+            <p style={{ fontSize: 11, color: C.muted2, textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>
+              Modo de prueba · los resultados no se guardan
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── HomeView ─────────────────────────────────────────────────────────────────
+function HomeView({ onAdmin, onTeacher, onStudent }) {
+  return (
+    <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <div style={{ textAlign: "center", maxWidth: 380, padding: "2rem 1rem", display: "flex", flexDirection: "column", alignItems: "center" }}>
         <h1 style={{ ...S.h1, fontSize: 30, marginBottom: 6 }}>Funciones Armónicas</h1>
-        <p style={{ color: C.muted, fontSize: 14, marginBottom: 40 }}>Herramienta de análisis musical auditivo</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ color: C.muted, fontSize: 14, marginBottom: 44 }}>Herramienta de análisis musical auditivo</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
           <button onClick={onStudent} style={{ ...S.btnPrimary, fontSize: 16, padding: "14px 24px", borderRadius: 12 }}>Acceso Alumno</button>
           <button onClick={onTeacher} style={{ ...S.btn, fontSize: 16, padding: "14px 24px", borderRadius: 12 }}>Acceso Profesor</button>
         </div>
-        <p style={{ color: C.muted2, fontSize: 12, marginTop: 32, lineHeight: 1.6 }}>
-          Esta es una demo funcional. El audio está simulado para que puedas ver<br />cómo funciona toda la mecánica del ejercicio.
-        </p>
+        <button onClick={onAdmin} style={{ marginTop: 44, background: "none", border: "none", color: C.muted2, fontSize: 12, cursor: "pointer", padding: "4px 8px", fontFamily: FONT_SANS, textDecoration: "underline" }}>
+          Administrador
+        </button>
       </div>
     </div>
   );
 }
 
-function StudentList({ students, onSelect, onBack }) {
-  const [name, setName] = useState("");
-  const enter = () => name.trim() && onSelect({ id: Date.now(), name: name.trim() });
+// ─── TeacherPickerView ───────────────────────────────────────────────────────
+function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
+  const [hoverId, setHoverId] = useState(null);
   return (
-    <div style={S.app}>
-      <div style={S.page}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>← Volver</button>
-        <h2 style={S.h2}>¿Quién eres?</h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-          {students.map((s) => (
-            <button key={s.id} onClick={() => onSelect(s)} style={{ ...S.card, textAlign: "left", cursor: "pointer", marginBottom: 0, fontSize: 16, border: `1px solid ${C.line}` }}>{s.name}</button>
-          ))}
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🎓</div>
+          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 4 }}>
+            {currentTeacherId ? "Cambiar profesor" : "Elige tu profesor"}
+          </h1>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
+            Selecciona al profesor cuya clase sigues
+          </p>
         </div>
-        <hr style={S.divider} />
-        <div style={S.card}>
-          <label style={S.label}>O introduce tu nombre</label>
-          <div style={S.row}>
-            <input style={S.input} placeholder="Tu nombre o apodo…" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enter()} />
-            <button style={S.btnPrimary} onClick={enter}>Entrar</button>
+        {teachers.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "1rem 0 1.5rem" }}>
+            <p style={{ color: C.muted, fontSize: 13 }}>Aún no hay profesores registrados.</p>
+            <button onClick={onLogout} style={{ ...S.btn, marginTop: 12 }}>Volver al inicio</button>
           </div>
-        </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+            {teachers.map(t => {
+              const isSelected = t.id === currentTeacherId;
+              const isHover    = hoverId === t.id;
+              return (
+                <button key={t.id} onClick={() => onPick(t)}
+                  onMouseEnter={() => setHoverId(t.id)}
+                  onMouseLeave={() => setHoverId(null)}
+                  style={{ background: isSelected ? C.ink : isHover ? C.paper2 : C.paper, border: `1.5px solid ${isSelected ? C.ink : isHover ? C.ink2 : C.line}`, borderRadius: 14, padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "all .15s", textAlign: "left" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: isSelected ? "rgba(251,250,246,0.18)" : C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 700, color: isSelected ? C.paper : C.ink2, flexShrink: 0, fontFamily: FONT_MONO }}>
+                    {t.displayName[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: isSelected ? C.paper : C.ink, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.displayName}</div>
+                    <div style={{ fontSize: 12, color: isSelected ? "rgba(251,250,246,0.6)" : C.muted, fontFamily: FONT_MONO }}>@{t.username}</div>
+                  </div>
+                  {isSelected && <span style={{ fontSize: 16, color: C.paper, flexShrink: 0 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <button onClick={onLogout} style={{ background: "none", border: "none", color: C.muted2, fontSize: 12, cursor: "pointer", width: "100%", fontFamily: FONT_SANS, padding: "4px 0" }}>
+          Salir
+        </button>
       </div>
     </div>
   );
 }
 
-function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout }) {
+function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher }) {
   const [view, setView] = useState("all");
   const [openCourseIds, setOpenCourseIds] = useState(new Set());
   const [openUnitIds,   setOpenUnitIds]   = useState(new Set());
@@ -360,12 +539,26 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
   return (
     <div style={S.app}>
       <div style={S.page}>
+        {user.isGuest && (
+          <div style={{ background: "rgba(199,122,26,0.12)", border: `1px solid rgba(199,122,26,0.30)`, borderRadius: 10, padding: "9px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 14 }}>👤</span>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: C.fnD }}>Modo invitado</span>
+              <span style={{ fontSize: 12, color: C.muted, marginLeft: 8 }}>Los resultados no se guardan al salir</span>
+            </div>
+          </div>
+        )}
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20 }}>
           <div>
-            <h1 style={{ ...S.h1, fontSize: 22 }}>Hola, {user.name}</h1>
+            <h1 style={{ ...S.h1, fontSize: 22 }}>Hola, {user.displayName}</h1>
             <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Elige un ejercicio para comenzar</p>
           </div>
-          <button onClick={onLogout} style={S.btn}>Salir</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {!user.isGuest && onChangeTeacher && (
+              <button onClick={onChangeTeacher} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }} title="Cambiar profesor">🎓 Profesor</button>
+            )}
+            <button onClick={onLogout} style={S.btn}>Salir</button>
+          </div>
         </div>
 
         <div style={{ ...S.row, gap: 8, marginBottom: 20 }}>
@@ -972,13 +1165,190 @@ function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }) {
   );
 }
 
+// ─── AddUserModal ─────────────────────────────────────────────────────────────
+function AddUserModal({ forRole, currentUserId, existingUsernames, onSave, onClose }) {
+  const [displayName,    setDisplayName]    = useState("");
+  const [username,       setUsername]       = useState("");
+  const [usernameEdited, setUsernameEdited] = useState(false);
+  const [credType,       setCredType]       = useState(forRole === "student" ? "pin" : "password");
+  const [credential,     setCredential]     = useState("");
+  const [credential2,    setCredential2]    = useState("");
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState("");
+
+  useEffect(() => {
+    if (usernameEdited) return;
+    const suggested = displayName.trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, ".");
+    setUsername(suggested);
+  }, [displayName, usernameEdited]);
+
+  const minLen        = credType === "pin" ? 4 : 6;
+  const usernameTaken = existingUsernames.includes(username.trim().toLowerCase()) && username.trim() !== "";
+  const mismatch      = credType === "password" && credential && credential2 && credential !== credential2;
+  const canSave       = displayName.trim() && username.trim() && !usernameTaken &&
+    credential.length >= minLen && (credType !== "password" || credential === credential2) && !loading;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setLoading(true); setError("");
+    try {
+      const salt = generateSalt();
+      const hash = await hashCredential(credential, salt);
+      onSave({
+        id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        username: username.trim().toLowerCase(),
+        displayName: displayName.trim(),
+        role: forRole,
+        credType,
+        passwordHash: hash,
+        salt,
+        createdBy: currentUserId,
+        createdAt: Date.now(),
+      });
+    } catch { setError("Error al crear la cuenta. Inténtalo de nuevo."); }
+    finally   { setLoading(false); }
+  };
+
+  const roleLabel = forRole === "teacher" ? "Profesor" : "Alumno";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 200, overflowY: "auto", padding: "32px 16px" }}>
+      <div style={{ ...S.card, width: 480, maxWidth: "92vw", marginBottom: 0 }}>
+        <h2 style={S.h2}>Nueva cuenta — {roleLabel}</h2>
+        <label style={S.label}>Nombre visible</label>
+        <input style={{ ...S.input, marginBottom: 12 }} value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={forRole === "teacher" ? "Ej: Prof. Martínez" : "Ej: Ana García"} autoFocus />
+        <label style={S.label}>Nombre de usuario (para el login)</label>
+        <input style={{ ...S.input, marginBottom: usernameTaken ? 4 : 14, borderColor: usernameTaken ? "#B84A3A" : undefined }}
+          value={username} onChange={e => { setUsername(e.target.value.toLowerCase().replace(/\s/g, "")); setUsernameEdited(true); }} placeholder="nombre.apellido" autoComplete="off" />
+        {usernameTaken && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 12px" }}>Este nombre de usuario ya existe</p>}
+        {forRole === "student" && (
+          <>
+            <label style={S.label}>Tipo de acceso</label>
+            <div style={{ ...S.row, gap: 8, marginBottom: 14 }}>
+              {[{ id: "pin", label: "PIN numérico (4-6 dígitos)" }, { id: "password", label: "Contraseña" }].map(t => (
+                <button key={t.id} onClick={() => { setCredType(t.id); setCredential(""); setCredential2(""); }}
+                  style={{ ...S.btn, flex: 1, fontSize: 13, padding: "8px 10px", background: credType === t.id ? C.ink : C.paper, color: credType === t.id ? C.paper : C.ink2, border: credType === t.id ? `1px solid ${C.ink}` : `1px solid ${C.line}` }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <label style={S.label}>{credType === "pin" ? `PIN (mínimo ${minLen} dígitos)` : `Contraseña (mínimo ${minLen} caracteres)`}</label>
+        <input type={credType === "pin" ? "tel" : "password"} inputMode={credType === "pin" ? "numeric" : undefined}
+          style={{ ...S.input, marginBottom: 12, letterSpacing: credType === "pin" ? "0.25em" : undefined }}
+          value={credential} onChange={e => setCredential(credType === "pin" ? e.target.value.replace(/\D/g, "") : e.target.value)}
+          placeholder={credType === "pin" ? "1234" : "••••••"} autoComplete="new-password" />
+        {credType === "password" && (
+          <>
+            <label style={S.label}>Confirmar contraseña</label>
+            <input type="password" style={{ ...S.input, marginBottom: mismatch ? 4 : 20, borderColor: mismatch ? "#B84A3A" : undefined }}
+              value={credential2} onChange={e => setCredential2(e.target.value)} placeholder="••••••" autoComplete="new-password" />
+            {mismatch && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 16px" }}>Las contraseñas no coinciden</p>}
+          </>
+        )}
+        {credType === "pin" && <div style={{ height: 8 }} />}
+        {error && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 10px" }}>{error}</p>}
+        <div style={{ ...S.row, gap: 10 }}>
+          <button onClick={onClose} style={{ ...S.btn, flex: 1 }}>Cancelar</button>
+          <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, flex: 1, opacity: canSave ? 1 : 0.45, cursor: canSave ? "pointer" : "not-allowed" }}>
+            {loading ? "Creando…" : "Crear cuenta"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ResetCredentialModal ─────────────────────────────────────────────────────
+function ResetCredentialModal({ targetUser, onSave, onClose }) {
+  const [credential,  setCredential]  = useState("");
+  const [credential2, setCredential2] = useState("");
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState("");
+  const isPin    = targetUser.credType === "pin";
+  const minLen   = isPin ? 4 : 6;
+  const mismatch = !isPin && credential && credential2 && credential !== credential2;
+  const canSave  = credential.length >= minLen && (isPin || credential === credential2) && !loading;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setLoading(true); setError("");
+    try {
+      const salt = generateSalt();
+      const hash = await hashCredential(credential, salt);
+      onSave({ ...targetUser, passwordHash: hash, salt });
+    } catch { setError("Error. Inténtalo de nuevo."); }
+    finally   { setLoading(false); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }}>
+      <div style={{ ...S.card, width: 400, maxWidth: "92vw", marginBottom: 0 }}>
+        <h2 style={S.h2}>Resetear {isPin ? "PIN" : "contraseña"}</h2>
+        <p style={{ fontSize: 13, color: C.muted, margin: "0 0 18px" }}>
+          Usuario: <strong style={{ color: C.ink }}>{targetUser.displayName}</strong>
+          <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, marginLeft: 8, fontSize: 10 }}>@{targetUser.username}</span>
+        </p>
+        <label style={S.label}>{isPin ? `Nuevo PIN (mínimo ${minLen} dígitos)` : `Nueva contraseña (mínimo ${minLen} caracteres)`}</label>
+        <input type={isPin ? "tel" : "password"} inputMode={isPin ? "numeric" : undefined}
+          style={{ ...S.input, marginBottom: 12, letterSpacing: isPin ? "0.25em" : undefined }}
+          value={credential} onChange={e => setCredential(isPin ? e.target.value.replace(/\D/g, "") : e.target.value)}
+          placeholder={isPin ? "1234" : "••••••"} autoFocus autoComplete="new-password" />
+        {!isPin && (
+          <>
+            <label style={S.label}>Confirmar</label>
+            <input type="password" style={{ ...S.input, marginBottom: mismatch ? 4 : 20, borderColor: mismatch ? "#B84A3A" : undefined }}
+              value={credential2} onChange={e => setCredential2(e.target.value)} placeholder="••••••" autoComplete="new-password" />
+            {mismatch && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 16px" }}>No coinciden</p>}
+          </>
+        )}
+        {isPin && <div style={{ height: 10 }} />}
+        {error && <p style={{ fontSize: 12, color: "#B84A3A", margin: "0 0 10px" }}>{error}</p>}
+        <div style={{ ...S.row, gap: 10 }}>
+          <button onClick={onClose} style={{ ...S.btn, flex: 1 }}>Cancelar</button>
+          <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, flex: 1, opacity: canSave ? 1 : 0.45, cursor: canSave ? "pointer" : "not-allowed" }}>
+            {loading ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── TeacherDash ──────────────────────────────────────────────────────────────
-function TeacherDash({ exercises, onUpdateExercise, onDeleteExercise, students, onAddStudent, onRemoveStudent, results, margin, onMargin, onRecord, onAdd, onLogout, categories, onAddCategory, onUpdateCategory, onDeleteCategory, courses, units, onAddCourse, onUpdateCourse, onDeleteCourse, onAddUnit, onUpdateUnit, onDeleteUnit, onAddExercisesToUnit, onRemoveExerciseFromUnit }) {
+// Real TeacherDash with full auth support
+function TeacherDash({
+  currentUser,
+  users, onAddUser, onRemoveUser, onUpdateUser,
+  exercises, onUpdateExercise, onDeleteExercise,
+  results, margin, onMargin,
+  onRecord, onAdd, onLogout,
+  categories, onAddCategory, onUpdateCategory, onDeleteCategory,
+  courses, units,
+  onAddCourse, onUpdateCourse, onDeleteCourse,
+  onAddUnit, onUpdateUnit, onDeleteUnit,
+  onAddExercisesToUnit, onRemoveExerciseFromUnit,
+}) {
+  const isAdmin = currentUser?.role === "admin";
+
+  const students = useMemo(() =>
+    (users || []).filter(u => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
+    [users, currentUser, isAdmin]
+  );
+  const teachers = useMemo(() => (users || []).filter(u => u.role === "teacher"), [users]);
   const [tab, setTab]                     = useState("exercises");
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
   const [editingCategory, setEditingCategory]       = useState(null);
-  const [newStudentName, setNewStudentName]         = useState("");
   const [confirmState, setConfirmState]             = useState(null);
+
+  // ── User management state ───────────────────────────────────────────
+  const [showAddUser,     setShowAddUser]     = useState(false);
+  const [addingUserRole,  setAddingUserRole]  = useState("student");
+  const [showResetCred,   setShowResetCred]   = useState(false);
+  const [resetCredTarget, setResetCredTarget] = useState(null);
 
   // ── Course accordion state ──────────────────────────────────────────
   const [openCourseIds, setOpenCourseIds]     = useState(new Set());
@@ -994,13 +1364,6 @@ function TeacherDash({ exercises, onUpdateExercise, onDeleteExercise, students, 
 
   const askConfirm = (message, onConfirm, confirmLabel = "Eliminar") =>
     setConfirmState({ message, confirmLabel, onConfirm: () => { onConfirm(); setConfirmState(null); } });
-
-  const tryAddStudent = () => {
-    const name = newStudentName.trim(); if (!name) return;
-    const dup  = students.some((s) => s.name.toLowerCase() === name.toLowerCase());
-    if (dup) { if (typeof window !== "undefined") window.alert("Ya existe un alumno con ese nombre."); return; }
-    onAddStudent(name); setNewStudentName("");
-  };
 
   // ── Exercise detail sub-view (edit or create) ──
   const lastCreatedExRef = useRef(null);
@@ -1050,13 +1413,16 @@ function TeacherDash({ exercises, onUpdateExercise, onDeleteExercise, students, 
     <div style={S.app}>
       <div style={S.page}>
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20 }}>
-          <h1 style={{ ...S.h1, fontSize: 22 }}>Panel del Profesor</h1>
+          <div>
+            <h1 style={{ ...S.h1, fontSize: 22 }}>{isAdmin ? "Panel del Administrador" : "Panel del Profesor"}</h1>
+            <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>{currentUser?.displayName}</p>
+          </div>
           <button onClick={onLogout} style={S.btn}>Salir</button>
         </div>
         <div style={{ ...S.row, marginBottom: 20, gap: 8, flexWrap: "wrap" }}>
-          {["exercises","courses","students","categories","settings"].map((t) => (
+          {(isAdmin ? ["exercises","courses","students","categories","settings","users"] : ["exercises","courses","students","categories","settings"]).map((t) => (
             <button key={t} onClick={() => setTab(t)} style={{ ...S.btn, background: tab === t ? C.ink : C.paper, border: tab === t ? `1px solid ${C.ink}` : `1px solid ${C.line}`, color: tab === t ? C.paper : C.ink2 }}>
-              {{ exercises: "Ejercicios", courses: "Cursos", students: "Alumnos", categories: "Categorías", settings: "Ajustes" }[t]}
+              {{ exercises: "Ejercicios", courses: "Cursos", students: "Alumnos", categories: "Categorías", settings: "Ajustes", users: "👤 Usuarios" }[t]}
             </button>
           ))}
         </div>
@@ -1265,22 +1631,35 @@ function TeacherDash({ exercises, onUpdateExercise, onDeleteExercise, students, 
 
         {tab === "students" && (
           <>
-            <div style={S.card}>
-              <label style={S.label}>Añadir alumno</label>
-              <div style={{ ...S.row, gap: 8 }}>
-                <input style={{ ...S.input, flex: 1 }} value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Nombre y apellidos" onKeyDown={(e) => { if (e.key === "Enter") tryAddStudent(); }} />
-                <button onClick={tryAddStudent} disabled={!newStudentName.trim()} style={{ ...S.btnPrimary, opacity: newStudentName.trim() ? 1 : 0.45, cursor: newStudentName.trim() ? "pointer" : "not-allowed" }}>Añadir</button>
-              </div>
-              <p style={{ fontSize: 12, color: C.muted, margin: "10px 0 0" }}>{students.length} {students.length === 1 ? "alumno" : "alumnos"} en total</p>
+            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>{students.length} {students.length === 1 ? "alumno" : "alumnos"}</p>
+              <button onClick={() => { setAddingUserRole("student"); setShowAddUser(true); }} style={S.btnPrimary}>+ Crear cuenta de alumno</button>
             </div>
-            {students.length === 0 && <p style={{ color: C.muted, textAlign: "center", padding: 24 }}>Aún no hay alumnos.</p>}
+            {students.length === 0 && (
+              <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>👨‍🎓</div>
+                <div>Aún no hay alumnos.</div>
+                <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
+              </div>
+            )}
             {students.map((s) => {
               const sRes = results[s.id] || {};
               return (
                 <div key={s.id} style={S.card}>
-                  <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 10, gap: 10 }}>
-                    <div style={{ fontWeight: 600 }}>{s.name}</div>
-                    <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.name}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemoveStudent(s.id))} style={S.btnDanger}>Eliminar</button>
+                  <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
+                      <div style={{ ...S.row, gap: 6 }}>
+                        <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+                        <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
+                          {s.credType === "pin" ? "PIN" : "Contraseña"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => { setResetCredTarget(s); setShowResetCred(true); }} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear acceso</button>
+                      <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemoveUser(s.id))} style={S.btnDanger}>Eliminar</button>
+                    </div>
                   </div>
                   {exercises.map((ex) => {
                     const r = sRes[ex.id];
@@ -1337,11 +1716,69 @@ function TeacherDash({ exercises, onUpdateExercise, onDeleteExercise, students, 
           </div>
         )}
 
+        {tab === "users" && isAdmin && (
+          <>
+            <div style={{ ...S.row, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <p style={{ ...SECTION_STYLE, margin: 0 }}>Profesores ({teachers.length})</p>
+              <button onClick={() => { setAddingUserRole("teacher"); setShowAddUser(true); }} style={S.btnPrimary}>+ Crear profesor</button>
+            </div>
+            {teachers.length === 0 && (
+              <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "1.5rem" }}>
+                Aún no hay profesores. Crea el primero con el botón de arriba.
+              </div>
+            )}
+            {teachers.map(t => (
+              <div key={t.id} style={S.card}>
+                <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{t.displayName}</div>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{t.username}</span>
+                  </div>
+                  <div style={{ ...S.row, gap: 6 }}>
+                    <button onClick={() => { setResetCredTarget(t); setShowResetCred(true); }} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear contraseña</button>
+                    <button onClick={() => askConfirm(`¿Eliminar la cuenta del profesor "${t.displayName}"?\n\nSus alumnos y resultados se conservarán.`, () => onRemoveUser(t.id))} style={S.btnDanger}>Eliminar</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <hr style={{ ...S.divider, margin: "28px 0" }} />
+            <p style={SECTION_STYLE}>Administrador</p>
+            <div style={S.card}>
+              <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{currentUser.displayName}</div>
+                  <div style={{ ...S.row, gap: 6 }}>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{currentUser.username}</span>
+                    <span style={{ ...S.badge, background: "rgba(154,79,184,0.12)", color: C.fnI }}>Admin</span>
+                  </div>
+                </div>
+                <button onClick={() => { setResetCredTarget(currentUser); setShowResetCred(true); }} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Cambiar mi contraseña</button>
+              </div>
+            </div>
+          </>
+        )}
+
         {editingCategory !== null && (
           <CategoryEditorModal
             initialCategory={editingCategory === "new" ? null : editingCategory}
             onSave={(category) => { if (editingCategory === "new") onAddCategory(category); else onUpdateCategory(category); setEditingCategory(null); }}
             onClose={() => setEditingCategory(null)}
+          />
+        )}
+        {showAddUser && (
+          <AddUserModal
+            forRole={addingUserRole}
+            currentUserId={currentUser.id}
+            existingUsernames={(users || []).map(u => u.username)}
+            onSave={(newUser) => { onAddUser(newUser); setShowAddUser(false); }}
+            onClose={() => setShowAddUser(false)}
+          />
+        )}
+        {showResetCred && resetCredTarget && (
+          <ResetCredentialModal
+            targetUser={resetCredTarget}
+            onSave={(updated) => { onUpdateUser(updated); setShowResetCred(false); setResetCredTarget(null); }}
+            onClose={() => { setShowResetCred(false); setResetCredTarget(null); }}
           />
         )}
         {confirmState && (
@@ -2468,102 +2905,171 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
 //   APP ROOT
 // ═══════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [exercises, setExercises] = usePersistentState("fa_exercises", INIT_EXERCISES, {
-    transformLoaded: (parsed) =>
-      Array.isArray(parsed) && parsed.length
-        ? parsed.map((e) => ({ ...e, audioUrl: null, model: e.model || DEFAULT_MODEL_ID }))
-        : INIT_EXERCISES,
-    transformSaved: (list) => list.map(({ audioUrl, ...rest }) => rest), // eslint-disable-line no-unused-vars
-  });
+  // ── Estado respaldado por Supabase ───────────────────────────────────
+  const [exercises,  setExercises]  = useState([]);
+  const [users,      setUsers]      = useState([]);
+  const [results,    setResults]    = useState({});
+  const [margin,     setMarginState] = useState(1);
+  const [categories, setCategories] = useState([DEFAULT_CATEGORY]);
+  const [courses,    setCourses]    = useState([]);
+  const [units,      setUnits]      = useState([]);
+  const [dbReady,    setDbReady]    = useState(false);
 
-  const [students, setStudents] = usePersistentState("fa_students", DEMO_STUDENTS, {
-    transformLoaded: (parsed) => Array.isArray(parsed) ? parsed : DEMO_STUDENTS,
-  });
+  // ── Carga inicial desde Supabase ──────────────────────────────────────
+  useEffect(() => {
+    async function load() {
+      try {
+        const [
+          { data: dbUsers },
+          { data: dbExercises },
+          { data: dbCategories },
+          { data: dbCourses },
+          { data: dbUnits },
+          { data: dbResults },
+          { data: dbSettings },
+        ] = await Promise.all([
+          supabase.from("fa_users").select("*"),
+          supabase.from("fa_exercises").select("*"),
+          supabase.from("fa_categories").select("*"),
+          supabase.from("fa_courses").select("*"),
+          supabase.from("fa_units").select("*"),
+          supabase.from("fa_results").select("*"),
+          supabase.from("fa_settings").select("*"),
+        ]);
 
-  const [results, setResults] = usePersistentState("fa_results", {}, {
-    transformLoaded: (parsed) => (parsed && typeof parsed === "object") ? parsed : {},
-  });
+        if (dbUsers?.length)     setUsers(dbUsers.map(r => r.data));
+        if (dbExercises?.length) setExercises(
+          dbExercises.map(r => ({ ...r.data, audioUrl: null, model: r.data.model || DEFAULT_MODEL_ID }))
+        );
+        if (dbCategories?.length) {
+          const customs = dbCategories.map(r => r.data).filter(m => !m.builtIn && m.id !== "default");
+          setCategories([DEFAULT_CATEGORY, ...customs]);
+        }
+        if (dbCourses?.length) setCourses(dbCourses.map(r => r.data));
+        if (dbUnits?.length)   setUnits(dbUnits.map(r => r.data));
+        if (dbResults?.length) {
+          const map = {};
+          for (const r of dbResults) {
+            if (!map[r.user_id]) map[r.user_id] = {};
+            map[r.user_id][r.exercise_id] = r.data;
+          }
+          setResults(map);
+        }
+        if (dbSettings?.length) {
+          const ms = dbSettings.find(r => r.key === "margin");
+          if (ms) setMarginState(Number(ms.value) || 1);
+        }
+      } catch (e) { console.error("Supabase load error:", e); }
+      finally { setDbReady(true); }
+    }
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const [margin, setMargin] = usePersistentState("fa_margin", 1, {
-    transformLoaded: (parsed) => { const n = Number(parsed); return Number.isNaN(n) ? 1 : n; },
-  });
+  // ── Helpers de sincronización con Supabase ────────────────────────────
+  const dbUpsertUser     = (u)           => supabase.from("fa_users").upsert({ id: u.id, data: u });
+  const dbUpsertExercise = (ex)          => { const { audioUrl: _a, ...data } = ex; supabase.from("fa_exercises").upsert({ id: String(ex.id), data }); }; // eslint-disable-line no-unused-vars
+  const dbUpsertCategory = (c)           => { if (!c.builtIn) supabase.from("fa_categories").upsert({ id: c.id, data: c }); };
+  const dbUpsertCourse   = (c)           => supabase.from("fa_courses").upsert({ id: c.id, data: c });
+  const dbUpsertUnit     = (u)           => supabase.from("fa_units").upsert({ id: u.id, data: u });
+  const dbUpsertResult   = (uid, eid, r) => supabase.from("fa_results").upsert({ user_id: uid, exercise_id: String(eid), data: r });
 
-  const [categories, setCategories] = usePersistentState("fa_modes", [DEFAULT_CATEGORY], {
-    transformLoaded: (parsed) => { const customs = Array.isArray(parsed) ? parsed.filter((m) => !m.builtIn && m.id !== "default") : []; return [DEFAULT_CATEGORY, ...customs]; },
-    transformSaved: (list) => list.filter((m) => !m.builtIn),
-  });
-
-  const [courses, setCourses] = usePersistentState("fa_courses", INIT_COURSES, {
-    transformLoaded: (parsed) => Array.isArray(parsed) ? parsed : INIT_COURSES,
-  });
-
-  const [units, setUnits] = usePersistentState("fa_units", INIT_UNITS, {
-    transformLoaded: (parsed) => Array.isArray(parsed) ? parsed : INIT_UNITS,
-  });
+  // ── User CRUD ────────────────────────────────────────────────────────
+  const addUser    = (u) => { setUsers(prev => [...prev, u]); dbUpsertUser(u); };
+  const removeUser = (id) => {
+    setUsers(prev => prev.filter(u => u.id !== id));
+    setResults(prev => { const { [id]: _drop, ...rest } = prev; return rest; }); // eslint-disable-line no-unused-vars
+    supabase.from("fa_users").delete().eq("id", id);
+    supabase.from("fa_results").delete().eq("user_id", id);
+  };
+  const updateUser = (u) => { setUsers(prev => prev.map(x => x.id === u.id ? u : x)); dbUpsertUser(u); };
 
   // ── Course CRUD ──────────────────────────────────────────────────────
-  const addCourse    = (c) => setCourses(prev => [...prev, c]);
-  const updateCourse = (c) => setCourses(prev => prev.map(x => x.id === c.id ? c : x));
-  const deleteCourse = (id) => setCourses(prev => prev.filter(c => c.id !== id));
+  const addCourse    = (c)  => { setCourses(prev => [...prev, c]); dbUpsertCourse(c); };
+  const updateCourse = (c)  => { setCourses(prev => prev.map(x => x.id === c.id ? c : x)); dbUpsertCourse(c); };
+  const deleteCourse = (id) => { setCourses(prev => prev.filter(c => c.id !== id)); supabase.from("fa_courses").delete().eq("id", id); };
 
   // ── Unit CRUD ────────────────────────────────────────────────────────
   const addUnit = (unit, courseId) => {
+    const existing = courses.find(c => c.id === courseId);
+    const updatedCourse = existing ? { ...existing, unitIds: [...(existing.unitIds || []), unit.id] } : null;
     setUnits(prev => [...prev, unit]);
-    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, unitIds: [...c.unitIds, unit.id] } : c));
+    setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+    dbUpsertUnit(unit);
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
   };
-  const updateUnit = (unit) => setUnits(prev => prev.map(u => u.id === unit.id ? unit : u));
+  const updateUnit = (unit) => { setUnits(prev => prev.map(u => u.id === unit.id ? unit : u)); dbUpsertUnit(unit); };
   const deleteUnit = (unitId, courseId) => {
+    const existing = courses.find(c => c.id === courseId);
+    const updatedCourse = existing ? { ...existing, unitIds: (existing.unitIds || []).filter(id => id !== unitId) } : null;
     setUnits(prev => prev.filter(u => u.id !== unitId));
-    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, unitIds: c.unitIds.filter(id => id !== unitId) } : c));
+    setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+    supabase.from("fa_units").delete().eq("id", unitId);
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
   };
-  const addExercisesToUnit = (unitId, exerciseIds) =>
-    setUnits(prev => prev.map(u => u.id === unitId ? { ...u, exerciseIds: [...new Set([...u.exerciseIds, ...exerciseIds])] } : u));
-  const removeExerciseFromUnit = (unitId, exerciseId) =>
-    setUnits(prev => prev.map(u => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter(id => id !== exerciseId) } : u));
+  const addExercisesToUnit = (unitId, exerciseIds) => {
+    const unit = units.find(u => u.id === unitId); if (!unit) return;
+    const updated = { ...unit, exerciseIds: [...new Set([...unit.exerciseIds, ...exerciseIds])] };
+    setUnits(prev => prev.map(u => u.id === unitId ? updated : u));
+    dbUpsertUnit(updated);
+  };
+  const removeExerciseFromUnit = (unitId, exerciseId) => {
+    const unit = units.find(u => u.id === unitId); if (!unit) return;
+    const updated = { ...unit, exerciseIds: unit.exerciseIds.filter(id => id !== exerciseId) };
+    setUnits(prev => prev.map(u => u.id === unitId ? updated : u));
+    dbUpsertUnit(updated);
+  };
 
+  // ── Auth state ───────────────────────────────────────────────────────
+  const [user,           setUser]           = useState(null);
+  const [loginRole,      setLoginRole]      = useState(null); // "admin" | "teacher" | "student" | null
+  const [view,           setView]           = useState("teacher-dash");
+  const [exCtx,          setExCtx]          = useState(null);
+  const [qmCtx,          setQmCtx]          = useState(null);
+  const [lastResult,     setLastResult]     = useState(null);
+  const [guestResults,   setGuestResults]   = useState({}); // en memoria, no persiste
+  const [pickingTeacher, setPickingTeacher] = useState(false);
 
-  const [user, setUser]         = useState(null);
-  const [view, setView]         = useState("home");
-  const [exCtx, setExCtx]       = useState(null);
-  const [qmCtx, setQmCtx]       = useState(null);
-  const [lastResult, setLastResult] = useState(null);
-
-  const addCategory    = (c)  => setCategories((prev) => [...prev, c]);
-  const updateCategory = (c)  => setCategories((prev) => prev.map((x) => (x.id === c.id ? c : x)));
-  const deleteCategory = (id) => setCategories((prev) => prev.filter((x) => x.id !== id || x.builtIn));
-  const logout         = ()   => { setUser(null); setView("home"); };
+  const setMargin      = (n)  => { setMarginState(n); supabase.from("fa_settings").upsert({ key: "margin", value: n }); };
+  const addCategory    = (c)  => { setCategories(prev => [...prev, c]); dbUpsertCategory(c); };
+  const updateCategory = (c)  => { setCategories(prev => prev.map(x => x.id === c.id ? c : x)); dbUpsertCategory(c); };
+  const deleteCategory = (id) => { setCategories(prev => prev.filter(x => x.id !== id || x.builtIn)); supabase.from("fa_categories").delete().eq("id", id); };
+  const logout = () => { setUser(null); setLoginRole(null); setView("teacher-dash"); setGuestResults({}); setPickingTeacher(false); };
 
   const openEx = (exercise, mode = "student") => {
     setExCtx({ exercise, mode });
-    if (mode === "student" && modelOf(exercise) === "cuestionario") {
-      setView("questionnaire");
-    } else {
-      setView("exercise");
-    }
+    if (mode === "student" && modelOf(exercise) === "cuestionario") setView("questionnaire");
+    else setView("exercise");
   };
 
   const openQM = (exercise) => { setQmCtx({ exercise }); setView("question-manager"); };
 
   const submitAnswer = (data) => {
     const ex = exCtx.exercise;
+    const isGuest = user?.isGuest;
 
     if (data.type === "cuestionario") {
       const result = { type: "cuestionario", answers: data.answers, score: data.score };
-      setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+      if (!isGuest) {
+        setResults(prev => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+        dbUpsertResult(user.id, ex.id, result);
+      } else {
+        setGuestResults(prev => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+      }
       setLastResult({ exercise: ex, result, margin });
       setView("correction");
       return;
     }
-
     const { entries, currentCategoryId } = data;
     if (exCtx.mode === "record") {
-      setExercises((prev) => prev.map((e) => {
+      setExercises(prev => prev.map(e => {
         if (e.id !== ex.id) return e;
         const seed = e.answers ? { ...e.answers } : (Array.isArray(e.answer) && e.answer.length ? { [(e.mode?.id) || DEFAULT_CATEGORY.id]: e.answer } : {});
         for (const { categoryId, intervals } of entries) seed[categoryId] = intervals;
-        // eslint-disable-next-line no-unused-vars
-        const { answer: _drop, ...rest } = e;
-        return { ...rest, answers: seed };
+        const { answer: _drop, ...rest } = e; // eslint-disable-line no-unused-vars
+        const updated = { ...rest, answers: seed };
+        dbUpsertExercise(updated);
+        return updated;
       }));
       setView("teacher-dash");
     } else {
@@ -2572,50 +3078,121 @@ export default function App() {
         const score      = calcScore(teacherAns, intervals, ex.duration, margin);
         return { categoryId, intervals, score };
       });
-      const primary = scored.find((s) => s.categoryId === currentCategoryId) || scored[0];
-      const extras  = scored.filter((s) => s !== primary);
+      const primary = scored.find(s => s.categoryId === currentCategoryId) || scored[0];
+      const extras  = scored.filter(s => s !== primary);
       const result  = { intervals: primary.intervals, score: primary.score, categoryId: primary.categoryId, extras };
-      setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+      if (!isGuest) {
+        setResults(prev => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+        dbUpsertResult(user.id, ex.id, result);
+      } else {
+        setGuestResults(prev => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: result } }));
+      }
       setLastResult({ exercise: ex, result, margin });
       setView("correction");
     }
   };
 
-  const addExercise    = (newEx) => setExercises((prev) => [...prev, newEx]);
-  const updateExercise = (id, patch) => setExercises((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
-  const deleteExercise = (id) => {
-    setExercises((prev) => prev.filter((e) => e.id !== id));
-    setResults((prev) => { const next = {}; for (const [uid, exs] of Object.entries(prev)) { const { [id]: _drop, ...rest } = exs; next[uid] = rest; } return next; }); // eslint-disable-line no-unused-vars
+  const addExercise    = (newEx)     => { setExercises(prev => [...prev, newEx]); dbUpsertExercise(newEx); };
+  const updateExercise = (id, patch) => {
+    setExercises(prev => prev.map(e => {
+      if (e.id !== id) return e;
+      const merged = { ...e, ...patch };
+      dbUpsertExercise(merged);
+      return merged;
+    }));
   };
-  const addStudent    = (name) => { const clean = (name || "").trim(); if (!clean) return; setStudents((prev) => [...prev, { id: Date.now(), name: clean }]); };
-  const removeStudent = (id)   => { setStudents((prev) => prev.filter((s) => s.id !== id)); setResults((prev) => { const { [id]: _drop, ...rest } = prev; return rest; }); }; // eslint-disable-line no-unused-vars
-  const freshExercise = useCallback((ex) => exercises.find((e) => e.id === ex.id) || ex, [exercises]);
+  const deleteExercise = (id) => {
+    setExercises(prev => prev.filter(e => e.id !== id));
+    setResults(prev => { const next = {}; for (const [uid, exs] of Object.entries(prev)) { const { [id]: _drop, ...rest } = exs; next[uid] = rest; } return next; }); // eslint-disable-line no-unused-vars
+    supabase.from("fa_exercises").delete().eq("id", String(id));
+    supabase.from("fa_results").delete().eq("exercise_id", String(id));
+  };
 
-  if (view === "home")
-    return <HomeView onStudent={() => setView("student-list")} onTeacher={() => { setUser({ id: 100, name: "Prof. Martínez", role: "teacher" }); setView("teacher-dash"); }} />;
+  const freshExercise = useCallback((ex) => exercises.find(e => e.id === ex.id) || ex, [exercises]);
 
-  if (view === "student-list")
-    return <StudentList students={students} onSelect={(s) => { setUser({ ...s, role: "student" }); setView("student-dash"); }} onBack={() => setView("home")} />;
+  // ── Pantalla de carga mientras Supabase responde ───────────────────────
+  if (!dbReady) return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center", color: C.muted }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🎵</div>
+        <div style={{ fontSize: 14 }}>Cargando…</div>
+      </div>
+    </div>
+  );
+
+  // ── Primera ejecución: aún no existe ninguna cuenta admin ────────────
+  const hasAdmin = users.some(u => u.role === "admin");
+  if (!hasAdmin) {
+    return <SetupView onSetup={(adminUser) => { addUser(adminUser); setUser(adminUser); setView("teacher-dash"); }} />;
+  }
+
+  // ── No autenticado ────────────────────────────────────────────────────
+  if (!user) {
+    if (!loginRole) {
+      return <HomeView
+        onAdmin={() => setLoginRole("admin")}
+        onTeacher={() => setLoginRole("teacher")}
+        onStudent={() => setLoginRole("student")}
+      />;
+    }
+    const enterAsGuest = loginRole === "student" ? () => {
+      const g = { id: `guest-${Date.now()}`, username: "invitado", displayName: "Invitado", role: "student", isGuest: true, teacherId: null };
+      setUser(g);
+      setLoginRole(null);
+      setView("student-dash");
+    } : null;
+    return <LoginView
+      roleLabel={loginRole === "admin" ? "Administrador" : loginRole === "teacher" ? "Profesor" : "Alumno"}
+      filterRole={loginRole}
+      users={users}
+      onLogin={(loggedIn) => { setUser(loggedIn); setLoginRole(null); setView(loggedIn.role === "student" ? "student-dash" : "teacher-dash"); }}
+      onBack={() => setLoginRole(null)}
+      onGuest={enterAsGuest}
+    />;
+  }
+
+  // ── Selección de profesor (alumno) ────────────────────────────────────
+  const availableTeachers = users.filter(u => u.role === "teacher" || u.role === "admin");
+  if ((user.role === "student" && !user.isGuest && !user.teacherId && availableTeachers.length > 0) || pickingTeacher) {
+    return <TeacherPickerView
+      teachers={availableTeachers}
+      currentTeacherId={user.teacherId || null}
+      onPick={(t) => {
+        const updated = { ...user, teacherId: t.id };
+        updateUser(updated);
+        setUser(updated);
+        setPickingTeacher(false);
+        setView("student-dash");
+      }}
+      onLogout={logout}
+    />;
+  }
+
+  // ── Autenticado ───────────────────────────────────────────────────────
+  const commonTeacherProps = {
+    currentUser: user,
+    users, onAddUser: addUser, onRemoveUser: removeUser, onUpdateUser: updateUser,
+    exercises, onUpdateExercise: updateExercise, onDeleteExercise: deleteExercise,
+    results, margin, onMargin: setMargin,
+    onRecord: (ex) => { if (modelOf(ex) === "cuestionario") openQM(ex); else openEx(ex, "record"); },
+    onAdd: addExercise, onLogout: logout,
+    categories, onAddCategory: addCategory, onUpdateCategory: updateCategory, onDeleteCategory: deleteCategory,
+    courses, units,
+    onAddCourse: addCourse, onUpdateCourse: updateCourse, onDeleteCourse: deleteCourse,
+    onAddUnit: addUnit, onUpdateUnit: updateUnit, onDeleteUnit: deleteUnit,
+    onAddExercisesToUnit: addExercisesToUnit, onRemoveExerciseFromUnit: removeExerciseFromUnit,
+  };
+
+  const studentResultsMap = user?.isGuest ? guestResults : results;
 
   if (view === "student-dash")
-    return <StudentDash user={user} exercises={exercises} results={results[user?.id] || {}} courses={courses} units={units} onExercise={(ex) => openEx(ex, "student")} onLogout={logout} />;
+    return <StudentDash user={user} exercises={exercises} results={studentResultsMap[user?.id] || {}} courses={courses} units={units} onExercise={(ex) => openEx(ex, "student")} onLogout={logout} onChangeTeacher={user?.isGuest ? null : () => setPickingTeacher(true)} />;
 
   if (view === "teacher-dash")
-    return <TeacherDash
-      exercises={exercises} onUpdateExercise={updateExercise} onDeleteExercise={deleteExercise}
-      students={students} onAddStudent={addStudent} onRemoveStudent={removeStudent}
-      results={results} margin={margin} onMargin={setMargin}
-      onRecord={(ex) => { if (modelOf(ex) === "cuestionario") openQM(ex); else openEx(ex, "record"); }}
-      onAdd={addExercise} onLogout={logout}
-      categories={categories} onAddCategory={addCategory} onUpdateCategory={updateCategory} onDeleteCategory={deleteCategory}
-      courses={courses} units={units}
-      onAddCourse={addCourse} onUpdateCourse={updateCourse} onDeleteCourse={deleteCourse}
-      onAddUnit={addUnit} onUpdateUnit={updateUnit} onDeleteUnit={deleteUnit}
-      onAddExercisesToUnit={addExercisesToUnit} onRemoveExerciseFromUnit={removeExerciseFromUnit}
-    />;
+    return <TeacherDash {...commonTeacherProps} />;
 
   if (view === "exercise" && exCtx)
-    return <ExerciseView exercise={freshExercise(exCtx.exercise)} mode={exCtx.mode} onSubmit={submitAnswer} onBack={() => setView(user?.role === "teacher" ? "teacher-dash" : "student-dash")} />;
+    return <ExerciseView exercise={freshExercise(exCtx.exercise)} mode={exCtx.mode} onSubmit={submitAnswer} onBack={() => setView(user?.role === "student" ? "student-dash" : "teacher-dash")} />;
 
   if (view === "questionnaire" && exCtx)
     return <QuestionnaireView exercise={freshExercise(exCtx.exercise)} onSubmit={submitAnswer} onBack={() => setView("student-dash")} />;
