@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from './supabase.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -98,6 +98,15 @@ function dataUrlToBuffer(url) {
   const buf = new Uint8Array(str.length);
   for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i);
   return buf.buffer;
+}
+
+// Obtiene un ArrayBuffer a partir de cualquier URL de audio:
+// acepta data URLs (base64 heredadas) y URLs externas (Cloudinary, etc.)
+async function fetchAudioBuffer(url) {
+  if (url.startsWith("data:")) return dataUrlToBuffer(url);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.arrayBuffer();
 }
 
 const fmt = (s) => { const m = Math.floor(s / 60), sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, "0")}`; };
@@ -661,7 +670,7 @@ const SECTION_STYLE = {
   fontSize: 11, fontWeight: 700, letterSpacing: 1.3,
   textTransform: "uppercase", color: C.muted, margin: "0 0 14px",
 };
-function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, onDelete, categories }) {
+function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
   const isCreating = exercise == null;
 
   // ── Editable form state ───────────────────────────────────────────────
@@ -691,7 +700,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
   const [selectedCategoryIds, setSelectedCategoryIds] = useState(initialCatIds);
   const [selectedButtonIds,   setSelectedButtonIds]   = useState(initialBtnIds);
   const [audioFile, setAudioFile]         = useState(null);
-  const [audioUrl, setAudioUrl]           = useState(null);
+  const [audioUrl, setAudioUrl]           = useState(isCreating ? null : (exercise.audioUrl || null));
   const [audioName, setAudioName]         = useState(isCreating ? null : (exercise.audioName || null));
   const [audioDuration, setAudioDuration] = useState(null);
   const [waveformData, setWaveformData]   = useState(isCreating ? null : (exercise.waveformData || null));
@@ -714,39 +723,58 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
     return next;
   });
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    setAudioFile(file); setAudioName(file.name); setAudioUrl(null); setAudioDuration(null); setWaveformData(null);
-    const urlReader = new FileReader();
-    urlReader.onload = ev => setAudioUrl(ev.target.result);
-    urlReader.readAsDataURL(file);
-    const bufReader = new FileReader();
-    bufReader.onload = ev => {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext; if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      ctx.decodeAudioData(ev.target.result.slice(0)).then(decoded => {
+  const handleUrlInput = (rawUrl) => {
+    const url = rawUrl.trim();
+    setAudioUrl(url || null);
+    setAudioName(url ? url.split("/").pop().split("?")[0] || "audio" : null);
+    setAudioDuration(null);
+    setWaveformData(null);
+    setAudioFile(null);
+
+    if (!url) return;
+
+    // Intentar detectar duración y forma de onda desde la URL introducida.
+    // Puede fallar por CORS; en ese caso el alumno reproduce con <audio> nativo.
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    fetchAudioBuffer(url)
+      .then(buf => ctx.decodeAudioData(buf))
+      .then(decoded => {
         setAudioDuration(Math.ceil(decoded.duration));
         setWaveformData(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
         ctx.close();
-      }).catch(() => ctx.close());
-    };
-    bufReader.readAsArrayBuffer(file);
+      })
+      .catch(() => ctx.close());
   };
+
   const clearAudio = () => { setAudioFile(null); setAudioUrl(null); setAudioName(null); setAudioDuration(null); setWaveformData(null); };
 
-  const hasNewFile       = !!audioFile;
-  const hasExistingAudio = !hasNewFile && !!audioName;
-  const effDuration = hasNewFile ? (audioDuration || 0)
-    : hasExistingAudio ? (isCreating ? 0 : exercise.duration)
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+
+  const handlePickFromLibrary = (audio) => {
+    setAudioUrl(audio.url);
+    setAudioName(audio.title);
+    setAudioDuration(audio.duration);
+    setWaveformData(null); // se recalcula al reproducir
+    setAudioFile(null);
+    setManualDuration(String(audio.duration));
+    setShowLibraryPicker(false);
+  };
+
+  const hasNewFile       = false; // ya no se usan archivos locales; el audio se enlaza por URL
+  const hasExistingAudio = !!audioName;
+  const effDuration = hasExistingAudio
+    ? (audioDuration || (!isCreating ? exercise.duration : 0))
     : (parseInt(manualDuration) || 0);
-  const audioStillLoading = hasNewFile && (audioDuration === null || audioUrl === null);
+  const audioStillLoading = false; // con URLs externas no hay carga previa bloqueante
 
   // ── Dirty detection (edit mode only) ────────────────────────────────
   const isDirty = useMemo(() => {
     if (isCreating) return false;
     if (title.trim() !== exercise.title) return true;
     if (model !== modelOf(exercise)) return true;
-    if (hasNewFile) return true;
+    if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
     if (model === "interactivo") {
       const exCats = categoriesOf(exercise);
@@ -754,7 +782,6 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
       if (selectedCategoryIds.size !== exIds.size) return true;
       for (const id of selectedCategoryIds) {
         if (!exIds.has(id)) return true;
-        // Check if button selection changed for this category
         const exCat    = exCats.find(c => c.id === id);
         const selBtns  = selectedButtonIds.get(id) || new Set();
         const exBtnIds = new Set((exCat?.buttons || []).map(b => b.id));
@@ -762,12 +789,12 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
         for (const bid of selBtns) if (!exBtnIds.has(bid)) return true;
       }
     }
-    if (!hasNewFile && !hasExistingAudio && !exercise.audioName) {
+    if (!hasExistingAudio && !exercise.audioName) {
       const manual = parseInt(manualDuration) || 0;
       if (manual !== exercise.duration) return true;
     }
     return false;
-  }, [isCreating, title, model, hasNewFile, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio]);
+  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && !audioStillLoading
     && (isCreating || isDirty);
@@ -809,8 +836,10 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
     } else {
       patch.categories = []; patch.answers = {};
     }
-    if (hasNewFile) { patch.audioUrl = audioUrl; patch.audioName = audioName; patch.waveformData = waveformData; }
-    else if (!audioName && exercise.audioName) { patch.audioUrl = null; patch.audioName = null; patch.waveformData = null; }
+    patch.audioUrl  = audioUrl || null;
+    patch.audioName = audioName || null;
+    patch.waveformData = waveformData || null;
+    if (!audioName && exercise.audioName) { patch.audioUrl = null; patch.audioName = null; patch.waveformData = null; }
     onUpdate(patch);
   };
 
@@ -850,22 +879,42 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
         />
 
         {/* 2 · Audio */}
-        <label style={S.label}>{hasExistingAudio ? "Audio" : "Archivo de audio"}</label>
+        <label style={S.label}>{hasExistingAudio ? "Audio" : "Audio del ejercicio"}</label>
         {hasExistingAudio && (
-          <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8, ...S.row, gap: 10, flexWrap: "wrap" }}>
+          <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, ...S.row, gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, color: C.ink, flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               🎵 {audioName}
             </span>
-            {!isCreating && <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(exercise.duration)}</span>}
+            {!isCreating && <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(exercise.duration)}</span>
+}
             <button type="button" onClick={clearAudio} style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 12 }}>Quitar</button>
           </div>
         )}
-        <input type="file" accept="audio/*" onChange={handleFileChange}
-          style={{ ...S.input, padding: "6px 10px", fontSize: 13, marginBottom: 4 }} />
-        {hasExistingAudio && <p style={{ fontSize: 11, color: C.muted, margin: "0 0 0" }}>Sube otro archivo para reemplazar el audio actual.</p>}
-        {hasNewFile && audioDuration === null && <p style={{ fontSize: 12, color: C.muted, margin: "6px 0 0" }}>Cargando duración…</p>}
-        {hasNewFile && audioDuration !== null && <p style={{ fontSize: 12, color: C.fnT, margin: "6px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>}
-        {!hasNewFile && !hasExistingAudio && (
+
+        {/* Botón almacén */}
+        {audioLibrary.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowLibraryPicker(true)}
+            style={{ ...S.btn, width: "100%", marginBottom: 10, fontSize: 13, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
+            <span>🎵 {hasExistingAudio ? "Cambiar desde el almacén" : "Elegir del almacén de audios"}</span>
+            <span style={{ color: C.muted2, fontSize: 18, fontWeight: 300, lineHeight: 1 }}>›</span>
+          </button>
+        )}
+
+        {/* URL directa (alternativa) */}
+        <label style={{ ...S.label, marginBottom: 4 }}>{audioLibrary.length > 0 ? "O pega una URL directamente" : "Enlace de audio (URL)"}</label>
+        <input
+          type="url"
+          style={{ ...S.input, marginBottom: 4, fontSize: 13 }}
+          value={audioUrl || ""}
+          onChange={e => handleUrlInput(e.target.value)}
+          placeholder="https://res.cloudinary.com/… o cualquier URL pública de audio"
+        />
+        {hasExistingAudio && audioDuration !== null && <p style={{ fontSize: 12, color: C.fnT, margin: "4px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>}
+        {hasExistingAudio && audioDuration === null && <p style={{ fontSize: 12, color: C.muted, margin: "4px 0 0" }}>Duración no detectada — se usará la actual o la manual.</p>}
+        {!hasExistingAudio && (
           <div style={{ marginTop: 10 }}>
             <label style={S.label}>Duración manual (segundos)</label>
             <input type="number" min={1} style={S.input} value={manualDuration}
@@ -1058,6 +1107,13 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
           message={`¿Eliminar el ejercicio "${exercise?.title}"?\n\nSe perderán también las respuestas guardadas de los alumnos.`}
           onConfirm={onDelete}
           onCancel={() => setShowConfirmDel(false)}
+        />
+      )}
+      {showLibraryPicker && (
+        <AudioLibraryPickerModal
+          library={audioLibrary}
+          onPick={handlePickFromLibrary}
+          onClose={() => setShowLibraryPicker(false)}
         />
       )}
     </div>
@@ -1331,6 +1387,7 @@ function TeacherDash({
   onAddCourse, onUpdateCourse, onDeleteCourse,
   onAddUnit, onUpdateUnit, onDeleteUnit,
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
+  audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
 }) {
   const isAdmin = currentUser?.role === "admin";
 
@@ -1343,6 +1400,8 @@ function TeacherDash({
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
   const [editingCategory, setEditingCategory]       = useState(null);
   const [confirmState, setConfirmState]             = useState(null);
+  const [editingAudio, setEditingAudio]             = useState(null);  // null | "new" | audio object
+  const [audioPreviewId, setAudioPreviewId]         = useState(null);
 
   // ── User management state ───────────────────────────────────────────
   const [showAddUser,     setShowAddUser]     = useState(false);
@@ -1387,6 +1446,7 @@ function TeacherDash({
         onCreate={(newEx) => handleExerciseCreated(newEx, newExInUnit)}
         onDelete={() => {}}
         categories={categories}
+        audioLibrary={audioLibrary}
       />
     );
   }
@@ -1405,6 +1465,7 @@ function TeacherDash({
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
         categories={categories}
+        audioLibrary={audioLibrary}
       />
     );
   }
@@ -1420,9 +1481,9 @@ function TeacherDash({
           <button onClick={onLogout} style={S.btn}>Salir</button>
         </div>
         <div style={{ ...S.row, marginBottom: 20, gap: 8, flexWrap: "wrap" }}>
-          {(isAdmin ? ["exercises","courses","students","categories","settings","users"] : ["exercises","courses","students","categories","settings"]).map((t) => (
+          {(isAdmin ? ["exercises","courses","students","categories","audios","settings","users"] : ["exercises","courses","students","categories","audios","settings"]).map((t) => (
             <button key={t} onClick={() => setTab(t)} style={{ ...S.btn, background: tab === t ? C.ink : C.paper, border: tab === t ? `1px solid ${C.ink}` : `1px solid ${C.line}`, color: tab === t ? C.paper : C.ink2 }}>
-              {{ exercises: "Ejercicios", courses: "Cursos", students: "Alumnos", categories: "Categorías", settings: "Ajustes", users: "👤 Usuarios" }[t]}
+              {{ exercises: "Ejercicios", courses: "Cursos", students: "Alumnos", categories: "Categorías", audios: "🎵 Audios", settings: "Ajustes", users: "👤 Usuarios" }[t]}
             </button>
           ))}
         </div>
@@ -1705,6 +1766,65 @@ function TeacherDash({
           </>
         )}
 
+        {tab === "audios" && (
+          <>
+            {isAdmin && (
+              <button onClick={() => setEditingAudio("new")} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Añadir audio</button>
+            )}
+            {!isAdmin && (
+              <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios del almacén.</p>
+            )}
+            {audioLibrary.length === 0 && (
+              <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
+                <div>El almacén está vacío.</div>
+                {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio con el botón de arriba.</div>}
+              </div>
+            )}
+            {audioLibrary.map(audio => {
+              const isPrev = audioPreviewId === audio.id;
+              return (
+                <div key={audio.id} style={S.card}>
+                  <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15, color: C.ink, marginBottom: audio.description ? 4 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                      {audio.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>{audio.description}</div>}
+                      <div style={{ ...S.row, gap: 6 }}>
+                        <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                        <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+                      </div>
+                    </div>
+                    <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                      <button onClick={() => setAudioPreviewId(isPrev ? null : audio.id)}
+                        style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
+                        {isPrev ? "⏹ Cerrar" : "▶ Escuchar"}
+                      </button>
+                      {isAdmin && <>
+                        <button onClick={() => setEditingAudio(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                        <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDeleteAudio(audio.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+                      </>}
+                    </div>
+                  </div>
+                  {isPrev && (
+                    <audio key={audio.id} src={audio.url} controls autoPlay
+                      style={{ width: "100%", marginTop: 12, height: 36 }} />
+                  )}
+                </div>
+              );
+            })}
+            {editingAudio !== null && (
+              <AudioLibraryFormModal
+                initial={editingAudio === "new" ? null : editingAudio}
+                onSave={(a) => {
+                  if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a);
+                  setEditingAudio(null);
+                }}
+                onClose={() => setEditingAudio(null)}
+              />
+            )}
+          </>
+        )}
+
         {tab === "settings" && (
           <div style={S.card}>
             <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos</label>
@@ -1848,7 +1968,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     const ctx = new AudioCtx(); ctxRef.current = ctx;
     (async () => {
       try {
-        const decoded = await ctx.decodeAudioData(dataUrlToBuffer(audioUrl));
+        const buf = await fetchAudioBuffer(audioUrl);
+        const decoded = await ctx.decodeAudioData(buf);
         if (cancelled) return;
         bufferRef.current = decoded; setAudioReady(true);
         onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
@@ -2901,19 +3022,170 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   );
 }
 
+// ─── AudioLibraryPickerModal ──────────────────────────────────────────────────
+function AudioLibraryPickerModal({ library, onPick, onClose }) {
+  const [search,     setSearch]     = useState("");
+  const [previewId,  setPreviewId]  = useState(null);
+
+  const filtered = library.filter(a =>
+    a.title.toLowerCase().includes(search.toLowerCase()) ||
+    (a.description || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 200, overflowY: "auto", padding: "32px 16px" }}>
+      <div style={{ ...S.card, width: 560, maxWidth: "92vw", marginBottom: 0 }}>
+        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 14 }}>
+          <h2 style={{ ...S.h2, margin: 0 }}>Almacén de audios</h2>
+          <button onClick={onClose} style={{ ...S.btn, padding: "4px 10px", fontSize: 13 }}>✕</button>
+        </div>
+        <input style={{ ...S.input, marginBottom: 14 }} value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por título o descripción…" autoFocus />
+        {library.length === 0 ? (
+          <div style={{ textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
+            <div>El almacén está vacío.</div>
+            <div style={{ fontSize: 13 }}>Un administrador debe añadir audios primero.</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <p style={{ color: C.muted, textAlign: "center", padding: "1.5rem" }}>Sin resultados para "{search}"</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
+            {filtered.map(audio => {
+              const isPrev = previewId === audio.id;
+              return (
+                <div key={audio.id} style={{ background: C.paper2, border: `1.5px solid ${isPrev ? C.ink2 : C.line}`, borderRadius: 12, padding: "12px 14px", transition: "border-color .15s" }}>
+                  <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, marginBottom: audio.description ? 3 : 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                      {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>{audio.description}</div>}
+                      <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                    </div>
+                    <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => setPreviewId(isPrev ? null : audio.id)}
+                        style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>
+                        {isPrev ? "⏹ Cerrar" : "▶ Escuchar"}
+                      </button>
+                      <button onClick={() => onPick(audio)}
+                        style={{ ...S.btnPrimary, padding: "5px 12px", fontSize: 12 }}>
+                        Usar este
+                      </button>
+                    </div>
+                  </div>
+                  {isPrev && (
+                    <audio key={audio.id} src={audio.url} controls autoPlay
+                      style={{ width: "100%", marginTop: 10, height: 36 }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button onClick={onClose} style={{ ...S.btn, width: "100%", marginTop: 14 }}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── AudioLibraryFormModal ────────────────────────────────────────────────────
+function AudioLibraryFormModal({ initial, onSave, onClose }) {
+  const [title,       setTitle]       = useState(initial?.title || "");
+  const [description, setDescription] = useState(initial?.description || "");
+  const [url,         setUrl]         = useState(initial?.url || "");
+  const [duration,    setDuration]    = useState(initial?.duration ? String(initial.duration) : "");
+  const [detecting,   setDetecting]   = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const canSave = title.trim().length > 0 && url.trim().length > 0 && (parseInt(duration) || 0) > 0;
+
+  const detectDuration = () => {
+    const trimUrl = url.trim(); if (!trimUrl) return;
+    setDetecting(true);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) { setDetecting(false); return; }
+    const ctx = new AudioCtx();
+    fetchAudioBuffer(trimUrl)
+      .then(buf => ctx.decodeAudioData(buf))
+      .then(decoded => { setDuration(String(Math.ceil(decoded.duration))); ctx.close(); })
+      .catch(() => ctx.close())
+      .finally(() => setDetecting(false));
+  };
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      id:          initial?.id || `audio-${Date.now()}`,
+      title:       title.trim(),
+      description: description.trim(),
+      url:         url.trim(),
+      duration:    parseInt(duration),
+      createdAt:   initial?.createdAt || Date.now(),
+    });
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 200, overflowY: "auto", padding: "32px 16px" }}>
+      <div style={{ ...S.card, width: 520, maxWidth: "92vw", marginBottom: 0 }}>
+        <h2 style={S.h2}>{initial ? "Editar audio" : "Añadir audio al almacén"}</h2>
+
+        <label style={S.label}>Título</label>
+        <input style={{ ...S.input, marginBottom: 14 }} value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" autoFocus />
+
+        <label style={S.label}>Descripción (opcional)</label>
+        <textarea style={{ ...S.input, minHeight: 64, resize: "vertical", fontFamily: FONT_SANS, lineHeight: 1.5, marginBottom: 14 }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Tonalidad, compositor, notas pedagógicas…" />
+
+        <label style={S.label}>URL de audio (Cloudinary u otro enlace público)</label>
+        <input type="url" style={{ ...S.input, marginBottom: 10 }} value={url}
+          onChange={e => { setUrl(e.target.value); setPreviewOpen(false); }}
+          placeholder="https://res.cloudinary.com/…" />
+
+        <div style={{ ...S.row, gap: 8, marginBottom: 14 }}>
+          <button onClick={detectDuration} disabled={!url.trim() || detecting}
+            style={{ ...S.btn, fontSize: 12, padding: "6px 12px", flex: 1, opacity: !url.trim() || detecting ? 0.45 : 1 }}>
+            {detecting ? "Detectando…" : "⏱ Detectar duración"}
+          </button>
+          <button onClick={() => setPreviewOpen(p => !p)} disabled={!url.trim()}
+            style={{ ...S.btn, fontSize: 12, padding: "6px 12px", flex: 1, opacity: !url.trim() ? 0.45 : 1 }}>
+            {previewOpen ? "⏹ Cerrar" : "▶ Escuchar"}
+          </button>
+        </div>
+
+        {previewOpen && url.trim() && (
+          <audio key={url} src={url.trim()} controls autoPlay
+            style={{ width: "100%", marginBottom: 14, height: 36 }} />
+        )}
+
+        <label style={S.label}>Duración (segundos)</label>
+        <input type="number" min={1} style={{ ...S.input, marginBottom: 20 }} value={duration}
+          onChange={e => setDuration(e.target.value)} placeholder="Ej: 45" />
+
+        <div style={{ ...S.row, gap: 10 }}>
+          <button onClick={onClose} style={{ ...S.btn, flex: 1 }}>Cancelar</button>
+          <button onClick={handleSave} disabled={!canSave}
+            style={{ ...S.btnPrimary, flex: 1, opacity: canSave ? 1 : 0.45, cursor: canSave ? "pointer" : "not-allowed" }}>
+            {initial ? "Guardar cambios" : "Añadir al almacén"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //   APP ROOT
 // ═══════════════════════════════════════════════════════════════════════════
 export default function App() {
   // ── Estado respaldado por Supabase ───────────────────────────────────
-  const [exercises,  setExercises]  = useState([]);
-  const [users,      setUsers]      = useState([]);
-  const [results,    setResults]    = useState({});
-  const [margin,     setMarginState] = useState(1);
-  const [categories, setCategories] = useState([DEFAULT_CATEGORY]);
-  const [courses,    setCourses]    = useState([]);
-  const [units,      setUnits]      = useState([]);
-  const [dbReady,    setDbReady]    = useState(false);
+  const [exercises,    setExercises]    = useState([]);
+  const [users,        setUsers]        = useState([]);
+  const [results,      setResults]      = useState({});
+  const [margin,       setMarginState]  = useState(1);
+  const [categories,   setCategories]   = useState([DEFAULT_CATEGORY]);
+  const [courses,      setCourses]      = useState([]);
+  const [units,        setUnits]        = useState([]);
+  const [audioLibrary, setAudioLibrary] = useState([]);
+  const [dbReady,      setDbReady]      = useState(false);
 
   // ── Carga inicial desde Supabase ──────────────────────────────────────
   useEffect(() => {
@@ -2927,6 +3199,7 @@ export default function App() {
           { data: dbUnits },
           { data: dbResults },
           { data: dbSettings },
+          { data: dbAudioLib },
         ] = await Promise.all([
           supabase.from("fa_users").select("*"),
           supabase.from("fa_exercises").select("*"),
@@ -2935,11 +3208,12 @@ export default function App() {
           supabase.from("fa_units").select("*"),
           supabase.from("fa_results").select("*"),
           supabase.from("fa_settings").select("*"),
+          supabase.from("fa_audio_library").select("*"),
         ]);
 
         if (dbUsers?.length)     setUsers(dbUsers.map(r => r.data));
         if (dbExercises?.length) setExercises(
-          dbExercises.map(r => ({ ...r.data, audioUrl: null, model: r.data.model || DEFAULT_MODEL_ID }))
+          dbExercises.map(r => ({ ...r.data, model: r.data.model || DEFAULT_MODEL_ID }))
         );
         if (dbCategories?.length) {
           const customs = dbCategories.map(r => r.data).filter(m => !m.builtIn && m.id !== "default");
@@ -2959,6 +3233,9 @@ export default function App() {
           const ms = dbSettings.find(r => r.key === "margin");
           if (ms) setMarginState(Number(ms.value) || 1);
         }
+        if (dbAudioLib?.length) setAudioLibrary(
+          [...dbAudioLib.map(r => r.data)].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+        );
       } catch (e) { console.error("Supabase load error:", e); }
       finally { setDbReady(true); }
     }
@@ -2971,11 +3248,12 @@ export default function App() {
   // dbRun() dispara la ejecución sin bloquear el hilo de React.
   const dbRun = (q) => { q.then(() => {}, e => console.error("supabase:", e)); };
   const dbUpsertUser     = (u)           => dbRun(supabase.from("fa_users").upsert({ id: u.id, data: u }));
-  const dbUpsertExercise = (ex)          => { const { audioUrl: _a, ...data } = ex; dbRun(supabase.from("fa_exercises").upsert({ id: String(ex.id), data })); }; // eslint-disable-line no-unused-vars
+  const dbUpsertExercise = (ex) => { const { waveformData: _w, ...data } = ex; dbRun(supabase.from("fa_exercises").upsert({ id: String(ex.id), data })); }; // eslint-disable-line no-unused-vars
   const dbUpsertCategory = (c)           => { if (!c.builtIn) dbRun(supabase.from("fa_categories").upsert({ id: c.id, data: c })); };
   const dbUpsertCourse   = (c)           => dbRun(supabase.from("fa_courses").upsert({ id: c.id, data: c }));
   const dbUpsertUnit     = (u)           => dbRun(supabase.from("fa_units").upsert({ id: u.id, data: u }));
   const dbUpsertResult   = (uid, eid, r) => dbRun(supabase.from("fa_results").upsert({ user_id: uid, exercise_id: String(eid), data: r }));
+  const dbUpsertAudio    = (a)           => dbRun(supabase.from("fa_audio_library").upsert({ id: a.id, data: a }));
 
   // ── User CRUD ────────────────────────────────────────────────────────
   const addUser    = (u) => { setUsers(prev => [...prev, u]); dbUpsertUser(u); };
@@ -3037,6 +3315,10 @@ export default function App() {
   const addCategory    = (c)  => { setCategories(prev => [...prev, c]); dbUpsertCategory(c); };
   const updateCategory = (c)  => { setCategories(prev => prev.map(x => x.id === c.id ? c : x)); dbUpsertCategory(c); };
   const deleteCategory = (id) => { setCategories(prev => prev.filter(x => x.id !== id || x.builtIn)); dbRun(supabase.from("fa_categories").delete().eq("id", id)); };
+
+  const addAudioToLibrary    = (a)  => { setAudioLibrary(prev => [...prev, a]); dbUpsertAudio(a); };
+  const updateAudioInLibrary = (a)  => { setAudioLibrary(prev => prev.map(x => x.id === a.id ? a : x)); dbUpsertAudio(a); };
+  const deleteAudioFromLibrary = (id) => { setAudioLibrary(prev => prev.filter(x => x.id !== id)); dbRun(supabase.from("fa_audio_library").delete().eq("id", id)); };
   const logout = () => { setUser(null); setLoginRole(null); setView("teacher-dash"); setGuestResults({}); setPickingTeacher(false); };
 
   const openEx = (exercise, mode = "student") => {
@@ -3184,6 +3466,8 @@ export default function App() {
     onAddCourse: addCourse, onUpdateCourse: updateCourse, onDeleteCourse: deleteCourse,
     onAddUnit: addUnit, onUpdateUnit: updateUnit, onDeleteUnit: deleteUnit,
     onAddExercisesToUnit: addExercisesToUnit, onRemoveExerciseFromUnit: removeExerciseFromUnit,
+    audioLibrary,
+    onAddAudio: addAudioToLibrary, onUpdateAudio: updateAudioInLibrary, onDeleteAudio: deleteAudioFromLibrary,
   };
 
   const studentResultsMap = user?.isGuest ? guestResults : results;
@@ -3212,3 +3496,4 @@ export default function App() {
 
   return null;
 }
+
