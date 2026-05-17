@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from './supabase.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1480,12 +1480,76 @@ function TeacherDash({
           </div>
           <button onClick={onLogout} style={S.btn}>Salir</button>
         </div>
-        <div style={{ ...S.row, marginBottom: 20, gap: 8, flexWrap: "wrap" }}>
-          {(isAdmin ? ["exercises","courses","students","categories","audios","settings","users"] : ["exercises","courses","students","categories","audios","settings"]).map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{ ...S.btn, background: tab === t ? C.ink : C.paper, border: tab === t ? `1px solid ${C.ink}` : `1px solid ${C.line}`, color: tab === t ? C.paper : C.ink2 }}>
-              {{ exercises: "Ejercicios", courses: "Cursos", students: "Alumnos", categories: "Categorías", audios: "🎵 Audios", settings: "Ajustes", users: "👤 Usuarios" }[t]}
-            </button>
-          ))}
+        {/* ── Tab navigation — grouped by purpose ── */}
+        <div style={{ marginBottom: 26 }}>
+          {/* Row 1: primary workflow tabs */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+            {[
+              { id: "exercises", emoji: "✏️", label: "Ejercicios" },
+              { id: "courses",   emoji: "📚", label: "Cursos" },
+            ].map(({ id, emoji, label }) => {
+              const active = tab === id;
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 7,
+                  background: active ? C.ink : C.paper,
+                  border: `1.5px solid ${active ? C.ink : C.line}`,
+                  color: active ? C.paper : C.ink,
+                  borderRadius: 12, padding: "9px 18px",
+                  cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500,
+                  fontFamily: FONT_SANS, transition: "all .12s", letterSpacing: active ? -0.2 : 0,
+                }}>
+                  <span style={{ fontSize: 15 }}>{emoji}</span>{label}
+                </button>
+              );
+            })}
+
+            {/* separator */}
+            <div style={{ width: 1, height: 28, background: C.line, margin: "0 6px", flexShrink: 0 }} />
+
+            {/* Alumnos */}
+            {(() => { const active = tab === "students"; return (
+              <button onClick={() => setTab("students")} style={{
+                display: "inline-flex", alignItems: "center", gap: 7,
+                background: active ? C.ink : C.paper,
+                border: `1.5px solid ${active ? C.ink : C.line}`,
+                color: active ? C.paper : C.ink,
+                borderRadius: 12, padding: "9px 18px",
+                cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500,
+                fontFamily: FONT_SANS, transition: "all .12s",
+              }}>
+                <span style={{ fontSize: 15 }}>👨‍🎓</span>Alumnos
+              </button>
+            ); })()}
+          </div>
+
+          {/* Row 2: configuration — smaller, visually de-emphasised */}
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.1, textTransform: "uppercase", color: C.muted2, marginRight: 6, flexShrink: 0 }}>Config.</span>
+            <div style={{ display: "flex", gap: 3, padding: "3px", background: C.paper2, borderRadius: 10, border: `1px solid ${C.line}`, flexWrap: "wrap" }}>
+              {[
+                { id: "categories", emoji: "🏷", label: "Categorías" },
+                { id: "audios",     emoji: "🎵", label: "Audios" },
+                { id: "settings",   emoji: "⚙️", label: "Ajustes" },
+                ...(isAdmin ? [{ id: "users", emoji: "👤", label: "Usuarios" }] : []),
+              ].map(({ id, emoji, label }) => {
+                const active = tab === id;
+                return (
+                  <button key={id} onClick={() => setTab(id)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    background: active ? C.ink : "transparent",
+                    border: "none",
+                    color: active ? C.paper : C.muted,
+                    borderRadius: 7, padding: "5px 11px",
+                    cursor: "pointer", fontSize: 12, fontWeight: active ? 600 : 400,
+                    fontFamily: FONT_SANS, transition: "all .12s",
+                  }}>
+                    <span style={{ fontSize: 13 }}>{emoji}</span>{label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* ── Exercises tab — minimal list ── */}
@@ -1561,101 +1625,154 @@ function TeacherDash({
             <button onClick={() => setShowCourseForm(true)} style={{ ...S.btnPrimary, marginBottom: 20 }}>+ Nuevo curso</button>
             {courses.length === 0
               ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay cursos. Crea el primero para organizar tus ejercicios.</p>
-              : courses.map(course => {
-                  const courseUnits = units.filter(u => course.unitIds.includes(u.id));
-                  const exCount = courseUnits.reduce((s, u) => s + u.exerciseIds.length, 0);
+              : courses.map((course, courseIdx) => {
+                  const courseUnits  = units.filter(u => course.unitIds.includes(u.id));
+                  const exCount      = courseUnits.reduce((s, u) => s + u.exerciseIds.length, 0);
                   const isCourseOpen = openCourseIds.has(course.id);
+                  // Rotating accent colours for courses
+                  const COURSE_ACCENTS = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
+                  const accent = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
                   return (
-                    <div key={course.id} style={{ marginBottom: 10 }}>
-                      {/* ── Course header ── */}
-                      <div
-                        onClick={() => setOpenCourseIds(prev => { const n = new Set(prev); if (n.has(course.id)) n.delete(course.id); else n.add(course.id); return n; })}
-                        style={{ background: C.paper, border: `1px solid ${isCourseOpen ? C.ink2 : C.line}`, borderRadius: isCourseOpen ? "14px 14px 0 0" : 14, padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "border-color .15s" }}>
-                        <span style={{ fontSize: 18, color: C.muted2, fontWeight: 300, display: "inline-block", transition: "transform .2s", transform: isCourseOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1 }}>›</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 15, color: C.ink, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</div>
-                          {course.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.description}</div>}
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}</span>
-                            <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}</span>
+                    <div key={course.id} style={{ marginBottom: 14 }}>
+
+                      {/* ══ COURSE CARD ═══════════════════════════════════════════ */}
+                      <div style={{
+                        background: C.paper,
+                        border: `1.5px solid ${isCourseOpen ? C.ink2 : C.line}`,
+                        borderRadius: isCourseOpen ? "16px 16px 0 0" : 16,
+                        overflow: "hidden",
+                        transition: "border-color .15s",
+                      }}>
+                        {/* Accent strip + clickable header */}
+                        <div
+                          onClick={() => setOpenCourseIds(prev => { const n = new Set(prev); if (n.has(course.id)) n.delete(course.id); else n.add(course.id); return n; })}
+                          style={{ display: "flex", alignItems: "stretch", cursor: "pointer" }}>
+                          {/* Colour accent bar */}
+                          <div style={{ width: 5, background: accent, flexShrink: 0 }} />
+                          {/* Header content */}
+                          <div style={{ flex: 1, padding: "14px 16px 14px 16px", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                            <span style={{ fontSize: 20, color: C.muted2, fontWeight: 300, display: "inline-block", transition: "transform .2s", transform: isCourseOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1, flexShrink: 0 }}>›</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: -0.3 }}>
+                                {course.name}
+                              </div>
+                              {course.description && (
+                                <div style={{ fontSize: 12, color: C.muted, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.description}</div>
+                              )}
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 600, background: accent + "1A", color: accent }}>
+                                  {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
+                                </span>
+                                <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>
+                                  {exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 5, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                              <button onClick={() => { setEditingCourse(course); setShowCourseForm(true); }} style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>Editar</button>
+                              <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} style={{ ...S.btnDanger, padding: "5px 11px", fontSize: 12 }}>Eliminar</button>
+                            </div>
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                          <button onClick={() => { setEditingCourse(course); setShowCourseForm(true); }} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                          <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-                        </div>
-                      </div>
 
-                      {/* ── Course body ── */}
-                      {isCourseOpen && (
-                        <div style={{ border: `1px solid ${C.ink2}`, borderTop: "none", borderRadius: "0 0 14px 14px", background: C.paper2, padding: "16px 18px 14px" }}>
-                          {courseUnits.length === 0
-                            ? <p style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "10px 0 6px" }}>Este curso no tiene unidades todavía.</p>
-                            : courseUnits.map(unit => {
-                                const isUnitOpen = openUnitIds.has(unit.id);
-                                const unitExercises = unit.exerciseIds.map(id => exercises.find(e => e.id === id)).filter(Boolean);
-                                return (
-                                  <div key={unit.id} style={{ marginBottom: 8 }}>
-                                    {/* ── Unit header ── */}
-                                    <div
-                                      onClick={() => setOpenUnitIds(prev => { const n = new Set(prev); if (n.has(unit.id)) n.delete(unit.id); else n.add(unit.id); return n; })}
-                                      style={{ background: C.paper, border: `1px solid ${isUnitOpen ? C.muted2 : C.line}`, borderRadius: isUnitOpen ? "10px 10px 0 0" : 10, padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s" }}>
-                                      <span style={{ fontSize: 14, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1 }}>›</span>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                        {unit.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
-                                        <span style={{ ...S.badge, background: C.line, color: C.muted }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ejercicio" : "ejercicios"}</span>
-                                      </div>
-                                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                                        <button onClick={() => { setEditingUnit(unit); setShowUnitForm(true); }} style={{ ...S.btn, padding: "4px 8px", fontSize: 11 }}>Editar</button>
-                                        <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 11 }}>Eliminar</button>
+                        {/* ── COURSE BODY ──────────────────────────────────────── */}
+                        {isCourseOpen && (
+                          <div style={{ borderTop: `1.5px solid ${C.line}`, background: C.paper2, padding: "14px 16px 14px" }}>
+                            {courseUnits.length === 0
+                              ? <p style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "10px 0 6px" }}>Este curso no tiene unidades todavía.</p>
+                              : courseUnits.map((unit, unitIdx) => {
+                                  const isUnitOpen    = openUnitIds.has(unit.id);
+                                  const unitExercises = unit.exerciseIds.map(id => exercises.find(e => e.id === id)).filter(Boolean);
+                                  const unitLabel     = `U${unitIdx + 1}`;
+                                  return (
+                                    <div key={unit.id} style={{ marginBottom: 8 }}>
+
+                                      {/* ══ UNIT ROW ═════════════════════════════════ */}
+                                      <div style={{
+                                        background: C.paper,
+                                        border: `1px solid ${isUnitOpen ? C.muted2 : C.line}`,
+                                        borderRadius: isUnitOpen ? "10px 10px 0 0" : 10,
+                                        overflow: "hidden",
+                                        transition: "border-color .15s",
+                                      }}>
+                                        <div
+                                          onClick={() => setOpenUnitIds(prev => { const n = new Set(prev); if (n.has(unit.id)) n.delete(unit.id); else n.add(unit.id); return n; })}
+                                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}>
+                                          {/* Unit number pill */}
+                                          <div style={{ width: 28, height: 28, borderRadius: 8, background: accent + "18", color: accent, fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_MONO }}>
+                                            {unitLabel}
+                                          </div>
+                                          <span style={{ fontSize: 13, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1, flexShrink: 0 }}>›</span>
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: unit.description ? 2 : 0 }}>{unit.name}</div>
+                                            {unit.description && <div style={{ fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
+                                          </div>
+                                          <span style={{ ...S.badge, background: C.paper2, color: C.muted, flexShrink: 0 }}>{unit.exerciseIds.length} ej.</span>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                                            <button onClick={() => { setEditingUnit(unit); setShowUnitForm(true); }} style={{ ...S.btn, padding: "3px 8px", fontSize: 11 }}>Editar</button>
+                                            <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} style={{ ...S.btnDanger, padding: "3px 8px", fontSize: 11 }}>Eliminar</button>
+                                          </div>
+                                        </div>
+
+                                        {/* ── UNIT BODY: exercise list ────────────── */}
+                                        {isUnitOpen && (
+                                          <div style={{ borderTop: `1px solid ${C.line}`, background: C.bg, padding: "10px 12px 10px" }}>
+                                            {unitExercises.length === 0
+                                              ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "6px 0" }}>No hay ejercicios en esta unidad.</p>
+                                              : unitExercises.map((ex, exIdx) => {
+                                                  const isQuiz  = modelOf(ex) === "cuestionario";
+                                                  const exQs    = questionsOf(ex);
+                                                  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
+                                                  const keyDone = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
+                                                  const dotColor = keyDone ? C.fnT : C.muted2;
+                                                  return (
+                                                    <div key={ex.id} style={{
+                                                      background: C.paper, border: `1px solid ${C.line}`,
+                                                      borderRadius: 8, padding: "9px 12px", marginBottom: 5,
+                                                      display: "flex", alignItems: "center", gap: 10,
+                                                    }}>
+                                                      {/* Exercise index */}
+                                                      <span style={{ fontSize: 10, fontWeight: 700, color: C.muted2, fontFamily: FONT_MONO, minWidth: 20, flexShrink: 0 }}>
+                                                        {exIdx + 1}
+                                                      </span>
+                                                      <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setSelectedExerciseId(ex.id)}>
+                                                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
+                                                        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                                                          <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>{fmt(ex.duration)}</span>
+                                                          <span style={{ ...S.badge, fontSize: 10, background: isQuiz ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: isQuiz ? C.quiz : C.fnT }}>
+                                                            {isQuiz ? "Cuestionario" : "Interactivo"}
+                                                          </span>
+                                                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: dotColor }}>
+                                                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, display: "inline-block", flexShrink: 0 }} />
+                                                            {isQuiz ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} preg.`) : (recorded === 0 ? "Sin clave" : "Clave ✓")}
+                                                          </span>
+                                                        </div>
+                                                      </div>
+                                                      <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExerciseFromUnit(unit.id, ex.id))} style={{ ...S.btnDanger, fontSize: 11, padding: "3px 9px", flexShrink: 0 }}>Quitar</button>
+                                                    </div>
+                                                  );
+                                                })}
+                                            {/* Add-to-unit actions */}
+                                            <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+                                              <button onClick={() => { setExPickerUnitId(unit.id); setShowExPicker(true); }} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>+ Del banco</button>
+                                              <button onClick={() => { setNewExInUnit(unit.id); setSelectedExerciseId("new"); }} style={{ ...S.btnPrimary, fontSize: 12, padding: "6px 12px" }}>+ Nuevo ejercicio</button>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
-
-                                    {/* ── Unit body ── */}
-                                    {isUnitOpen && (
-                                      <div style={{ border: `1px solid ${C.muted2}`, borderTop: "none", borderRadius: "0 0 10px 10px", background: C.bg, padding: "12px 14px 10px" }}>
-                                        {unit.description && <p style={{ color: C.muted, fontSize: 12, margin: "0 0 10px" }}>{unit.description}</p>}
-                                        {unitExercises.length === 0
-                                          ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "8px 0" }}>No hay ejercicios en esta unidad.</p>
-                                          : unitExercises.map(ex => {
-                                              const isQuiz = modelOf(ex) === "cuestionario";
-                                              const exQs   = questionsOf(ex);
-                                              const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
-                                              const keyDone = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
-                                              return (
-                                                <div key={ex.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-                                                  <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setSelectedExerciseId(ex.id)}>
-                                                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
-                                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                                      <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</span>
-                                                      <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: isQuiz ? C.quiz : C.fnT }}>{isQuiz ? "Cuestionario" : "Interactivo"}</span>
-                                                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: keyDone ? C.fnT : C.muted }}>
-                                                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: keyDone ? C.fnT : C.muted2, display: "inline-block" }} />
-                                                        {isQuiz ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} preguntas`) : (recorded === 0 ? "Sin clave" : "Clave grabada")}
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                  <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExerciseFromUnit(unit.id, ex.id))} style={{ ...S.btnDanger, fontSize: 11, padding: "4px 10px", flexShrink: 0 }}>Quitar</button>
-                                                </div>
-                                              );
-                                            })}
-                                        <div style={{ ...S.row, gap: 8, marginTop: 10 }}>
-                                          <button onClick={() => { setExPickerUnitId(unit.id); setShowExPicker(true); }} style={{ ...S.btn, fontSize: 12, padding: "7px 12px" }}>+ Añadir del banco</button>
-                                          <button onClick={() => { setNewExInUnit(unit.id); setSelectedExerciseId("new"); }} style={{ ...S.btnPrimary, fontSize: 12, padding: "7px 12px" }}>+ Nuevo ejercicio</button>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
+                                  );
                               })}
-                          <button
-                            onClick={() => { setEditingUnit(null); setUnitFormCourseId(course.id); setShowUnitForm(true); }}
-                            style={{ ...S.btn, width: "100%", marginTop: 8, fontSize: 12 }}>
-                            + Nueva unidad didáctica
-                          </button>
-                        </div>
-                      )}
+
+                            {/* Add unit button */}
+                            <button
+                              onClick={() => { setEditingUnit(null); setUnitFormCourseId(course.id); setShowUnitForm(true); }}
+                              style={{ ...S.btn, width: "100%", marginTop: 8, fontSize: 12, borderStyle: "dashed" }}>
+                              + Nueva unidad didáctica
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -3496,4 +3613,3 @@ export default function App() {
 
   return null;
 }
-
