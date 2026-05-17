@@ -2967,27 +2967,30 @@ export default function App() {
   }, []);
 
   // ── Helpers de sincronización con Supabase ────────────────────────────
-  const dbUpsertUser     = (u)           => supabase.from("fa_users").upsert({ id: u.id, data: u });
-  const dbUpsertExercise = (ex)          => { const { audioUrl: _a, ...data } = ex; supabase.from("fa_exercises").upsert({ id: String(ex.id), data }); }; // eslint-disable-line no-unused-vars
-  const dbUpsertCategory = (c)           => { if (!c.builtIn) supabase.from("fa_categories").upsert({ id: c.id, data: c }); };
-  const dbUpsertCourse   = (c)           => supabase.from("fa_courses").upsert({ id: c.id, data: c });
-  const dbUpsertUnit     = (u)           => supabase.from("fa_units").upsert({ id: u.id, data: u });
-  const dbUpsertResult   = (uid, eid, r) => supabase.from("fa_results").upsert({ user_id: uid, exercise_id: String(eid), data: r });
+  // supabase-js v2 es lazy: la query solo se envía cuando se llama a .then().
+  // dbRun() dispara la ejecución sin bloquear el hilo de React.
+  const dbRun = (q) => { q.then(() => {}, e => console.error("supabase:", e)); };
+  const dbUpsertUser     = (u)           => dbRun(supabase.from("fa_users").upsert({ id: u.id, data: u }));
+  const dbUpsertExercise = (ex)          => { const { audioUrl: _a, ...data } = ex; dbRun(supabase.from("fa_exercises").upsert({ id: String(ex.id), data })); }; // eslint-disable-line no-unused-vars
+  const dbUpsertCategory = (c)           => { if (!c.builtIn) dbRun(supabase.from("fa_categories").upsert({ id: c.id, data: c })); };
+  const dbUpsertCourse   = (c)           => dbRun(supabase.from("fa_courses").upsert({ id: c.id, data: c }));
+  const dbUpsertUnit     = (u)           => dbRun(supabase.from("fa_units").upsert({ id: u.id, data: u }));
+  const dbUpsertResult   = (uid, eid, r) => dbRun(supabase.from("fa_results").upsert({ user_id: uid, exercise_id: String(eid), data: r }));
 
   // ── User CRUD ────────────────────────────────────────────────────────
   const addUser    = (u) => { setUsers(prev => [...prev, u]); dbUpsertUser(u); };
   const removeUser = (id) => {
     setUsers(prev => prev.filter(u => u.id !== id));
     setResults(prev => { const { [id]: _drop, ...rest } = prev; return rest; }); // eslint-disable-line no-unused-vars
-    supabase.from("fa_users").delete().eq("id", id);
-    supabase.from("fa_results").delete().eq("user_id", id);
+    dbRun(supabase.from("fa_users").delete().eq("id", id));
+    dbRun(supabase.from("fa_results").delete().eq("user_id", id));
   };
   const updateUser = (u) => { setUsers(prev => prev.map(x => x.id === u.id ? u : x)); dbUpsertUser(u); };
 
   // ── Course CRUD ──────────────────────────────────────────────────────
   const addCourse    = (c)  => { setCourses(prev => [...prev, c]); dbUpsertCourse(c); };
   const updateCourse = (c)  => { setCourses(prev => prev.map(x => x.id === c.id ? c : x)); dbUpsertCourse(c); };
-  const deleteCourse = (id) => { setCourses(prev => prev.filter(c => c.id !== id)); supabase.from("fa_courses").delete().eq("id", id); };
+  const deleteCourse = (id) => { setCourses(prev => prev.filter(c => c.id !== id)); dbRun(supabase.from("fa_courses").delete().eq("id", id)); };
 
   // ── Unit CRUD ────────────────────────────────────────────────────────
   const addUnit = (unit, courseId) => {
@@ -3004,7 +3007,7 @@ export default function App() {
     const updatedCourse = existing ? { ...existing, unitIds: (existing.unitIds || []).filter(id => id !== unitId) } : null;
     setUnits(prev => prev.filter(u => u.id !== unitId));
     setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
-    supabase.from("fa_units").delete().eq("id", unitId);
+    dbRun(supabase.from("fa_units").delete().eq("id", unitId));
     if (updatedCourse) dbUpsertCourse(updatedCourse);
   };
   const addExercisesToUnit = (unitId, exerciseIds) => {
@@ -3030,10 +3033,10 @@ export default function App() {
   const [guestResults,   setGuestResults]   = useState({}); // en memoria, no persiste
   const [pickingTeacher, setPickingTeacher] = useState(false);
 
-  const setMargin      = (n)  => { setMarginState(n); supabase.from("fa_settings").upsert({ key: "margin", value: n }); };
+  const setMargin      = (n)  => { setMarginState(n); dbRun(supabase.from("fa_settings").upsert({ key: "margin", value: n })); };
   const addCategory    = (c)  => { setCategories(prev => [...prev, c]); dbUpsertCategory(c); };
   const updateCategory = (c)  => { setCategories(prev => prev.map(x => x.id === c.id ? c : x)); dbUpsertCategory(c); };
-  const deleteCategory = (id) => { setCategories(prev => prev.filter(x => x.id !== id || x.builtIn)); supabase.from("fa_categories").delete().eq("id", id); };
+  const deleteCategory = (id) => { setCategories(prev => prev.filter(x => x.id !== id || x.builtIn)); dbRun(supabase.from("fa_categories").delete().eq("id", id)); };
   const logout = () => { setUser(null); setLoginRole(null); setView("teacher-dash"); setGuestResults({}); setPickingTeacher(false); };
 
   const openEx = (exercise, mode = "student") => {
@@ -3104,8 +3107,8 @@ export default function App() {
   const deleteExercise = (id) => {
     setExercises(prev => prev.filter(e => e.id !== id));
     setResults(prev => { const next = {}; for (const [uid, exs] of Object.entries(prev)) { const { [id]: _drop, ...rest } = exs; next[uid] = rest; } return next; }); // eslint-disable-line no-unused-vars
-    supabase.from("fa_exercises").delete().eq("id", String(id));
-    supabase.from("fa_results").delete().eq("exercise_id", String(id));
+    dbRun(supabase.from("fa_exercises").delete().eq("id", String(id)));
+    dbRun(supabase.from("fa_results").delete().eq("exercise_id", String(id)));
   };
 
   const freshExercise = useCallback((ex) => exercises.find(e => e.id === ex.id) || ex, [exercises]);
