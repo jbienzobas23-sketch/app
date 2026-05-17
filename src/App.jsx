@@ -6,13 +6,32 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 // usePersistentState: localStorage is not available in this artifact environment,
 // so we fall back to plain in-memory useState. The initial value goes through
 // transformLoaded once so the data shape is identical to the localStorage path.
-function usePersistentState(key, initial, opts = {}) { // eslint-disable-line no-unused-vars
-  const { transformLoaded } = opts;
-  const resolved = (() => {
+function usePersistentState(key, initial, opts = {}) {
+  const { transformLoaded, transformSaved } = opts;
+  const transformSavedRef = useRef(transformSaved);
+  transformSavedRef.current = transformSaved;
+
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(key) : null;
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        return transformLoaded ? transformLoaded(parsed) : parsed;
+      }
+    } catch {}
     try { return transformLoaded ? transformLoaded(initial) : initial; }
     catch { return initial; }
-  })();
-  return useState(resolved);
+  });
+
+  useEffect(() => {
+    try {
+      const toSave = transformSavedRef.current ? transformSavedRef.current(value) : value;
+      localStorage.setItem(key, JSON.stringify(toSave));
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, value]);
+
+  return [value, setValue];
 }
 
 function startPointerDrag(event, { onStart, onMove, onEnd }) {
