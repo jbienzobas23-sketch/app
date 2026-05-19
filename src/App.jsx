@@ -75,8 +75,23 @@ const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84
 const EXERCISE_MODELS = [
   { id: "interactivo",  name: "Interactivo",  description: "El alumno marca categorías en vivo durante el audio." },
   { id: "cuestionario", name: "Cuestionario", description: "Preguntas ancladas a fragmentos concretos del audio." },
+  { id: "esquema",      name: "Esquema",      description: "El alumno dibuja bloques de forma musical en una línea de tiempo multinivel." },
 ];
 const DEFAULT_MODEL_ID = "interactivo";
+
+// Constantes del modelo Esquema
+const SCHEMA_LEVELS = [
+  { id: 1, sub: "Partes",  color: "#C77A1A", bg: "rgba(199,122,26,0.10)" },
+  { id: 2, sub: "Frases",  color: "#2F6FB8", bg: "rgba(47,111,184,0.08)" },
+  { id: 3, sub: "Armonía", color: "#3F9B5B", bg: "rgba(63,155,91,0.08)"  },
+];
+const SCHEMA_DEFAULT_LABELS = {
+  1: ["A", "B", "C", "D", "E", "A'", "B'"],
+  2: ["a", "b", "c", "d", "e", "a'", "b'"],
+  3: ["Sol M", "Do M", "Re M", "Mi m", "Fa M", "La m", "Re m", "Si♭ M"],
+};
+const SCHEMA_SNAP_THR = 2.8;
+const SCHEMA_MIN_DUR  = 2;
 
 const INIT_EXERCISES = [
   {
@@ -205,6 +220,47 @@ const toggleInSet = (set, id) => {
   if (n.has(id)) n.delete(id); else n.add(id);
   return n;
 };
+
+// ─── Helpers del modelo Esquema (snap + push) ──────────────────────────────
+function schemaSnapTime(t, blocks, excludeId, duration) {
+  const bounds = [0, duration, ...blocks.filter(b => b.id !== excludeId && !b.isPreview).flatMap(b => [b.start, b.end])];
+  let best = t, bestDist = SCHEMA_SNAP_THR + 0.01;
+  for (const bv of bounds) { const d = Math.abs(t - bv); if (d < bestDist) { bestDist = d; best = bv; } }
+  return best;
+}
+
+function schemaApplyPush(blocks, movedId, level, duration) {
+  const same = blocks
+    .filter(b => b.level === level && !b.isPreview)
+    .map(b => ({ ...b }))
+    .sort((a, b) => a.start !== b.start ? a.start - b.start : a.id < b.id ? -1 : 1);
+  const mi = same.findIndex(b => b.id === movedId);
+  if (mi < 0) return blocks;
+  for (let i = mi; i < same.length - 1; i++) {
+    if (same[i].end > same[i + 1].start) { const dur = same[i + 1].end - same[i + 1].start; same[i + 1].start = same[i].end; same[i + 1].end = same[i + 1].start + dur; } else break;
+  }
+  for (let i = mi; i > 0; i--) {
+    if (same[i - 1].end > same[i].start) { const dur = same[i - 1].end - same[i - 1].start; same[i - 1].end = same[i].start; same[i - 1].start = same[i - 1].end - dur; } else break;
+  }
+  for (let i = same.length - 1; i >= 0; i--) {
+    if (same[i].end > duration) {
+      const dur = same[i].end - same[i].start; same[i].end = duration; same[i].start = duration - dur;
+      for (let j = i - 1; j >= 0; j--) {
+        if (same[j].end > same[j + 1].start) { const d = same[j].end - same[j].start; same[j].end = same[j + 1].start; same[j].start = same[j].end - d; } else break;
+      }
+    }
+  }
+  for (let i = 0; i < same.length; i++) {
+    if (same[i].start < 0) {
+      const dur = same[i].end - same[i].start; same[i].start = 0; same[i].end = dur;
+      for (let j = i + 1; j < same.length; j++) {
+        if (same[j].start < same[j - 1].end) { const d = same[j].end - same[j].start; same[j].start = same[j - 1].end; same[j].end = same[j].start + d; } else break;
+      }
+    }
+  }
+  const map = new Map(same.map(b => [b.id, b]));
+  return blocks.map(b => (map.has(b.id) ? map.get(b.id) : b));
+}
 
 // ─── Drag de puntero unificado (ratón + touch) ─────────────────────────────
 function startPointerDrag(event, { onStart, onMove, onEnd } = {}) {
@@ -1613,10 +1669,344 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
   );
 }
 
+// ═══ 9b. SCHEMA EXERCISE VIEW (modelo Esquema) ══════════════════════════════
+
+function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
+  const duration = exercise.duration;
+  const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
+  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
+  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd } =
+    useAudioPlayer(exercise, { onWaveform });
+
+  const [blocks,   setBlocks]   = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [editId,   setEditId]   = useState(null);
+  const [editVal,  setEditVal]  = useState("");
+  const [guides,   setGuides]   = useState([]);
+
+  const trackRefs  = useRef({});
+  const dragRef    = useRef(null);
+  const blocksRef  = useRef(blocks);
+  blocksRef.current = blocks;
+
+  // Ruler width → adaptive ticks
+  const [rulerW, setRulerW] = useState(600);
+  const rulerRef = useRef(null);
+  useEffect(() => {
+    const el = rulerRef.current; if (!el) return;
+    setRulerW(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver(([e]) => setRulerW(e.contentRect.width));
+    ro.observe(el); return () => ro.disconnect();
+  }, []);
+  const NICE_N = [2, 3, 4, 6, 8, 12];
+  const maxN   = Math.max(2, Math.floor(rulerW / 58));
+  const numIv  = [...NICE_N].reverse().find(n => n <= maxN) || 2;
+  const ticks  = Array.from({ length: numIv + 1 }, (_, i) => i * duration / numIv);
+
+  const handleRulerDrag = e => {
+    const el = rulerRef.current; if (!el) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const toT  = x => Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
+    const getX = ev => ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
+    seekTo(toT(getX(e)));
+    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(toT(getX(ev))); };
+    const up = () => {
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
+  };
+
+  const getClientX = e => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+
+  // Timeline drag logic
+  useEffect(() => {
+    const pixToTime = (e, lvId) => {
+      const el = trackRefs.current[lvId]; if (!el) return 0;
+      const r = el.getBoundingClientRect();
+      const x = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+      return Math.max(0, Math.min(duration, ((x - r.left) / r.width) * duration));
+    };
+    const onMove = e => {
+      const d = dragRef.current; if (!d) return;
+      const t = pixToTime(e, d.level), all = blocksRef.current;
+      if (d.type === "create") {
+        let s = Math.min(d.anchor, t), e2 = Math.max(d.anchor, t);
+        const ss = schemaSnapTime(s, all, d.pid, duration), se = schemaSnapTime(e2, all, d.pid, duration);
+        const ng = [];
+        if (Math.abs(s  - ss) <= SCHEMA_SNAP_THR) { s  = ss; ng.push(ss); }
+        if (Math.abs(e2 - se) <= SCHEMA_SNAP_THR) { e2 = se; ng.push(se); }
+        setGuides(ng); d.ps = s; d.pe = e2;
+        setBlocks(prev => [...prev.filter(b => b.id !== d.pid), { id: d.pid, level: d.level, start: s, end: e2, label: "\u2026", isPreview: true }]);
+      } else if (d.type === "move") {
+        const delta = t - d.anchor, dur2 = d.oe - d.os;
+        let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
+        const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
+        let snapped = false;
+        for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
+        if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
+        setGuides([ns, ne]);
+        setBlocks(prev => { const placed = prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b); return schemaApplyPush(placed, d.bid, d.level, duration); });
+      } else if (d.type === "resize-l") {
+        const ns = schemaSnapTime(Math.min(t, d.oe - SCHEMA_MIN_DUR), all, d.bid, duration);
+        setGuides([ns]); setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns } : b));
+      } else if (d.type === "resize-r") {
+        const ne = schemaSnapTime(Math.max(t, d.os + SCHEMA_MIN_DUR), all, d.bid, duration);
+        setGuides([ne]); setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, end: ne } : b));
+      }
+    };
+    const onUp = () => {
+      const d = dragRef.current; if (!d) return;
+      if (d.type === "create") {
+        const dur2 = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
+        if (dur2 >= SCHEMA_MIN_DUR) {
+          const n = blocksRef.current.filter(b => b.level === d.level && !b.isPreview).length;
+          const label = SCHEMA_DEFAULT_LABELS[d.level]?.[n] ?? String(n + 1);
+          setBlocks(prev => prev.map(b => b.id === d.pid ? { ...b, label, isPreview: false } : b));
+          setEditId(d.pid); setEditVal(label); setSelected(d.pid);
+        } else { setBlocks(prev => prev.filter(b => b.id !== d.pid)); }
+      }
+      setGuides([]); dragRef.current = null;
+    };
+    window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false }); window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onUp);
+      window.removeEventListener("touchcancel", onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duration]);
+
+  const commitEdit = () => {
+    if (!editId) return;
+    setBlocks(prev => prev.map(b => b.id === editId ? { ...b, label: editVal } : b));
+    setEditId(null); setEditVal("");
+  };
+  const handleTrackDown = (e, lvId) => {
+    if (e.target.closest("[data-block]")) return;
+    const el = trackRefs.current[lvId]; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
+    dragRef.current = { type: "create", level: lvId, anchor: t, pid: uid("sb"), ps: t, pe: t };
+    setSelected(null); e.preventDefault();
+  };
+  const handleBlockDown = (e, block, type = "move") => {
+    if (editId === block.id) return;
+    e.stopPropagation(); setSelected(block.id);
+    const el = trackRefs.current[block.level]; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
+    dragRef.current = { type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end };
+    e.preventDefault();
+  };
+
+  const activeAt = {};
+  for (const b of blocks) { if (!b.isPreview && time >= b.start && time < b.end) activeAt[b.level] = b.id; }
+  const selBlock = selected ? blocks.find(b => b.id === selected) : null;
+  const selLv    = selBlock ? SCHEMA_LEVELS.find(l => l.id === selBlock.level) : null;
+
+  const handleSubmit = () => {
+    onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode });
+  };
+
+  return (
+    <div style={S.app}>
+      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }}>{"<-"} Volver</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_SERIF, fontSize: 18, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Esquema formal</div>
+        </div>
+        <span style={{ ...S.badge, background: `${C.fnD}1C`, color: C.fnD, border: `1px solid ${C.fnD}45`, padding: "4px 12px", fontSize: 11, fontWeight: 700, letterSpacing: 0.9, flexShrink: 0 }}>ESQUEMA</span>
+      </div>
+
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 60px" }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+          {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
+          {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
+          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
+            <WaveformDisplay time={time} duration={duration} allIntervals={[]} exerciseId={exercise.id}
+              waveformData={waveformData} colorByFn={{}} questionRegion={null}
+              onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+            <div />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
+              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }}
+                primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+                {playing ? "||" : ">"}
+              </CircleButton>
+              <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+            </div>
+            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+            </div>
+          </div>
+        </section>
+
+        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
+          <div ref={rulerRef} style={{ position: "relative", height: 44, background: C.paper2, borderBottom: `1px solid ${C.line}`, cursor: "pointer", userSelect: "none", touchAction: "none", overflow: "hidden" }}
+            onMouseDown={handleRulerDrag} onTouchStart={handleRulerDrag}>
+            <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${(time / duration) * 100}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />
+            {ticks.map((t, i) => {
+              const isFirst = i === 0, isLast = i === ticks.length - 1;
+              return (
+                <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: isLast ? "auto" : `${(t / duration) * 100}%`, right: isLast ? 0 : "auto", transform: isFirst || isLast ? "none" : "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: isFirst ? "flex-start" : isLast ? "flex-end" : "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
+                  <div style={{ width: 1, height: 7, background: C.muted2 }} />
+                  <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                </div>
+              );
+            })}
+            {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.5)", pointerEvents: "none", zIndex: 9 }} />)}
+            <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
+            <div style={{ position: "absolute", top: "50%", left: `${(time / duration) * 100}%`, transform: "translate(-50%, -50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 11 }} />
+          </div>
+
+          {SCHEMA_LEVELS.map((lv, li) => (
+            <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
+              style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
+              onMouseDown={e => handleTrackDown(e, lv.id)} onTouchStart={e => handleTrackDown(e, lv.id)}>
+              <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+              </div>
+              {Array.from({ length: 13 }, (_, i) => i * duration / 12).map((t, i) => (
+                <div key={i} style={{ position: "absolute", top: 0, left: `${(t / duration) * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
+              ))}
+              {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8 }} />)}
+              <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1, height: "100%", background: C.danger, opacity: 0.5, pointerEvents: "none", zIndex: 6 }} />
+              {blocks.filter(b => b.level === lv.id).map(block => {
+                const isActive = activeAt[lv.id] === block.id, isSel = selected === block.id;
+                const pct = (block.end - block.start) / duration * 100;
+                return (
+                  <div key={block.id} data-block="true" style={{
+                    position: "absolute", top: 6, bottom: 6, left: `${(block.start / duration) * 100}%`, width: `${pct}%`,
+                    background: block.isPreview ? `${lv.color}38` : lv.color, borderRadius: 5,
+                    border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
+                    boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    overflow: "hidden", cursor: block.isPreview ? "default" : "grab",
+                    zIndex: isSel ? 7 : isActive ? 4 : 3, boxSizing: "border-box",
+                  }}
+                    onMouseDown={e => !block.isPreview && handleBlockDown(e, block, "move")}
+                    onTouchStart={e => !block.isPreview && handleBlockDown(e, block, "move")}
+                    onDoubleClick={() => { if (!block.isPreview) { setEditId(block.id); setEditVal(block.label); } }}>
+                    {!block.isPreview && (
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderRight: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
+                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
+                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
+                      </div>
+                    )}
+                    {editId === block.id ? (
+                      <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                        onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
+                    ) : (
+                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: "white", textShadow: "0 1px 3px rgba(0,0,0,0.28)", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+                        {block.label}
+                      </span>
+                    )}
+                    {!block.isPreview && (
+                      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
+                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
+                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {selBlock && !selBlock.isPreview && selLv ? (
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: selLv.color, flexShrink: 0 }} />
+              <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
+              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
+              <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
+              <button onClick={() => { setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
+            </div>
+          ) : (
+            <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
+              {blocks.filter(b => !b.isPreview).length === 0
+                ? "Arrastra en cualquier pista para crear un bloque. Doble clic para renombrar."
+                : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""}. Selecciona uno para editar.`}
+            </div>
+          )}
+          <PillSubmitButton onClick={handleSubmit}>
+            {mode === "record" ? "Guardar esquema" : "Entregar"}
+          </PillSubmitButton>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
+          {SCHEMA_LEVELS.map(lv => (
+            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
+              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
+            </div>
+          ))}
+          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear. Doble clic para renombrar.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
 
 function CorrectionView({ exercise, result, margin, onBack }) {
   const dur = exercise.duration;
+
+  // Modelo esquema — sin puntuación automática
+  if (result.type === "esquema") {
+    const blocks = result.blocks || [];
+    return (
+      <div style={S.app}>
+        <div style={S.page}>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Mis ejercicios</button>
+          <h2 style={S.h2}>Esquema entregado: {exercise.title}</h2>
+          <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>OK</div>
+            <div style={{ color: C.muted, lineHeight: 1.6 }}>
+              Esquema enviado al profesor para revisión.<br />
+              <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
+            </div>
+          </div>
+          {blocks.length > 0 && (
+            <div style={S.card}>
+              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>Resumen de tu esquema:</div>
+              {SCHEMA_LEVELS.map(lv => {
+                const lvBlocks = blocks.filter(b => b.level === lv.id);
+                if (lvBlocks.length === 0) return null;
+                return (
+                  <div key={lv.id} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: lv.color, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</div>
+                    <div style={{ position: "relative", height: 28, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
+                      {lvBlocks.map((b, i) => (
+                        <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF }}>{b.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>Volver a mis ejercicios</button>
+        </div>
+      </div>
+    );
+  }
 
   // Modelo cuestionario
   if (result.type === "cuestionario") {
@@ -2024,14 +2414,16 @@ function ExercisesTab({ exercises, onNew, onSelect }) {
           </div>
 
           {exercises.map((ex, i) => {
-            const isQuiz = modelOf(ex) === "cuestionario";
+            const isQuiz   = modelOf(ex) === "cuestionario";
+            const isSchema = modelOf(ex) === "esquema";
             const exQs   = questionsOf(ex);
-            const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
-            const keyDone    = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
-            const keyPartial = !isQuiz && recorded > 0 && recorded < total;
-            const dotColor   = keyDone ? C.fnT : keyPartial ? C.fnD : C.muted2;
+            const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
+            const keyDone    = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+            const keyPartial = !isQuiz && !isSchema && recorded > 0 && recorded < total;
+            const dotColor   = isSchema ? C.fnD : keyDone ? C.fnT : keyPartial ? C.fnD : C.muted2;
             const dotLabel   = isQuiz
               ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}`)
+              : isSchema ? "Sin clave automática"
               : recorded === 0   ? "Sin clave"
               : recorded === total ? "Clave completa"
               : `${recorded}/${total} claves`;
@@ -2049,8 +2441,8 @@ function ExercisesTab({ exercises, onNew, onSelect }) {
                 <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 16 }}>{ex.title}</div>
                 <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</div>
                 <div>
-                  <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : C.fnT }}>
-                    {isQuiz ? "Cuestionario" : "Interactivo"}
+                  <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : isSchema ? `${C.fnD}1C` : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : isSchema ? C.fnD : C.fnT }}>
+                    {isQuiz ? "Cuestionario" : isSchema ? "Esquema" : "Interactivo"}
                   </span>
                 </div>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: keyDone ? C.fnT : keyPartial ? C.fnD : C.muted }}>
@@ -2984,7 +3376,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
         <hr style={{ ...S.divider, margin: "28px 0" }} />
 
         {/* Clave · Interactivo */}
-        {model !== "cuestionario" && (
+        {model === "interactivo" && (
           <>
             <p style={SECTION_STYLE}>Clave de corrección</p>
             {isCreating ? (
@@ -3022,6 +3414,20 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
           </>
         )}
 
+        {/* Esquema · info + boton probar */}
+        {model === "esquema" && !isCreating && (
+          <>
+            <p style={SECTION_STYLE}>Esquema formal</p>
+            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. No requiere clave de corrección automática: el profesor revisa los esquemas manualmente.
+            </div>
+            <button onClick={() => onRecord(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
+              <span>Probar ejercicio</span>
+              <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>{">"}</span>
+            </button>
+          </>
+        )}
+
         {/* Preguntas · Cuestionario */}
         {model === "cuestionario" && !isCreating && (
           <>
@@ -3046,7 +3452,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
         )}
 
         {/* Opciones para el alumno (solo interactivo, tras crear) */}
-        {!isCreating && model !== "cuestionario" && (
+        {!isCreating && model === "interactivo" && (
           <>
             <hr style={{ ...S.divider, margin: "28px 0" }} />
             <p style={SECTION_STYLE}>Opciones para el alumno</p>
@@ -4221,7 +4627,10 @@ export default function App() {
   const openEx = (ex, mode = "student") => {
     const fresh = freshExercise(ex);
     setExCtx({ exercise: fresh, mode });
-    setView(mode === "student" && modelOf(fresh) === "cuestionario" ? "questionnaire" : "exercise");
+    const m = modelOf(fresh);
+    if (m === "esquema") setView("schema");
+    else if (mode === "student" && m === "cuestionario") setView("questionnaire");
+    else setView("exercise");
   };
 
   const openQM = (ex) => {
@@ -4238,6 +4647,27 @@ export default function App() {
     // Cuestionario
     if (payload?.type === "cuestionario") {
       const data = { type: "cuestionario", answers: payload.answers, score: payload.score, timestamp: Date.now() };
+      if (isGuest) {
+        setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+      } else if (user) {
+        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
+        dbUpsertResult(user.id, ex.id, data);
+      }
+      setLastResult(data);
+      setView("correction");
+      return;
+    }
+
+    // Esquema
+    if (payload?.type === "esquema") {
+      if (payload.mode === "record") {
+        // El profesor guarda el esquema como modelo de referencia
+        updateExercise(ex.id, { schemaKey: payload.blocks });
+        setExCtx(null);
+        setView("teacher-dash");
+        return;
+      }
+      const data = { type: "esquema", blocks: payload.blocks, timestamp: Date.now() };
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
       } else if (user) {
@@ -4383,6 +4813,19 @@ export default function App() {
     );
   }
 
+  if (view === "schema" && exCtx) {
+    return (
+      <SchemaExerciseView
+        exercise={exCtx.exercise} mode={exCtx.mode}
+        onSubmit={submitAnswer}
+        onBack={() => {
+          setExCtx(null);
+          setView(exCtx.mode === "record" ? "teacher-dash" : "student-dash");
+        }}
+      />
+    );
+  }
+
   if (view === "questionnaire" && exCtx) {
     return (
       <QuestionnaireView
@@ -4457,6 +4900,7 @@ export default function App() {
       onRecord={(ex) => {
         const fresh = freshExercise(ex);
         if (modelOf(fresh) === "cuestionario") openQM(fresh);
+        else if (modelOf(fresh) === "esquema") { setExCtx({ exercise: fresh, mode: "record" }); setView("schema"); }
         else { setExCtx({ exercise: fresh, mode: "record" }); setView("exercise"); }
       }}
       onAdd={addExercise}
