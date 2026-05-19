@@ -1061,6 +1061,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           startSource(lq.audioStart);
         } else {
           const t = Math.min(dur, rawT);
+          timeRef.current = t;
           setTime(t);
           if (!lq && t >= dur) { setPlaying(false); return; }
         }
@@ -1124,7 +1125,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
-  time, duration, allIntervals, exerciseId, waveformData,
+  time, timeRef: timeRefProp, duration, allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
@@ -1135,7 +1136,7 @@ function WaveformDisplay({
   );
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
-    time, allIntervals, waveData, duration, colorByFn, questionRegion,
+    time, timeRef: timeRefProp, allIntervals, waveData, duration, colorByFn, questionRegion,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -1174,7 +1175,8 @@ function WaveformDisplay({
     };
 
     const draw = () => {
-      const { time: t, allIntervals: ivs, waveData: wd, duration: dur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height, mid = H / 2;
       const barW = W / NUM_BARS, drawW = barW * 0.7, offsetX = barW * 0.15;
@@ -1584,7 +1586,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}` }}>
-            <WaveformDisplay time={time} duration={dur} allIntervals={allIv}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -1682,7 +1684,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const duration = exercise.duration;
   const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
-  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd } =
+  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, timeRef: audioTimeRef } =
     useAudioPlayer(exercise, { onWaveform });
 
   // Ref siempre actualizado al tiempo de reproducción — legible dentro de los cierres de drag
@@ -1758,45 +1760,51 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         return;
       }
 
-      // ── Mover bloque (empuja vecinos, mantiene su tamaño) ────────────────
+      // ── Mover bloque (se detiene en vecinos del mismo nivel, sin empuje) ──
       if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
         let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
+        // Snap a bordes globales y de otros niveles (no empuja; solo guía visual)
         const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
         let snapped = false;
         for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
         if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
+        // Freno al tocar vecinos del mismo nivel (sin empuje)
+        for (const nb of all.filter(b => b.level === d.level && b.id !== d.bid && !b.isPreview)) {
+          if (ns < nb.end - 0.05 && ne > nb.start + 0.05) {
+            if (d.os >= nb.end - 0.3) { ns = nb.end; ne = ns + dur2; }
+            else                       { ne = nb.start; ns = ne - dur2; }
+          }
+        }
+        ns = Math.max(0, Math.min(duration - dur2, ns)); ne = ns + dur2;
         setGuides([ns, ne]);
-        setBlocks(prev => { const placed = prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b); return schemaApplyPush(placed, d.bid, d.level, duration); });
+        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b));
         return;
       }
 
-      // ── Redimensionar izquierda: aprieta al vecino izquierdo ─────────────
-      // El cursor de reproducción tiene prioridad de snap sobre los límites de bloque.
+      // ── Redimensionar izquierda: se detiene en el vecino, sin empuje ──────
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
-        const minNs  = leftNb ? leftNb.start + SCHEMA_MIN_DUR : 0;
+        const minNs  = leftNb ? leftNb.end : 0;   // hard stop en el borde del vecino
         let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph);
         ns = Math.max(minNs, Math.min(ns, d.oe - SCHEMA_MIN_DUR));
         setGuides([ns]);
         setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid)                return { ...b, start: ns };
-          if (d.leftId && b.id === d.leftId) return { ...b, end:   ns };  // aprieta
+          if (b.id === d.bid) return { ...b, start: ns };
           return b;
         }));
         return;
       }
 
-      // ── Redimensionar derecha: aprieta al vecino derecho ─────────────────
+      // ── Redimensionar derecha: se detiene en el vecino, sin empuje ─────────
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
-        const maxNe   = rightNb ? rightNb.end - SCHEMA_MIN_DUR : duration;
+        const maxNe   = rightNb ? rightNb.start : duration;  // hard stop en el borde del vecino
         let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph);
         ne = Math.max(d.os + SCHEMA_MIN_DUR, Math.min(ne, maxNe));
         setGuides([ne]);
         setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid)                  return { ...b, end:   ne };
-          if (d.rightId && b.id === d.rightId) return { ...b, start: ne };  // aprieta
+          if (b.id === d.bid) return { ...b, end: ne };
           return b;
         }));
         return;
@@ -1888,6 +1896,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     e.preventDefault();
   };
 
+  // Dimensiones de las asas de redimensionado (modo esquema)
+  // Bloque: track 62px − 6px top − 6px bottom = 50px de alto.
+  // Asa: 2/3 de esa altura, centrada verticalmente en el bloque.
+  const SCHEMA_HND_W   = 12;
+  const SCHEMA_HND_H   = Math.round(50 * 2 / 3);                      // ≈ 33 px
+  const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);     // ≈ 14 px desde el top del track
+
   const activeAt = {};
   for (const b of blocks) { if (!b.isPreview && time >= b.start && time < b.end) activeAt[b.level] = b.id; }
   const selBlock = selected ? blocks.find(b => b.id === selected) : null;
@@ -1913,7 +1928,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
-            <WaveformDisplay time={time} duration={duration} allIntervals={[]} exerciseId={exercise.id}
+            <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} allIntervals={[]} exerciseId={exercise.id}
               waveformData={waveformData} colorByFn={{}} questionRegion={null}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
@@ -1961,6 +1976,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               if (Math.abs(lvBlocks[i].end - lvBlocks[i + 1].start) < 0.5)
                 adjacentPairs.push({ left: lvBlocks[i], right: lvBlocks[i + 1] });
             }
+            // Sets para saber qué bordes de bloque están cubiertos por un asa común
+            const adjLeftIds  = new Set(adjacentPairs.map(p => p.right.id));
+            const adjRightIds = new Set(adjacentPairs.map(p => p.left.id));
             return (
             <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
               style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
@@ -1989,13 +2007,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                     onMouseDown={e => !block.isPreview && handleBlockDown(e, block, "move")}
                     onTouchStart={e => !block.isPreview && handleBlockDown(e, block, "move")}
                     onDoubleClick={() => { if (!block.isPreview) { setEditId(block.id); setEditVal(block.label); } }}>
-                    {!block.isPreview && (
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderRight: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
-                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
-                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
-                      </div>
-                    )}
                     {editId === block.id ? (
                       <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                         onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
@@ -2006,40 +2017,52 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         {block.label}
                       </span>
                     )}
-                    {!block.isPreview && (
-                      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
-                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
-                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
-                      </div>
-                    )}
                   </div>
                 );
               })}
-              {/* Asas de límite común — visibles solo cuando ninguno de los dos bloques está seleccionado */}
-              {adjacentPairs.map(({ left, right }) => {
-                if (selected === left.id || selected === right.id) return null;
-                return (
-                  <div key={`sh-${left.id}-${right.id}`} data-block="true"
-                    title="Arrastra para mover el límite común"
-                    style={{
-                      position: "absolute", top: "14%", bottom: "14%",
-                      left: `${(left.end / duration) * 100}%`,
-                      width: 12, transform: "translateX(-50%)",
-                      background: "rgba(26,25,21,0.28)",
-                      border: "1px solid rgba(255,255,255,0.50)",
-                      borderRadius: 4, cursor: "col-resize", zIndex: 9,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      boxShadow: "0 1px 5px rgba(0,0,0,0.18)",
-                    }}
-                    onMouseDown={e => handleSharedHandleDown(e, left, right)}
-                    onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>
-                      {[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.88)" }} />)}
-                    </div>
-                  </div>
-                );
+              {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
+              {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
+                const hBase = {
+                  position: "absolute", top: SCHEMA_HND_TOP,
+                  width: SCHEMA_HND_W, height: SCHEMA_HND_H,
+                  background: "rgba(255,255,255,0.88)", borderRadius: 5,
+                  cursor: "ew-resize", zIndex: 10,
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                };
+                const out = [];
+                if (!adjLeftIds.has(block.id))
+                  out.push(
+                    <div key={`hl-${block.id}`} data-block="true"
+                      style={{ ...hBase, left: `calc(${(block.start / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+                    />
+                  );
+                if (!adjRightIds.has(block.id))
+                  out.push(
+                    <div key={`hr-${block.id}`} data-block="true"
+                      style={{ ...hBase, left: `calc(${(block.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+                    />
+                  );
+                return out;
               })}
+              {/* ── Asas comunes (límite compartido entre dos bloques adyacentes) ── */}
+              {adjacentPairs.map(({ left, right }) => (
+                <div key={`sh-${left.id}-${right.id}`} data-block="true"
+                  title="Arrastra para mover el límite común"
+                  style={{
+                    position: "absolute", zIndex: 11, cursor: "col-resize",
+                    top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H,
+                    left: `calc(${(left.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)`,
+                    background: "rgba(255,255,255,0.88)", borderRadius: 5,
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                  }}
+                  onMouseDown={e => handleSharedHandleDown(e, left, right)}
+                  onTouchStart={e => handleSharedHandleDown(e, left, right)}
+                />
+              ))}
             </div>
             );
           })}
@@ -2073,7 +2096,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
             </div>
           ))}
-          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Borde = redimensiona y aprieta al vecino · Asa central = límite común</span>
+          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques</span>
         </div>
       </div>
     </div>
@@ -2330,7 +2353,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
   const {
     time, playing, audioReady, audioError, hasAudio,
-    togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd,
+    timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd,
   } = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
 
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
@@ -2379,7 +2402,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
-            <WaveformDisplay time={time} duration={dur} allIntervals={[]}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={{}} questionRegion={questionRegion}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
