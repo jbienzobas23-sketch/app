@@ -1920,6 +1920,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     setEditId(null); setEditVal("");
   };
   const handleTrackDown = (e, lvId) => {
+    if (editId) commitEdit();
     if (e.target.closest("[data-block]")) return;
     const el = trackRefs.current[lvId]; if (!el) return;
     const r = el.getBoundingClientRect();
@@ -1928,6 +1929,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     setSelected(null); e.preventDefault();
   };
   const handleBlockDown = (e, block, type = "move") => {
+    if (editId && editId !== block.id) commitEdit();
     if (editId === block.id) return;
     e.stopPropagation(); setSelected(block.id);
     const el = trackRefs.current[block.level]; if (!el) return;
@@ -1950,6 +1952,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   // Asa de límite común — mueve el borde final del bloque izquierdo y el borde inicial del derecho a la vez
   const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
+    if (editId) commitEdit();
     e.stopPropagation();
     const el = trackRefs.current[leftBlock.level]; if (!el) return;
     const r  = el.getBoundingClientRect();
