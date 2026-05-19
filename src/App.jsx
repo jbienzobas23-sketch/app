@@ -92,9 +92,99 @@ const SCHEMA_DEFAULT_LABELS = {
 };
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
-const SCHEMA_CLICK_MS       = 320;   // umbral temporal para considerar "clic breve"
-const SCHEMA_CLICK_MOVE_THR = 6;     // píxeles de tolerancia de movimiento para ignorar roces
-const SCHEMA_CLICK_DUR_FRAC = 0.12;  // fracción de la duración total para el bloque creado por clic
+const SCHEMA_CLICK_MS       = 320;
+const SCHEMA_CLICK_MOVE_THR = 6;
+const SCHEMA_CLICK_DUR_FRAC = 0.12;
+const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px) — hitbox permanece en SCHEMA_HND_W
+
+// ─── Sistema de color por tonalidad (nivel Armonía) ──────────────────────────
+// Tabla maestra: "tonica|modo" → color hex  (tónica en minúscula, bemoles como "b")
+// Orden siguiendo el círculo de quintas del PDF.
+const HARMONY_COLORS = {
+  "si|mayor":   "#FF4F4F",
+  "sol#|menor": "#E64545",
+  "lab|menor":  "#E64545",
+  "mi|mayor":   "#FF8666",
+  "do#|menor":  "#E67658",
+  "reb|menor":  "#E67658",
+  "la|mayor":   "#FFB86B",
+  "fa#|menor":  "#E6A05A",
+  "solb|menor": "#E6A05A",
+  "re|mayor":   "#FFE66D",
+  "si|menor":   "#E6D15A",
+  "sol|mayor":  "#C7E96A",
+  "mi|menor":   "#AFCF5A",
+  "do|mayor":   "#CAEDFB",
+  "la|menor":   "#8FC6E8",
+  "fa|mayor":   "#FEB8EA",
+  "re|menor":   "#E6A3D3",
+  "sib|mayor":  "#FE6AB4",
+  "fa#|menor":  "#D4559A",   // Fa# menor = relativa de Sib Mayor (enarmónico Solb menor)
+  "solb|menor": "#D4559A",
+  "mib|mayor":  "#E07FB8",
+  "do|menor":   "#B86FA3",
+  "lab|mayor":  "#D6A6FF",
+  "fa|menor":   "#A98AD6",
+  "reb|mayor":  "#A98BFF",
+  "sib|menor":  "#7F66C9",
+  "solb|mayor": "#9C5ACE",
+  "mib|menor":  "#6E3FAF",
+};
+
+// Parsea un label y devuelve { tonica, modo } o null.
+// Clave: preserva la caja de la M/m original para distinguir Mayor de menor
+// ANTES de hacer toLowerCase.
+function parseHarmonyLabel(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+
+  // ── 1. Detectar modo mirando el label ORIGINAL (caja preservada) ──────────
+  // Probamos de más específico a menos:
+  let modo = null;
+  let rest = s;
+
+  if (/\bmayor\b/i.test(s))       { modo = "mayor"; rest = s.replace(/\s*\bmayor\b\s*/i, " "); }
+  else if (/\bmenor\b/i.test(s))  { modo = "menor"; rest = s.replace(/\s*\bmenor\b\s*/i, " "); }
+  else {
+    // Abreviatura M o m — debe ser el ÚLTIMO carácter no-espacio
+    const lastSig = s.replace(/\s+$/, "").slice(-1);
+    if (lastSig === "M")       { modo = "mayor"; rest = s.replace(/\s*M\s*$/, ""); }
+    else if (lastSig === "m")  { modo = "menor"; rest = s.replace(/\s*m\s*$/, ""); }
+  }
+  if (!modo) return null;
+
+  // ── 2. Normalizar la tónica ───────────────────────────────────────────────
+  let t = rest.trim().toLowerCase();
+
+  // Bemoles escritos con "b" pegado (Sib, Mib, Lab, Reb, Solb)
+  // Convertir a forma interna con "b" al final de la nota (ya en minúscula)
+  // Sólo si el "b" sigue INMEDIATAMENTE a la nota sin espacio:
+  t = t.replace(/\s+/g, "");   // "Sol b" → "solb", "Do #" → "do#"
+  t = t.replace(/♭/g, "b").replace(/♯/g, "#");
+
+  // Enarmónicos → forma canónica del mapa
+  const ENARM = { "re#":"mib", "mi#":"fa", "la#":"sib", "si#":"do" };
+  t = ENARM[t] ?? t;
+
+  return { tonica: t, modo };
+}
+
+// Devuelve { bg, textColor } para un bloque del nivel Armonía.
+function harmonyBlockColors(label, fallbackColor) {
+  const parsed = parseHarmonyLabel(label);
+  let bg = fallbackColor;
+  if (parsed) {
+    const key = `${parsed.tonica}|${parsed.modo}`;
+    bg = HARMONY_COLORS[key] ?? fallbackColor;
+  }
+  if (!bg || bg[0] !== "#") return { bg: bg || fallbackColor, textColor: "#FFFFFF" };
+  const r = parseInt(bg.slice(1,3),16)/255;
+  const g = parseInt(bg.slice(3,5),16)/255;
+  const b = parseInt(bg.slice(5,7),16)/255;
+  const lin = c => c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+  const L   = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+  return { bg, textColor: L > 0.35 ? "#1C1A14" : "#FFFFFF" };
+}
 
 const INIT_EXERCISES = [
   {
@@ -1785,9 +1875,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     setBlocks([]); setSelected(null); setEditId(null); setEditVal("");
   };
 
-  const trackRefs  = useRef({});
-  const dragRef    = useRef(null);
-  const blocksRef  = useRef(blocks);
+  const trackRefs    = useRef({});
+  const dragRef      = useRef(null);
+  const blocksRef    = useRef(blocks);
+  const colorInputRef = useRef(null);
   blocksRef.current = blocks;
 
   // Ruler width → adaptive ticks
@@ -2127,10 +2218,18 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               {blocks.filter(b => b.level === lv.id).map(block => {
                 const isActive = activeAt[lv.id] === block.id, isSel = selected === block.id;
                 const pct = (block.end - block.start) / duration * 100;
+                // Color efectivo: customColor > armonía automática (nivel 3) > color del nivel
+                const { bg: blockBg, textColor: blockText } = block.isPreview
+                  ? { bg: lv.color, textColor: "#FFFFFF" }
+                  : block.customColor
+                    ? harmonyBlockColors(null, block.customColor)   // fuerza el color custom, calcula contraste
+                    : lv.id === 3
+                      ? harmonyBlockColors(block.label, lv.color)
+                      : { bg: lv.color, textColor: "#FFFFFF" };
                 return (
                   <div key={block.id} data-block="true" style={{
                     position: "absolute", top: 6, bottom: 6, left: `${(block.start / duration) * 100}%`, width: `${pct}%`,
-                    background: block.isPreview ? `${lv.color}38` : lv.color, borderRadius: 5,
+                    background: block.isPreview ? `${blockBg}38` : blockBg, borderRadius: 5,
                     border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
                     boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
                     display: "flex", alignItems: "center", justifyContent: "center",
@@ -2146,7 +2245,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         onClick={e => e.stopPropagation()}
                         style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
                     ) : (
-                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: "white", textShadow: "0 1px 3px rgba(0,0,0,0.28)", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: blockText, textShadow: blockText === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
                         {block.label}
                       </span>
                     )}
@@ -2155,7 +2254,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               })}
               {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
               {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
-                const VISUAL_W = 12;
+                const VISUAL_W = SCHEMA_HND_VISUAL_W;  // 6 px visual; hitbox = SCHEMA_HND_W
                 const hHitbox = {
                   position: "absolute", top: SCHEMA_HND_TOP,
                   width: SCHEMA_HND_W, height: SCHEMA_HND_H,
@@ -2202,7 +2301,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   }}
                   onMouseDown={e => handleSharedHandleDown(e, left, right)}
                   onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-                  <div style={{ width: 12, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+                  <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
                 </div>
               ))}
             </div>
@@ -2216,6 +2315,41 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <div style={{ width: 8, height: 8, borderRadius: 2, background: selLv.color, flexShrink: 0 }} />
               <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
               <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
+              {/* ── Pastilla de color custom ── */}
+              {(() => {
+                const { bg: swatchBg } = selBlock.customColor
+                  ? harmonyBlockColors(null, selBlock.customColor)
+                  : selLv.id === 3
+                    ? harmonyBlockColors(selBlock.label, selLv.color)
+                    : { bg: selLv.color };
+                return (
+                  <span title="Cambiar color del bloque" style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+                    <span
+                      onClick={() => colorInputRef.current?.click()}
+                      style={{
+                        display: "inline-block", width: 22, height: 22, borderRadius: 5,
+                        background: swatchBg, border: `2px solid ${C.line}`,
+                        boxShadow: "inset 0 1px 2px rgba(0,0,0,0.12)",
+                        cursor: "pointer",
+                      }} />
+                    <input ref={colorInputRef} type="color"
+                      value={swatchBg}
+                      onChange={e => {
+                        const hex = e.target.value;
+                        setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: hex } : b));
+                      }}
+                      style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", top: 0, left: 0, cursor: "pointer", border: "none", padding: 0 }} />
+                  </span>
+                );
+              })()}
+              {selBlock.customColor && (
+                <button
+                  title="Restablecer color automático"
+                  onClick={() => setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: undefined } : b))}
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", color: C.muted, lineHeight: 1 }}>
+                  ↺
+                </button>
+              )}
               <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
               <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
