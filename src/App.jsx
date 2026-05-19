@@ -222,11 +222,18 @@ const toggleInSet = (set, id) => {
 };
 
 // ─── Helpers del modelo Esquema (snap + push) ──────────────────────────────
-function schemaSnapTime(t, blocks, excludeId, duration) {
-  const bounds = [0, duration, ...blocks.filter(b => b.id !== excludeId && !b.isPreview).flatMap(b => [b.start, b.end])];
+// excludeIds: string | string[] | null
+function schemaSnapTime(t, blocks, excludeIds, duration) {
+  const excl = excludeIds == null ? [] : Array.isArray(excludeIds) ? excludeIds : [excludeIds];
+  const bounds = [0, duration, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
   let best = t, bestDist = SCHEMA_SNAP_THR + 0.01;
   for (const bv of bounds) { const d = Math.abs(t - bv); if (d < bestDist) { bestDist = d; best = bv; } }
   return best;
+}
+// Snap con prioridad al cursor de reproducción sobre los límites de bloque
+function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead) {
+  if (Math.abs(t - playhead) <= SCHEMA_SNAP_THR) return playhead;
+  return schemaSnapTime(t, blocks, excludeIds, duration);
 }
 
 function schemaApplyPush(blocks, movedId, level, duration) {
@@ -1678,6 +1685,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd } =
     useAudioPlayer(exercise, { onWaveform });
 
+  // Ref siempre actualizado al tiempo de reproducción — legible dentro de los cierres de drag
+  const timeRef = useRef(0);
+  timeRef.current = time;
+
   const [blocks,   setBlocks]   = useState([]);
   const [selected, setSelected] = useState(null);
   const [editId,   setEditId]   = useState(null);
@@ -1731,7 +1742,11 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     };
     const onMove = e => {
       const d = dragRef.current; if (!d) return;
-      const t = pixToTime(e, d.level), all = blocksRef.current;
+      const t   = pixToTime(e, d.level);
+      const all = blocksRef.current;
+      const ph  = timeRef.current;            // cursor de reproducción en tiempo real
+
+      // ── Crear bloque ────────────────────────────────────────────────────
       if (d.type === "create") {
         let s = Math.min(d.anchor, t), e2 = Math.max(d.anchor, t);
         const ss = schemaSnapTime(s, all, d.pid, duration), se = schemaSnapTime(e2, all, d.pid, duration);
@@ -1740,7 +1755,11 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         if (Math.abs(e2 - se) <= SCHEMA_SNAP_THR) { e2 = se; ng.push(se); }
         setGuides(ng); d.ps = s; d.pe = e2;
         setBlocks(prev => [...prev.filter(b => b.id !== d.pid), { id: d.pid, level: d.level, start: s, end: e2, label: "\u2026", isPreview: true }]);
-      } else if (d.type === "move") {
+        return;
+      }
+
+      // ── Mover bloque (empuja vecinos, mantiene su tamaño) ────────────────
+      if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
         let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
         const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
@@ -1749,12 +1768,50 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
         setGuides([ns, ne]);
         setBlocks(prev => { const placed = prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b); return schemaApplyPush(placed, d.bid, d.level, duration); });
-      } else if (d.type === "resize-l") {
-        const ns = schemaSnapTime(Math.min(t, d.oe - SCHEMA_MIN_DUR), all, d.bid, duration);
-        setGuides([ns]); setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns } : b));
-      } else if (d.type === "resize-r") {
-        const ne = schemaSnapTime(Math.max(t, d.os + SCHEMA_MIN_DUR), all, d.bid, duration);
-        setGuides([ne]); setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, end: ne } : b));
+        return;
+      }
+
+      // ── Redimensionar izquierda: aprieta al vecino izquierdo ─────────────
+      // El cursor de reproducción tiene prioridad de snap sobre los límites de bloque.
+      if (d.type === "resize-l") {
+        const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
+        const minNs  = leftNb ? leftNb.start + SCHEMA_MIN_DUR : 0;
+        let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph);
+        ns = Math.max(minNs, Math.min(ns, d.oe - SCHEMA_MIN_DUR));
+        setGuides([ns]);
+        setBlocks(prev => prev.map(b => {
+          if (b.id === d.bid)                return { ...b, start: ns };
+          if (d.leftId && b.id === d.leftId) return { ...b, end:   ns };  // aprieta
+          return b;
+        }));
+        return;
+      }
+
+      // ── Redimensionar derecha: aprieta al vecino derecho ─────────────────
+      if (d.type === "resize-r") {
+        const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
+        const maxNe   = rightNb ? rightNb.end - SCHEMA_MIN_DUR : duration;
+        let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph);
+        ne = Math.max(d.os + SCHEMA_MIN_DUR, Math.min(ne, maxNe));
+        setGuides([ne]);
+        setBlocks(prev => prev.map(b => {
+          if (b.id === d.bid)                  return { ...b, end:   ne };
+          if (d.rightId && b.id === d.rightId) return { ...b, start: ne };  // aprieta
+          return b;
+        }));
+        return;
+      }
+
+      // ── Asa de límite común: mueve el borde compartido de dos bloques ─────
+      if (d.type === "shared-edge") {
+        let ns = schemaSnapWithPlayhead(t, all, [d.leftId, d.rightId], duration, ph);
+        ns = Math.max(d.leftStart + SCHEMA_MIN_DUR, Math.min(ns, d.rightEnd - SCHEMA_MIN_DUR));
+        setGuides([ns]);
+        setBlocks(prev => prev.map(b => {
+          if (b.id === d.leftId)  return { ...b, end:   ns };
+          if (b.id === d.rightId) return { ...b, start: ns };
+          return b;
+        }));
       }
     };
     const onUp = () => {
@@ -1800,7 +1857,34 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const el = trackRefs.current[block.level]; if (!el) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
-    dragRef.current = { type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end };
+    const sameLevel = blocksRef.current.filter(b => b.level === block.level && b.id !== block.id && !b.isPreview);
+    let extra = {};
+    if (type === "resize-r") {
+      // Vecino derecho inmediato: primer bloque cuyo start >= nuestro end
+      const rn = sameLevel.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
+      extra = { rightId: rn?.id, rightEnd: rn?.end };
+    } else if (type === "resize-l") {
+      // Vecino izquierdo inmediato: último bloque cuyo end <= nuestro start
+      const ln = sameLevel.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
+      extra = { leftId: ln?.id, leftStart: ln?.start };
+    }
+    dragRef.current = { type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end, ...extra };
+    e.preventDefault();
+  };
+
+  // Asa de límite común — mueve el borde final del bloque izquierdo y el borde inicial del derecho a la vez
+  const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
+    e.stopPropagation();
+    const el = trackRefs.current[leftBlock.level]; if (!el) return;
+    const r  = el.getBoundingClientRect();
+    const t  = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
+    dragRef.current = {
+      type: "shared-edge", level: leftBlock.level,
+      leftId:    leftBlock.id,   rightId:   rightBlock.id,
+      leftStart: leftBlock.start,            // fijo para clamping
+      rightEnd:  rightBlock.end,             // fijo para clamping
+      anchor: t, os: leftBlock.end,
+    };
     e.preventDefault();
   };
 
@@ -1867,7 +1951,17 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             <div style={{ position: "absolute", top: "50%", left: `${(time / duration) * 100}%`, transform: "translate(-50%, -50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 11 }} />
           </div>
 
-          {SCHEMA_LEVELS.map((lv, li) => (
+          {SCHEMA_LEVELS.map((lv, li) => {
+            // Detectar pares de bloques yuxtapuestos (touching) para el asa de límite común
+            const lvBlocks = blocks
+              .filter(b => b.level === lv.id && !b.isPreview)
+              .sort((a, b) => a.start - b.start);
+            const adjacentPairs = [];
+            for (let i = 0; i < lvBlocks.length - 1; i++) {
+              if (Math.abs(lvBlocks[i].end - lvBlocks[i + 1].start) < 0.5)
+                adjacentPairs.push({ left: lvBlocks[i], right: lvBlocks[i + 1] });
+            }
+            return (
             <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
               style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
               onMouseDown={e => handleTrackDown(e, lv.id)} onTouchStart={e => handleTrackDown(e, lv.id)}>
@@ -1922,8 +2016,33 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </div>
                 );
               })}
+              {/* Asas de límite común — visibles solo cuando ninguno de los dos bloques está seleccionado */}
+              {adjacentPairs.map(({ left, right }) => {
+                if (selected === left.id || selected === right.id) return null;
+                return (
+                  <div key={`sh-${left.id}-${right.id}`} data-block="true"
+                    title="Arrastra para mover el límite común"
+                    style={{
+                      position: "absolute", top: "14%", bottom: "14%",
+                      left: `${(left.end / duration) * 100}%`,
+                      width: 12, transform: "translateX(-50%)",
+                      background: "rgba(26,25,21,0.28)",
+                      border: "1px solid rgba(255,255,255,0.50)",
+                      borderRadius: 4, cursor: "col-resize", zIndex: 9,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      boxShadow: "0 1px 5px rgba(0,0,0,0.18)",
+                    }}
+                    onMouseDown={e => handleSharedHandleDown(e, left, right)}
+                    onTouchStart={e => handleSharedHandleDown(e, left, right)}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>
+                      {[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.88)" }} />)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -1954,7 +2073,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
             </div>
           ))}
-          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear. Doble clic para renombrar.</span>
+          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Borde = redimensiona y aprieta al vecino · Asa central = límite común</span>
         </div>
       </div>
     </div>
