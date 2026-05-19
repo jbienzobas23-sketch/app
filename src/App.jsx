@@ -961,10 +961,11 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const audioUrl = exercise.audioUrl;
   const hasAudio = !!audioUrl;
 
-  const [time,       setTime]       = useState(0);
-  const [playing,    setPlaying]    = useState(false);
-  const [audioReady, setAudioReady] = useState(false);
-  const [audioError, setAudioError] = useState(null);
+  const [time,          setTime]          = useState(0);
+  const [playing,       setPlaying]       = useState(false);
+  const [audioReady,    setAudioReady]    = useState(false);
+  const [audioError,    setAudioError]    = useState(null);
+  const [audioDuration, setAudioDuration] = useState(exercise.duration);
 
   const ctxRef          = useRef(null);
   const bufferRef       = useRef(null);
@@ -1000,10 +1001,11 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       if (sourceIdRef.current !== myId) return;  // ya hay otra fuente activa → ignorar
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
-        // Asegurar que el tiempo llega exactamente al final antes de parar
-        timeRef.current = dur;
-        playOffsetRef.current = dur;
-        setTime(dur);
+        // Asegurar que el tiempo llega exactamente al final del audio antes de parar
+        const endT = bufferRef.current?.duration ?? dur;
+        timeRef.current = endT;
+        playOffsetRef.current = endT;
+        setTime(endT);
         setPlaying(false);
       }
     };
@@ -1015,6 +1017,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // Carga + decodificación cuando cambia el ejercicio
   useEffect(() => {
     setTime(0); setPlaying(false); setAudioReady(false); setAudioError(null);
+    setAudioDuration(exercise.duration);
     playOffsetRef.current = 0;
     bufferRef.current     = null;
     if (!hasAudio) return;
@@ -1031,6 +1034,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         const decoded = await ctx.decodeAudioData(buf);
         if (cancelled) return;
         bufferRef.current = decoded;
+        setAudioDuration(decoded.duration);
         setAudioReady(true);
         onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
       } catch { if (!cancelled) setAudioError("Error al decodificar el audio"); }
@@ -1082,12 +1086,13 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           setTime(lq.audioStart);
           startSource(lq.audioStart);
         } else {
-          const t = Math.min(dur, rawT);
+          const effectiveDur = bufferRef.current?.duration ?? dur;
+          const t = Math.min(effectiveDur, rawT);
           timeRef.current = t;
           setTime(t);
-          if (!lq && rawT >= dur) {
-            timeRef.current = dur;
-            setTime(dur);
+          if (!lq && rawT >= effectiveDur) {
+            timeRef.current = effectiveDur;
+            setTime(effectiveDur);
             setPlaying(false);
             return;
           }
@@ -1150,6 +1155,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     time, setTime, playing, setPlaying,
     audioReady, audioError, hasAudio,
     timeRef, playOffsetRef,
+    audioDuration,
     togglePlay, seekTo, playFrom,
     scrubBegin, scrubTo, scrubEnd,
   };
@@ -1157,7 +1163,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
-  time, timeRef: timeRefProp, duration, allIntervals, exerciseId, waveformData,
+  time, timeRef: timeRefProp, duration, waveformDuration,
+  allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
@@ -1168,7 +1175,8 @@ function WaveformDisplay({
   );
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
-    time, timeRef: timeRefProp, allIntervals, waveData, duration, colorByFn, questionRegion,
+    time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
+    colorByFn, questionRegion,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -1207,7 +1215,7 @@ function WaveformDisplay({
     };
 
     const draw = () => {
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height, mid = H / 2;
@@ -1215,6 +1223,8 @@ function WaveformDisplay({
       const pxPerSec = W / VISIBLE_SECS;
       const centerK  = Math.floor(t / secPerBar);
       const kMin = centerK - halfBars - 1, kMax = centerK + halfBars + 1;
+      // wDur: duración real del audio; dur: duración del ejercicio (para eventos/bloques)
+      const effectiveWDur = wDur || dur;
 
       ctx.fillStyle = C.paper2;
       ctx.fillRect(0, 0, W, H);
@@ -1227,7 +1237,7 @@ function WaveformDisplay({
           ctx.fillRect(xLeft, mid - 2, drawW, 4);
           continue;
         }
-        const si = Math.min(Math.round((barTime / dur) * (wd.length - 1)), wd.length - 1);
+        const si = Math.min(Math.round((barTime / effectiveWDur) * (wd.length - 1)), wd.length - 1);
         const h  = Math.max(1.5, wd[si] * (mid - 4));
         let fn = null;
         for (let j = 0; j < ivs.length; j++) {
@@ -1445,7 +1455,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
   const {
     time, playing, audioReady, audioError, hasAudio,
-    timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd,
+    timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = useAudioPlayer(exercise, { onWaveform });
 
   const intervals    = intervalsByCategory[currentCategoryId] || [];
@@ -1618,7 +1628,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}` }}>
-            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={allIv}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -1716,7 +1726,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const duration = exercise.duration;
   const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
-  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, timeRef: audioTimeRef } =
+  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, timeRef: audioTimeRef, audioDuration } =
     useAudioPlayer(exercise, { onWaveform });
 
   // Ref siempre actualizado al tiempo de reproducción — legible dentro de los cierres de drag
@@ -1754,11 +1764,12 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const rect = el.getBoundingClientRect();
     const toT  = x => Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
     const getX = ev => ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
-    scrubBegin();
-    scrubTo(toT(getX(e)));
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); scrubTo(toT(getX(ev))); };
+    // Usar seekTo (seek atómico) en lugar del mecanismo scrubBegin/scrubTo/scrubEnd,
+    // que está diseñado para el arrastre relativo de la onda y provoca inconsistencias
+    // de estado cuando se usa para seek absoluto desde la barra de navegación.
+    seekTo(toT(getX(e)));
+    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(toT(getX(ev))); };
     const up = () => {
-      scrubEnd();
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
     };
@@ -1961,7 +1972,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
-            <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} allIntervals={[]} exerciseId={exercise.id}
+            <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} waveformDuration={audioDuration} allIntervals={[]} exerciseId={exercise.id}
               waveformData={waveformData} colorByFn={{}} questionRegion={null}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
@@ -2405,7 +2416,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
   const {
     time, playing, audioReady, audioError, hasAudio,
-    timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd,
+    timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
 
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
@@ -2454,7 +2465,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
-            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={[]}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={{}} questionRegion={questionRegion}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -3792,7 +3803,7 @@ function QuestionManagerView({ exercise, onSave, onBack }) {
   // QMV usa exercise.waveformData directamente — sin callback de onWaveform
   const {
     time, playing, audioReady, audioError, hasAudio,
-    togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd,
+    togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = useAudioPlayer(exercise);
 
   // Espacio = Play/Pausa (excepto si hay un input/textarea/button con foco)
@@ -3872,7 +3883,7 @@ function QuestionManagerView({ exercise, onSave, onBack }) {
               const selQ    = questions.find((q) => q.id === selectedQId);
               const qRegion = selQ ? { start: selQ.audioStart, end: selQ.audioEnd, color: C.quiz } : null;
               return (
-                <WaveformDisplay time={time} duration={dur} allIntervals={[]}
+                <WaveformDisplay time={time} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
                   exerciseId={exercise.id} waveformData={exercise.waveformData || null}
                   colorByFn={{}} questionRegion={qRegion}
                   onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
