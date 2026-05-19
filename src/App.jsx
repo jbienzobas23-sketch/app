@@ -88,7 +88,7 @@ const SCHEMA_LEVELS = [
 const SCHEMA_DEFAULT_LABELS = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
   2: ["a", "b", "c", "d", "e", "a'", "b'"],
-  3: ["Sol M", "Do M", "Re M", "Mi m", "Fa M", "La m", "Re m", "Si♭ M"],
+  3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
 };
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
@@ -1760,10 +1760,30 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   timeRef.current = time;
 
   const [blocks,   setBlocks]   = useState([]);
+  const [history,  setHistory]  = useState([]);   // stack de snapshots para deshacer
   const [selected, setSelected] = useState(null);
   const [editId,   setEditId]   = useState(null);
   const [editVal,  setEditVal]  = useState("");
   const [guides,   setGuides]   = useState([]);
+
+  // Guarda snapshot antes de una operación destructiva y actualiza blocks
+  const setBlocksWithHistory = (updater) => {
+    setHistory(prev => [...prev, blocksRef.current]);
+    setBlocks(updater);
+  };
+  const undo = () => {
+    setHistory(prev => {
+      if (prev.length === 0) return prev;
+      const snapshot = prev[prev.length - 1];
+      setBlocks(snapshot);
+      setSelected(null); setEditId(null); setEditVal("");
+      return prev.slice(0, -1);
+    });
+  };
+  const resetAll = () => {
+    setHistory([]);
+    setBlocks([]); setSelected(null); setEditId(null); setEditVal("");
+  };
 
   const trackRefs  = useRef({});
   const dragRef    = useRef(null);
@@ -1928,8 +1948,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           } else {
             setBlocks(prev => prev.map(b => b.id === d.pid ? { ...b, label, isPreview: false } : b));
           }
-          setEditId(d.pid); setEditVal(label); setSelected(d.pid);
+          setSelected(d.pid);
         } else {
+          // Creación cancelada — revertir el snapshot guardado
+          setHistory(prev => prev.slice(0, -1));
           setBlocks(prev => prev.filter(b => b.id !== d.pid));
         }
       }
@@ -1957,6 +1979,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const el = trackRefs.current[lvId]; if (!el) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
+    // Guardar snapshot antes de crear
+    setHistory(prev => [...prev, blocksRef.current]);
     dragRef.current = { type: "create", level: lvId, anchor: t, pid: uid("sb"), ps: t, pe: t, downTime: Date.now(), downX: getClientX(e) };
     setSelected(null); e.preventDefault();
   };
@@ -1964,6 +1988,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     if (editId) commitEdit();
     // Para "move", si el bloque estaba en edición, solo confirmamos y no iniciamos drag
     if (type === "move" && editId === block.id) return;
+    // Guardar snapshot antes de mover/redimensionar
+    setHistory(prev => [...prev, blocksRef.current]);
     e.stopPropagation(); setSelected(block.id);
     const el = trackRefs.current[block.level]; if (!el) return;
     const r = el.getBoundingClientRect();
@@ -1986,6 +2012,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   // Asa de límite común — mueve el borde final del bloque izquierdo y el borde inicial del derecho a la vez
   const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
     if (editId) commitEdit();
+    // Guardar snapshot antes de mover límite compartido
+    setHistory(prev => [...prev, blocksRef.current]);
     e.stopPropagation();
     const el = trackRefs.current[leftBlock.level]; if (!el) return;
     const r  = el.getBoundingClientRect();
@@ -2003,7 +2031,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   // Dimensiones de las asas de redimensionado (modo esquema)
   // Bloque: track 62px − 6px top − 6px bottom = 50px de alto.
   // Asa: 2/3 de esa altura, centrada verticalmente en el bloque.
-  const SCHEMA_HND_W   = 12;
+  const SCHEMA_HND_W   = 18;
   const SCHEMA_HND_H   = Math.round(50 * 2 / 3);                      // ≈ 33 px
   const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);     // ≈ 14 px desde el top del track
 
@@ -2026,7 +2054,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         <span style={{ ...S.badge, background: `${C.fnD}1C`, color: C.fnD, border: `1px solid ${C.fnD}45`, padding: "4px 12px", fontSize: 11, fontWeight: 700, letterSpacing: 0.9, flexShrink: 0 }}>ESQUEMA</span>
       </div>
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 60px" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 60px" }}
+        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}
+        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}>
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
@@ -2041,7 +2071,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
               <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }}
                 primary size={48} disabled={hasAudio && !audioReady && !audioError}>
-                {playing ? "||" : ">"}
+                {playing ? "❚❚" : "▶"}
               </CircleButton>
               <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
             </div>
@@ -2125,29 +2155,37 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               })}
               {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
               {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
-                const hBase = {
+                const VISUAL_W = 12;
+                const hHitbox = {
                   position: "absolute", top: SCHEMA_HND_TOP,
                   width: SCHEMA_HND_W, height: SCHEMA_HND_H,
+                  background: "transparent", cursor: "ew-resize", zIndex: 10,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                };
+                const hVisual = {
+                  width: VISUAL_W, height: "100%",
                   background: "rgba(255,255,255,0.88)", borderRadius: 5,
-                  cursor: "ew-resize", zIndex: 10,
                   boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                  pointerEvents: "none",
                 };
                 const out = [];
                 if (!adjLeftIds.has(block.id))
                   out.push(
                     <div key={`hl-${block.id}`} data-block="true"
-                      style={{ ...hBase, left: `calc(${(block.start / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      style={{ ...hHitbox, left: `calc(${(block.start / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
                       onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-                    />
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
+                      <div style={hVisual} />
+                    </div>
                   );
                 if (!adjRightIds.has(block.id))
                   out.push(
                     <div key={`hr-${block.id}`} data-block="true"
-                      style={{ ...hBase, left: `calc(${(block.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      style={{ ...hHitbox, left: `calc(${(block.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
                       onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-                    />
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
+                      <div style={hVisual} />
+                    </div>
                   );
                 return out;
               })}
@@ -2159,12 +2197,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                     position: "absolute", zIndex: 11, cursor: "col-resize",
                     top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H,
                     left: `calc(${(left.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)`,
-                    background: "rgba(255,255,255,0.88)", borderRadius: 5,
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                    background: "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
                   }}
                   onMouseDown={e => handleSharedHandleDown(e, left, right)}
-                  onTouchStart={e => handleSharedHandleDown(e, left, right)}
-                />
+                  onTouchStart={e => handleSharedHandleDown(e, left, right)}>
+                  <div style={{ width: 12, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+                </div>
               ))}
             </div>
             );
@@ -2178,7 +2217,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
               <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
               <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
-              <button onClick={() => { setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
+              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
           ) : (
             <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
@@ -2187,6 +2226,20 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""}. Selecciona uno para editar.`}
             </div>
           )}
+          <button
+            onClick={undo}
+            disabled={history.length === 0}
+            title="Deshacer"
+            style={{ ...S.btn, padding: "8px 12px", fontSize: 16, lineHeight: 1, opacity: history.length === 0 ? 0.35 : 1, cursor: history.length === 0 ? "not-allowed" : "pointer" }}>
+            ↩
+          </button>
+          <button
+            onClick={resetAll}
+            disabled={blocks.filter(b => !b.isPreview).length === 0}
+            title="Empezar de nuevo"
+            style={{ ...S.btn, fontSize: 12, opacity: blocks.filter(b => !b.isPreview).length === 0 ? 0.35 : 1, cursor: blocks.filter(b => !b.isPreview).length === 0 ? "not-allowed" : "pointer" }}>
+            ✕ Borrar todo
+          </button>
           <PillSubmitButton onClick={handleSubmit}>
             {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
