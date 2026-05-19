@@ -90,8 +90,11 @@ const SCHEMA_DEFAULT_LABELS = {
   2: ["a", "b", "c", "d", "e", "a'", "b'"],
   3: ["Sol M", "Do M", "Re M", "Mi m", "Fa M", "La m", "Re m", "Si♭ M"],
 };
-const SCHEMA_SNAP_THR = 2.8;
-const SCHEMA_MIN_DUR  = 2;
+const SCHEMA_SNAP_THR       = 2.8;
+const SCHEMA_MIN_DUR        = 2;
+const SCHEMA_CLICK_MS       = 320;   // umbral temporal para considerar "clic breve"
+const SCHEMA_CLICK_MOVE_THR = 6;     // píxeles de tolerancia de movimiento para ignorar roces
+const SCHEMA_CLICK_DUR_FRAC = 0.12;  // fracción de la duración total para el bloque creado por clic
 
 const INIT_EXERCISES = [
   {
@@ -1890,16 +1893,45 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         }));
       }
     };
-    const onUp = () => {
+    const onUp = (upEvt) => {
       const d = dragRef.current; if (!d) return;
       if (d.type === "create") {
         const dur2 = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
-        if (dur2 >= SCHEMA_MIN_DUR) {
-          const n = blocksRef.current.filter(b => b.level === d.level && !b.isPreview).length;
+        const elapsed  = Date.now() - (d.downTime ?? 0);
+        const movedPx  = Math.abs((upEvt?.changedTouches?.[0]?.clientX ?? upEvt?.clientX ?? d.downX) - (d.downX ?? 0));
+        const isClick  = elapsed < SCHEMA_CLICK_MS && movedPx < SCHEMA_CLICK_MOVE_THR;
+
+        if (dur2 >= SCHEMA_MIN_DUR || isClick) {
+          const n     = blocksRef.current.filter(b => b.level === d.level && !b.isPreview).length;
           const label = SCHEMA_DEFAULT_LABELS[d.level]?.[n] ?? String(n + 1);
-          setBlocks(prev => prev.map(b => b.id === d.pid ? { ...b, label, isPreview: false } : b));
+
+          if (isClick && dur2 < SCHEMA_MIN_DUR) {
+            // Clic breve: crear bloque de tamaño cómodo centrado en el punto de clic
+            const defaultDur = Math.max(SCHEMA_MIN_DUR * 2, duration * SCHEMA_CLICK_DUR_FRAC);
+            let ns = Math.max(0, d.anchor - defaultDur / 2);
+            let ne = ns + defaultDur;
+            if (ne > duration) { ne = duration; ns = Math.max(0, ne - defaultDur); }
+            // Evitar solapamiento con bloques existentes del mismo nivel
+            const same = blocksRef.current.filter(b => b.level === d.level && !b.isPreview);
+            for (const nb of same) {
+              if (ns < nb.end && ne > nb.start) {
+                // Intentar colocarlo a la derecha del vecino
+                if (nb.end + defaultDur <= duration) { ns = nb.end; ne = ns + defaultDur; }
+                // Si no cabe, a la izquierda
+                else if (nb.start - defaultDur >= 0) { ne = nb.start; ns = ne - defaultDur; }
+              }
+            }
+            setBlocks(prev => [
+              ...prev.filter(b => b.id !== d.pid),
+              { id: d.pid, level: d.level, start: ns, end: ne, label, isPreview: false },
+            ]);
+          } else {
+            setBlocks(prev => prev.map(b => b.id === d.pid ? { ...b, label, isPreview: false } : b));
+          }
           setEditId(d.pid); setEditVal(label); setSelected(d.pid);
-        } else { setBlocks(prev => prev.filter(b => b.id !== d.pid)); }
+        } else {
+          setBlocks(prev => prev.filter(b => b.id !== d.pid));
+        }
       }
       setGuides([]); dragRef.current = null;
     };
@@ -1925,7 +1957,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const el = trackRefs.current[lvId]; if (!el) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
-    dragRef.current = { type: "create", level: lvId, anchor: t, pid: uid("sb"), ps: t, pe: t };
+    dragRef.current = { type: "create", level: lvId, anchor: t, pid: uid("sb"), ps: t, pe: t, downTime: Date.now(), downX: getClientX(e) };
     setSelected(null); e.preventDefault();
   };
   const handleBlockDown = (e, block, type = "move") => {
