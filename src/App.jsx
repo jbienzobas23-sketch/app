@@ -1929,8 +1929,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     setSelected(null); e.preventDefault();
   };
   const handleBlockDown = (e, block, type = "move") => {
-    if (editId && editId !== block.id) commitEdit();
-    if (editId === block.id) return;
+    if (editId) commitEdit();
+    // Para "move", si el bloque estaba en edición, solo confirmamos y no iniciamos drag
+    if (type === "move" && editId === block.id) return;
     e.stopPropagation(); setSelected(block.id);
     const el = trackRefs.current[block.level]; if (!el) return;
     const r = el.getBoundingClientRect();
