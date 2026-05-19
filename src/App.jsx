@@ -1875,9 +1875,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     setBlocks([]); setSelected(null); setEditId(null); setEditVal("");
   };
 
-  const trackRefs  = useRef({});
-  const dragRef    = useRef(null);
-  const blocksRef  = useRef(blocks);
+  const trackRefs    = useRef({});
+  const dragRef      = useRef(null);
+  const blocksRef    = useRef(blocks);
+  const colorInputRef = useRef(null);
   blocksRef.current = blocks;
 
   // Ruler width → adaptive ticks
@@ -2315,38 +2316,32 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
               <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
               {/* ── Pastilla de color custom ── */}
-              <label title="Cambiar color del bloque" style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "pointer", flexShrink: 0 }}>
-                {(() => {
-                  const { bg: swatchBg } = selBlock.customColor
-                    ? harmonyBlockColors(null, selBlock.customColor)
-                    : selLv.id === 3
-                      ? harmonyBlockColors(selBlock.label, selLv.color)
-                      : { bg: selLv.color };
-                  return (
-                    <span style={{
-                      display: "inline-block", width: 22, height: 22, borderRadius: 5,
-                      background: swatchBg,
-                      border: `2px solid ${C.line}`,
-                      boxShadow: "inset 0 1px 2px rgba(0,0,0,0.12)",
-                      transition: "border-color .12s",
-                    }} />
-                  );
-                })()}
-                <input type="color"
-                  value={(() => {
-                    const { bg } = selBlock.customColor
-                      ? harmonyBlockColors(null, selBlock.customColor)
-                      : selLv.id === 3
-                        ? harmonyBlockColors(selBlock.label, selLv.color)
-                        : { bg: selLv.color };
-                    return bg;
-                  })()}
-                  onChange={e => {
-                    const hex = e.target.value;
-                    setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: hex } : b));
-                  }}
-                  style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }} />
-              </label>
+              {(() => {
+                const { bg: swatchBg } = selBlock.customColor
+                  ? harmonyBlockColors(null, selBlock.customColor)
+                  : selLv.id === 3
+                    ? harmonyBlockColors(selBlock.label, selLv.color)
+                    : { bg: selLv.color };
+                return (
+                  <span title="Cambiar color del bloque" style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+                    <span
+                      onClick={() => colorInputRef.current?.click()}
+                      style={{
+                        display: "inline-block", width: 22, height: 22, borderRadius: 5,
+                        background: swatchBg, border: `2px solid ${C.line}`,
+                        boxShadow: "inset 0 1px 2px rgba(0,0,0,0.12)",
+                        cursor: "pointer",
+                      }} />
+                    <input ref={colorInputRef} type="color"
+                      value={swatchBg}
+                      onChange={e => {
+                        const hex = e.target.value;
+                        setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: hex } : b));
+                      }}
+                      style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", top: 0, left: 0, cursor: "pointer", border: "none", padding: 0 }} />
+                  </span>
+                );
+              })()}
               {selBlock.customColor && (
                 <button
                   title="Restablecer color automático"
