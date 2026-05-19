@@ -95,6 +95,153 @@ const SCHEMA_MIN_DUR        = 2;
 const SCHEMA_CLICK_MS       = 320;   // umbral temporal para considerar "clic breve"
 const SCHEMA_CLICK_MOVE_THR = 6;     // píxeles de tolerancia de movimiento para ignorar roces
 const SCHEMA_CLICK_DUR_FRAC = 0.12;  // fracción de la duración total para el bloque creado por clic
+const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px) — hitbox permanece en SCHEMA_HND_W
+
+// ─── Mapa de colores por tonalidad (nivel Armonía) ────────────────────────────
+// Clave normalizada: "si m", "do m", "fa# m", etc.  Valor: color hex.
+const HARMONY_COLOR_MAP = (() => {
+  // Tonalidades Mayores y menores con sus alias (sostenidos = #, bemoles = b/♭)
+  const entries = [
+    // Mayor
+    [["si m","sim","si mayor","si mayor"],       "#FF4F4F"],
+    [["sol# m","sol#m","sol# menor","sol#menor"], "#E64545"],
+    [["mi m","mim","mi mayor","mi mayor"],        "#FF8666"],
+    [["do# m","do#m","do# menor","do#menor","reb m","rebm","reb mayor","reb mayor"], "#E67658"],
+    [["la m","lam","la mayor","la mayor"],        "#FFB86B"],
+    [["fa# m","fa#m","fa# menor","fa#menor","solb m","slobm","solb mayor","solb mayor"], "#E6A05A"],
+    [["re m","rem","re mayor","re mayor"],        "#FFE66D"],
+    [["si m","sim","si menor"],                   "#E6D15A"],
+    [["sol m","solm","sol mayor","sol mayor"],    "#C7E96A"],
+    [["mi m","mim","mi menor"],                   "#AFCF5A"],
+    [["do m","dom","do mayor","do mayor"],        "#CAEDFB"],
+    [["la m","lam","la menor"],                   "#8FC6E8"],
+    [["fa m","fam","fa mayor","fa mayor"],        "#FEB8EA"],
+    [["re m","rem","re menor"],                   "#E6A3D3"],
+    [["sib m","sibm","si♭ m","si♭m","sib mayor","si♭ mayor"], "#FE6AB4"],
+    [["solb m","solbm","sol♭ m","sol♭m","fa# m","fa#m","fa# menor","fa#menor","solb menor","sol♭ menor"], "#D4559A"],
+    [["mib m","mibm","mi♭ m","mi♭m","mib mayor","mi♭ mayor"], "#E07FB8"],
+    [["do m","dom","do menor"],                   "#B86FA3"],
+    [["lab m","labm","la♭ m","la♭m","lab mayor","la♭ mayor"], "#D6A6FF"],
+    [["fa m","fam","fa menor"],                   "#A98AD6"],
+    [["reb m","rebm","re♭ m","re♭m","reb mayor","re♭ mayor"], "#A98BFF"],
+    [["sib m","sibm","si♭ m","si♭m","sib menor","si♭ menor"], "#7F66C9"],
+    [["solb m","solbm","sol♭ m","sol♭m","solb mayor","sol♭ mayor"], "#9C5ACE"],
+    [["mib m","mibm","mi♭ m","mi♭m","mib menor","mi♭ menor"], "#6E3FAF"],
+  ];
+  // Mapa explícito más claro por tónica + modo
+  const EXPLICIT = {
+    // Si Mayor / Sol# menor
+    "si m":    "#FF4F4F",
+    "si mayor":"#FF4F4F",
+    "sol# m":  "#E64545",
+    "sol#m":   "#E64545",
+    "sol# menor":"#E64545",
+    // Mi Mayor / Do# menor
+    "mi m":    "#FF8666",
+    "mi mayor":"#FF8666",
+    "do# m":   "#E67658",
+    "do#m":    "#E67658",
+    "do# menor":"#E67658",
+    // La Mayor / Fa# menor
+    "la m":    "#FFB86B",
+    "la mayor":"#FFB86B",
+    "fa# m":   "#E6A05A",
+    "fa#m":    "#E6A05A",
+    "fa# menor":"#E6A05A",
+    // Re Mayor / Si menor
+    "re m":    "#FFE66D",
+    "re mayor":"#FFE66D",
+    "si menor":"#E6D15A",
+    "si m":    "#E6D15A",   // Si menor tiene prioridad sobre Si Mayor aquí
+    // Sol Mayor / Mi menor
+    "sol m":   "#C7E96A",
+    "sol mayor":"#C7E96A",
+    "mi menor":"#AFCF5A",
+    // Do Mayor / La menor
+    "do mayor":"#CAEDFB",
+    "la menor":"#8FC6E8",
+    // Fa Mayor / Re menor
+    "fa m":    "#FEB8EA",
+    "fa mayor":"#FEB8EA",
+    "re menor":"#E6A3D3",
+    // Sib Mayor / Solb menor
+    "sib m":   "#FE6AB4",
+    "si♭ m":   "#FE6AB4",
+    "sib mayor":"#FE6AB4",
+    "si♭ mayor":"#FE6AB4",
+    "solb m":  "#D4559A",
+    "sol♭ m":  "#D4559A",
+    "solb menor":"#D4559A",
+    // Mib Mayor / Do menor
+    "mib m":   "#E07FB8",
+    "mi♭ m":   "#E07FB8",
+    "mib mayor":"#E07FB8",
+    "mi♭ mayor":"#E07FB8",
+    "do menor":"#B86FA3",
+    "dom":     "#B86FA3",
+    // Lab Mayor / Fa menor
+    "lab m":   "#D6A6FF",
+    "la♭ m":   "#D6A6FF",
+    "lab mayor":"#D6A6FF",
+    "la♭ mayor":"#D6A6FF",
+    "fa menor":"#A98AD6",
+    // Reb Mayor / Sib menor
+    "reb m":   "#A98BFF",
+    "re♭ m":   "#A98BFF",
+    "reb mayor":"#A98BFF",
+    "re♭ mayor":"#A98BFF",
+    "sib menor":"#7F66C9",
+    "si♭ menor":"#7F66C9",
+    // Solb Mayor / Mib menor
+    "solb mayor":"#9C5ACE",
+    "sol♭ mayor":"#9C5ACE",
+    "mib menor":"#6E3FAF",
+    "mi♭ menor":"#6E3FAF",
+  };
+  return EXPLICIT;
+})();
+
+// Normaliza un label de tonalidad a clave del mapa
+function normalizeHarmonyKey(label) {
+  if (!label) return null;
+  let s = label.toLowerCase().trim();
+  // Normalizar bemoles escritos como "b" al final de nota → "♭" (solo cuando precede espacio o m/M/mayor/menor)
+  // Ej: "Sib" → "si♭", "Mib" → "mi♭", pero no "lab" (ya es la♭ o la b)
+  s = s.replace(/\bla\s*b\b/g,  "la♭")
+       .replace(/\bsib\b/g,     "si♭")
+       .replace(/\bmib\b/g,     "mi♭")
+       .replace(/\blab\b/g,     "la♭")
+       .replace(/\breb\b/g,     "re♭")
+       .replace(/\bsolb\b/g,    "sol♭");
+  // Normalizar "mayor" → "mayor", abreviaturas M → mayor, m → menor sólo al final
+  s = s.replace(/\bmayor\b/g, "mayor").replace(/\bmenor\b/g, "menor");
+  // "DoM" → "do mayor", "Dom" → "do menor", "Do M" → "do mayor", "Do m" → "do menor"
+  s = s.replace(/\s*\bm\b\s*$/, " menor").replace(/\s*\bm\b\s*$/, " menor");
+  // Separar nota de modo: "dom" → "do menor", "ReM" → "re mayor"
+  s = s.replace(/^([a-záéíóúñ♭#]+?)\s*m$/i, (_, n) => `${n} menor`);
+  s = s.replace(/^([a-záéíóúñ♭#]+?)\s*(?:m\.?|mayor)$/i, (_, n) => {
+    const low = _.toLowerCase();
+    if (low.endsWith("mayor") || low.endsWith("m")) return `${n.toLowerCase()} mayor`;
+    return _;
+  });
+  // Limpiar espacios extra
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+// Devuelve { bg, textColor } para un bloque de Armonía dado su label
+function harmonyBlockColors(label, fallbackColor) {
+  const key = normalizeHarmonyKey(label);
+  const bg  = (key && HARMONY_COLOR_MAP[key]) || fallbackColor;
+  // Luminancia relativa para decidir texto blanco/negro
+  const r = parseInt(bg.slice(1,3),16)/255;
+  const g = parseInt(bg.slice(3,5),16)/255;
+  const b = parseInt(bg.slice(5,7),16)/255;
+  const toLinear = c => c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4);
+  const L = 0.2126*toLinear(r) + 0.7152*toLinear(g) + 0.0722*toLinear(b);
+  const textColor = L > 0.35 ? "#1C1A14" : "#FFFFFF";
+  return { bg, textColor };
+}
 
 const INIT_EXERCISES = [
   {
@@ -2127,10 +2274,15 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               {blocks.filter(b => b.level === lv.id).map(block => {
                 const isActive = activeAt[lv.id] === block.id, isSel = selected === block.id;
                 const pct = (block.end - block.start) / duration * 100;
+                // Nivel Armonía: color según tonalidad del label
+                const isHarmony = lv.id === 3;
+                const { bg: blockBg, textColor: blockText } = isHarmony && !block.isPreview
+                  ? harmonyBlockColors(block.label, lv.color)
+                  : { bg: lv.color, textColor: "#FFFFFF" };
                 return (
                   <div key={block.id} data-block="true" style={{
                     position: "absolute", top: 6, bottom: 6, left: `${(block.start / duration) * 100}%`, width: `${pct}%`,
-                    background: block.isPreview ? `${lv.color}38` : lv.color, borderRadius: 5,
+                    background: block.isPreview ? `${blockBg}38` : blockBg, borderRadius: 5,
                     border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
                     boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
                     display: "flex", alignItems: "center", justifyContent: "center",
@@ -2146,7 +2298,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         onClick={e => e.stopPropagation()}
                         style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
                     ) : (
-                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: "white", textShadow: "0 1px 3px rgba(0,0,0,0.28)", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: blockText, textShadow: blockText === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
                         {block.label}
                       </span>
                     )}
@@ -2155,7 +2307,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               })}
               {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
               {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
-                const VISUAL_W = 12;
+                const VISUAL_W = SCHEMA_HND_VISUAL_W;  // 6 px — hitbox sigue siendo SCHEMA_HND_W
                 const hHitbox = {
                   position: "absolute", top: SCHEMA_HND_TOP,
                   width: SCHEMA_HND_W, height: SCHEMA_HND_H,
@@ -2202,7 +2354,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   }}
                   onMouseDown={e => handleSharedHandleDown(e, left, right)}
                   onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-                  <div style={{ width: 12, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+                  <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
                 </div>
               ))}
             </div>
