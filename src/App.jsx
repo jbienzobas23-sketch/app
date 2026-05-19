@@ -974,11 +974,16 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const playingRef      = useRef(false);
   const timeRef         = useRef(0);
   const scrubbingRef    = useRef(false);
+  // Cada fuente recibe un ID único; onended solo actúa si sigue siendo la fuente activa
+  const sourceIdRef     = useRef(0);
+  // Evita que togglePlay sea llamado concurrentemente mientras ctx.resume() está pendiente
+  const pendingToggleRef = useRef(false);
   playingRef.current    = playing;
   timeRef.current       = time;
 
   const stopSource = () => {
     if (sourceRef.current) {
+      sourceIdRef.current += 1;           // invalida el onended de la fuente anterior
       try { sourceRef.current.stop(); } catch {}
       sourceRef.current = null;
     }
@@ -987,10 +992,12 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const startSource = (offset) => {
     const ctx = ctxRef.current;
     if (!ctx || !bufferRef.current) return;
+    const myId = ++sourceIdRef.current;   // captura el ID de ESTA fuente
     const src = ctx.createBufferSource();
     src.buffer = bufferRef.current;
     src.connect(ctx.destination);
     src.onended = () => {
+      if (sourceIdRef.current !== myId) return;  // ya hay otra fuente activa → ignorar
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
         // Asegurar que el tiempo llega exactamente al final antes de parar
@@ -1095,13 +1102,18 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
   const togglePlay = () => {
     if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
+    if (pendingToggleRef.current) return;          // evita doble llamada mientras resume() está pendiente
     const ctx = ctxRef.current;
+    const wasPlaying = playingRef.current;         // captura síncrona antes del await
+    pendingToggleRef.current = true;
     ctx.resume().then(() => {
-      if (playingRef.current) {
+      pendingToggleRef.current = false;
+      if (wasPlaying) {
         stopSource();
         playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
         setPlaying(false);
       } else {
+        stopSource();                              // safety: matar cualquier fuente huérfana
         startSource(playOffsetRef.current);
         setPlaying(true);
       }
@@ -1742,9 +1754,11 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const rect = el.getBoundingClientRect();
     const toT  = x => Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
     const getX = ev => ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
-    seekTo(toT(getX(e)));
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(toT(getX(ev))); };
+    scrubBegin();
+    scrubTo(toT(getX(e)));
+    const mv = ev => { if (ev.cancelable) ev.preventDefault(); scrubTo(toT(getX(ev))); };
     const up = () => {
+      scrubEnd();
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
     };
@@ -2124,7 +2138,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
 
-function CorrectionView({ exercise, result, margin, onBack }) {
+function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios" }) {
   const dur = exercise.duration;
 
   // Modelo esquema — sin puntuación automática
@@ -2182,7 +2196,7 @@ function CorrectionView({ exercise, result, margin, onBack }) {
             </div>
           )}
 
-          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>Volver a mis ejercicios</button>
+          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
       </div>
     );
@@ -2199,7 +2213,7 @@ function CorrectionView({ exercise, result, margin, onBack }) {
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>← Mis ejercicios</button>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
           <h2 style={S.h2}>Corrección: {exercise.title}</h2>
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
@@ -2273,7 +2287,7 @@ function CorrectionView({ exercise, result, margin, onBack }) {
             );
           })}
 
-          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>Volver a mis ejercicios</button>
+          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
       </div>
     );
@@ -2292,7 +2306,7 @@ function CorrectionView({ exercise, result, margin, onBack }) {
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>← Mis ejercicios</button>
+        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>{backLabel}</button>
         <h2 style={S.h2}>Corrección: {exercise.title}</h2>
 
         {exCategories.length > 1 && (
@@ -2367,7 +2381,7 @@ function CorrectionView({ exercise, result, margin, onBack }) {
         )}
 
         <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>
-          Volver a mis ejercicios
+          {backLabel}
         </button>
       </div>
     </div>
@@ -2795,7 +2809,7 @@ function CoursesTab({
 }
 
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
-function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, onRemove, askConfirm }) {
+function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer }) {
   return (
     <>
       <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
@@ -2834,8 +2848,17 @@ function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, 
               const r = sRes[ex.id];
               return (
                 <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: C.muted2 }}>{ex.title}</span>
-                  {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
+                  <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                  <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                    {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
+                    {r && (
+                      <button
+                        onClick={() => onViewAnswer(s, ex, r)}
+                        style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>
+                        Ver
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -3025,6 +3048,8 @@ function TeacherDash({
 
   const [tab, setTab] = useState("exercises");
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
+  // Para que el profesor vea la respuesta detallada de un alumno en un ejercicio
+  const [viewingAnswer, setViewingAnswer] = useState(null); // null | { student, exercise, result }
 
   // Modal state
   const [editingCategory, setEditingCategory] = useState(null);    // null | "new" | category
@@ -3055,6 +3080,30 @@ function TeacherDash({
     setSelectedExerciseId(newEx.id);
     setNewExInUnit(null);
   };
+
+  // Vista de respuesta de un alumno
+  if (viewingAnswer) {
+    const { student, exercise: va_ex, result: va_result } = viewingAnswer;
+    const freshVa = exercises.find((e) => e.id === va_ex.id) || va_ex;
+    return (
+      <div style={S.app}>
+        <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => setViewingAnswer(null)} style={{ ...S.btn, fontSize: 12, padding: "5px 12px" }}>← Volver a alumnos</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, color: C.muted }}>Respuesta de </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{student.displayName}</span>
+          </div>
+        </div>
+        <CorrectionView
+          exercise={freshVa}
+          result={va_result}
+          margin={margin}
+          onBack={() => setViewingAnswer(null)}
+          backLabel="← Volver a alumnos"
+        />
+      </div>
+    );
+  }
 
   // Vista de detalle/creación
   if (selectedExerciseId === "new") {
@@ -3153,7 +3202,8 @@ function TeacherDash({
           <StudentsTab students={students} exercises={exercises} results={results}
             onAddStudent={() => { setAddingUserRole("student"); setShowAddUser(true); }}
             onResetCred={(s) => { setResetCredTarget(s); setShowResetCred(true); }}
-            onRemove={onRemoveUser} askConfirm={askConfirm} />
+            onRemove={onRemoveUser} askConfirm={askConfirm}
+            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })} />
         )}
 
         {tab === "categories" && (
