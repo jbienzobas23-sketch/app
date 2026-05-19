@@ -632,7 +632,9 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState("");
 
-  const targetUsers = useMemo(() => (users || []).filter((u) => u.role === filterRole), [users, filterRole]);
+  const targetUsers = useMemo(() =>
+    (users || []).filter((u) => u.role === filterRole || (filterRole === "teacher" && u.role === "admin")),
+  [users, filterRole]);
   const matchedUser = useMemo(() => {
     if (!username.trim()) return null;
     return targetUsers.find((u) => u.username === username.trim().toLowerCase()) || null;
@@ -705,7 +707,7 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
 }
 
 // Pantalla inicial: selección de rol
-function HomeView({ onAdmin, onTeacher, onStudent }) {
+function HomeView({ onTeacher, onStudent }) {
   return (
     <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <div style={{ textAlign: "center", maxWidth: 360, padding: "2.5rem 1.5rem", display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -727,11 +729,6 @@ function HomeView({ onAdmin, onTeacher, onStudent }) {
           <button onClick={onStudent} style={{ ...S.btnPrimary, fontSize: 14, padding: "13px 24px", borderRadius: 8, letterSpacing: 0.1 }}>Acceso Alumno</button>
           <button onClick={onTeacher} style={{ ...S.btn,        fontSize: 14, padding: "13px 24px", borderRadius: 8 }}>Acceso Profesor</button>
         </div>
-
-        <button onClick={onAdmin}
-          style={{ marginTop: 40, background: "none", border: "none", color: C.muted2, fontSize: 11, cursor: "pointer", padding: "4px 8px", fontFamily: FONT_SANS, letterSpacing: 0.5 }}>
-          Administrador
-        </button>
       </div>
     </div>
   );
@@ -838,12 +835,16 @@ function StudentExerciseCard({ ex, result, onClick }) {
 
 // Dashboard del alumno
 function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher }) {
-  const [view,           setView]           = useState("all");
-  const [openCourseIds,  setOpenCourseIds]  = useState(new Set());
-  const [openUnitIds,    setOpenUnitIds]    = useState(new Set());
+  const [view,        setView]        = useState("all");
+  const [openUnitIds, setOpenUnitIds] = useState(new Set());
 
-  const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
-  const toggleUnit   = (id) => setOpenUnitIds  ((s) => toggleInSet(s, id));
+  const toggleUnit = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
+
+  // Solo los cursos del profesor elegido (o legacy sin ownerId)
+  const teacherCourses = useMemo(() => {
+    if (!user.teacherId) return courses;
+    return courses.filter((c) => !c.ownerId || c.ownerId === user.teacherId);
+  }, [courses, user.teacherId]);
 
   return (
     <div style={S.app}>
@@ -887,58 +888,80 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
         ))}
 
         {view === "courses" && (
-          courses.length === 0
+          teacherCourses.length === 0
             ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
-            : courses.map((course) => {
+            : teacherCourses.map((course, courseIdx) => {
                 const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
                 const exCount     = courseUnits.reduce((sum, u) => sum + u.exerciseIds.length, 0);
-                const isCourseOpen = openCourseIds.has(course.id);
+                const accent      = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
+
                 return (
-                  <div key={course.id} style={{ marginBottom: 10 }}>
-                    <div onClick={() => toggleCourse(course.id)}
-                      style={{ background: C.paper, border: `1px solid ${isCourseOpen ? C.ink2 : C.line}`, borderRadius: isCourseOpen ? "10px 10px 0 0" : 10, padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "border-color .15s" }}>
-                      <span style={{ fontSize: 18, color: C.muted2, fontWeight: 300, display: "inline-block", transition: "transform .2s", transform: isCourseOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1 }}>›</span>
+                  <div key={course.id} style={{ marginBottom: 36 }}>
+                    {/* Cabecera del curso — estilo profesor */}
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 0, marginBottom: 10 }}>
+                      <div style={{ width: 3, alignSelf: "stretch", background: accent, borderRadius: 2, flexShrink: 0, marginRight: 14, marginTop: 3 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 15, color: C.ink, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</div>
-                        {course.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.description}</div>}
-                        <div style={{ ...S.row, gap: 8 }}>
-                          <span style={{ ...S.badge, background: C.line, color: C.muted }}>{courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}</span>
-                          <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}</span>
+                        <div style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 18, color: C.ink, letterSpacing: -0.4, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {course.name}
+                        </div>
+                        {course.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{course.description}</div>}
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, background: accent + "18", color: accent }}>
+                            {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
+                          </span>
+                          <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>
+                            {exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    {isCourseOpen && (
-                      <div style={{ border: `1px solid ${C.ink2}`, borderTop: "none", borderRadius: "0 0 10px 10px", background: C.paper2, padding: "14px 18px 12px" }}>
-                        {courseUnits.length === 0
-                          ? <p style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "10px 0 4px" }}>Este curso no tiene unidades.</p>
-                          : courseUnits.map((unit) => {
-                              const isUnitOpen = openUnitIds.has(unit.id);
-                              return (
-                                <div key={unit.id} style={{ marginBottom: 8 }}>
-                                  <div onClick={() => toggleUnit(unit.id)}
-                                    style={{ background: C.paper, border: `1px solid ${isUnitOpen ? C.muted2 : C.line}`, borderRadius: isUnitOpen ? "10px 10px 0 0" : 10, padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s" }}>
-                                    <span style={{ fontSize: 14, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1 }}>›</span>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                      {unit.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
-                                      <span style={{ ...S.badge, background: C.line, color: C.muted }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ejercicio" : "ejercicios"}</span>
-                                    </div>
-                                  </div>
+                    {/* Tabla de unidades — estilo profesor */}
+                    {courseUnits.length === 0 ? (
+                      <div style={{ paddingLeft: 17, color: C.muted, fontSize: 13 }}>Este curso no tiene unidades todavía.</div>
+                    ) : (
+                      <div style={{ paddingLeft: 17 }}>
+                        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "6px 12px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
+                            {["", "Unidad", "Ejercicios"].map((h, i) => (
+                              <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
+                            ))}
+                          </div>
 
-                                  {isUnitOpen && (
-                                    <div style={{ border: `1px solid ${C.muted2}`, borderTop: "none", borderRadius: "0 0 10px 10px", background: C.bg, padding: "12px 14px 8px" }}>
-                                      {unit.exerciseIds.length === 0
-                                        ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "6px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
-                                        : unit.exerciseIds.map((eid) => {
-                                            const ex = exercises.find((e) => e.id === eid);
-                                            return ex ? <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} /> : null;
-                                          })}
-                                    </div>
-                                  )}
+                          {courseUnits.map((unit, unitIdx) => {
+                            const isUnitOpen = openUnitIds.has(unit.id);
+                            const isLast     = unitIdx === courseUnits.length - 1;
+
+                            return (
+                              <div key={unit.id}>
+                                <div onClick={() => toggleUnit(unit.id)}
+                                  style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "11px 12px", cursor: "pointer", borderBottom: (!isLast || isUnitOpen) ? `1px solid ${C.line}` : "none", transition: "background .1s" }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                                  <span style={{ fontSize: 14, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1, textAlign: "center" }}>›</span>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
+                                    {unit.description && <div style={{ fontSize: 12, color: C.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: C.muted }}>
+                                    {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
+                                  </div>
                                 </div>
-                              );
-                            })}
+
+                                {isUnitOpen && (
+                                  <div style={{ borderBottom: !isLast ? `1px solid ${C.line}` : "none", background: C.bg, padding: "10px 12px 6px" }}>
+                                    {unit.exerciseIds.length === 0
+                                      ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "6px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
+                                      : unit.exerciseIds.map((eid) => {
+                                          const ex = exercises.find((e) => e.id === eid);
+                                          return ex ? <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} /> : null;
+                                        })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -3049,7 +3072,7 @@ function TeacherDash({
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
 }) {
-  const isAdmin = currentUser?.role === "admin";
+  const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
 
   const students = useMemo(() =>
     (users || []).filter((u) => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
@@ -3254,7 +3277,7 @@ function TeacherDash({
         {editingCourse !== null && (
           <CourseFormModal
             initial={editingCourse === "new" ? null : editingCourse}
-            onSave={(c) => { if (editingCourse === "new") onAddCourse(c); else onUpdateCourse(c); setEditingCourse(null); }}
+            onSave={(c) => { if (editingCourse === "new") onAddCourse({ ...c, ownerId: currentUser.id }); else onUpdateCourse(c); setEditingCourse(null); }}
             onClose={() => setEditingCourse(null)} />
         )}
 
@@ -5088,7 +5111,6 @@ export default function App() {
     }
     return (
       <HomeView
-        onAdmin  ={() => setLoginRole("admin")}
         onTeacher={() => setLoginRole("teacher")}
         onStudent={() => setLoginRole("student")}
       />
