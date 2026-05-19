@@ -992,7 +992,13 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     src.connect(ctx.destination);
     src.onended = () => {
       const lq = loopRegionRef?.current;
-      if (!lq && playingRef.current) { playOffsetRef.current = dur; setPlaying(false); }
+      if (!lq && playingRef.current) {
+        // Asegurar que el tiempo llega exactamente al final antes de parar
+        timeRef.current = dur;
+        playOffsetRef.current = dur;
+        setTime(dur);
+        setPlaying(false);
+      }
     };
     src.start(0, Math.min(offset, bufferRef.current.duration));
     sourceRef.current     = src;
@@ -1035,9 +1041,18 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         if (scrubbingRef.current) return;
         setTime((t) => {
           const lq = loopRegionRef?.current;
-          if (lq && t >= lq.audioEnd) return lq.audioStart;
-          if (!lq && t >= dur) { setPlaying(false); return dur; }
-          return t + 0.05;
+          let next;
+          if (lq && t >= lq.audioEnd) {
+            next = lq.audioStart;
+          } else if (!lq && t >= dur) {
+            timeRef.current = dur;
+            setPlaying(false);
+            return dur;
+          } else {
+            next = t + 0.05;
+          }
+          timeRef.current = next;
+          return next;
         });
       }, 50);
     }
@@ -1061,8 +1076,14 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           startSource(lq.audioStart);
         } else {
           const t = Math.min(dur, rawT);
+          timeRef.current = t;
           setTime(t);
-          if (!lq && t >= dur) { setPlaying(false); return; }
+          if (!lq && rawT >= dur) {
+            timeRef.current = dur;
+            setTime(dur);
+            setPlaying(false);
+            return;
+          }
         }
       }
       raf = requestAnimationFrame(tick);
@@ -1124,7 +1145,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
-  time, duration, allIntervals, exerciseId, waveformData,
+  time, timeRef: timeRefProp, duration, allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
@@ -1135,7 +1156,7 @@ function WaveformDisplay({
   );
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
-    time, allIntervals, waveData, duration, colorByFn, questionRegion,
+    time, timeRef: timeRefProp, allIntervals, waveData, duration, colorByFn, questionRegion,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -1174,7 +1195,8 @@ function WaveformDisplay({
     };
 
     const draw = () => {
-      const { time: t, allIntervals: ivs, waveData: wd, duration: dur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height, mid = H / 2;
       const barW = W / NUM_BARS, drawW = barW * 0.7, offsetX = barW * 0.15;
@@ -1584,7 +1606,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}` }}>
-            <WaveformDisplay time={time} duration={dur} allIntervals={allIv}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -1682,7 +1704,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const duration = exercise.duration;
   const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
-  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd } =
+  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, timeRef: audioTimeRef } =
     useAudioPlayer(exercise, { onWaveform });
 
   // Ref siempre actualizado al tiempo de reproducción — legible dentro de los cierres de drag
@@ -1758,45 +1780,51 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         return;
       }
 
-      // ── Mover bloque (empuja vecinos, mantiene su tamaño) ────────────────
+      // ── Mover bloque (se detiene en vecinos del mismo nivel, sin empuje) ──
       if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
         let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
+        // Snap a bordes globales y de otros niveles (no empuja; solo guía visual)
         const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
         let snapped = false;
         for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
         if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
+        // Freno al tocar vecinos del mismo nivel (sin empuje)
+        for (const nb of all.filter(b => b.level === d.level && b.id !== d.bid && !b.isPreview)) {
+          if (ns < nb.end - 0.05 && ne > nb.start + 0.05) {
+            if (d.os >= nb.end - 0.3) { ns = nb.end; ne = ns + dur2; }
+            else                       { ne = nb.start; ns = ne - dur2; }
+          }
+        }
+        ns = Math.max(0, Math.min(duration - dur2, ns)); ne = ns + dur2;
         setGuides([ns, ne]);
-        setBlocks(prev => { const placed = prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b); return schemaApplyPush(placed, d.bid, d.level, duration); });
+        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b));
         return;
       }
 
-      // ── Redimensionar izquierda: aprieta al vecino izquierdo ─────────────
-      // El cursor de reproducción tiene prioridad de snap sobre los límites de bloque.
+      // ── Redimensionar izquierda: se detiene en el vecino, sin empuje ──────
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
-        const minNs  = leftNb ? leftNb.start + SCHEMA_MIN_DUR : 0;
+        const minNs  = leftNb ? leftNb.end : 0;   // hard stop en el borde del vecino
         let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph);
         ns = Math.max(minNs, Math.min(ns, d.oe - SCHEMA_MIN_DUR));
         setGuides([ns]);
         setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid)                return { ...b, start: ns };
-          if (d.leftId && b.id === d.leftId) return { ...b, end:   ns };  // aprieta
+          if (b.id === d.bid) return { ...b, start: ns };
           return b;
         }));
         return;
       }
 
-      // ── Redimensionar derecha: aprieta al vecino derecho ─────────────────
+      // ── Redimensionar derecha: se detiene en el vecino, sin empuje ─────────
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
-        const maxNe   = rightNb ? rightNb.end - SCHEMA_MIN_DUR : duration;
+        const maxNe   = rightNb ? rightNb.start : duration;  // hard stop en el borde del vecino
         let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph);
         ne = Math.max(d.os + SCHEMA_MIN_DUR, Math.min(ne, maxNe));
         setGuides([ne]);
         setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid)                  return { ...b, end:   ne };
-          if (d.rightId && b.id === d.rightId) return { ...b, start: ne };  // aprieta
+          if (b.id === d.bid) return { ...b, end: ne };
           return b;
         }));
         return;
@@ -1888,6 +1916,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     e.preventDefault();
   };
 
+  // Dimensiones de las asas de redimensionado (modo esquema)
+  // Bloque: track 62px − 6px top − 6px bottom = 50px de alto.
+  // Asa: 2/3 de esa altura, centrada verticalmente en el bloque.
+  const SCHEMA_HND_W   = 12;
+  const SCHEMA_HND_H   = Math.round(50 * 2 / 3);                      // ≈ 33 px
+  const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);     // ≈ 14 px desde el top del track
+
   const activeAt = {};
   for (const b of blocks) { if (!b.isPreview && time >= b.start && time < b.end) activeAt[b.level] = b.id; }
   const selBlock = selected ? blocks.find(b => b.id === selected) : null;
@@ -1896,7 +1931,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const handleSubmit = () => {
     onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode });
   };
-
   return (
     <div style={S.app}>
       <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
@@ -1913,7 +1947,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
-            <WaveformDisplay time={time} duration={duration} allIntervals={[]} exerciseId={exercise.id}
+            <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} allIntervals={[]} exerciseId={exercise.id}
               waveformData={waveformData} colorByFn={{}} questionRegion={null}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
@@ -1961,6 +1995,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               if (Math.abs(lvBlocks[i].end - lvBlocks[i + 1].start) < 0.5)
                 adjacentPairs.push({ left: lvBlocks[i], right: lvBlocks[i + 1] });
             }
+            // Sets para saber qué bordes de bloque están cubiertos por un asa común
+            const adjLeftIds  = new Set(adjacentPairs.map(p => p.right.id));
+            const adjRightIds = new Set(adjacentPairs.map(p => p.left.id));
             return (
             <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
               style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
@@ -1989,13 +2026,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                     onMouseDown={e => !block.isPreview && handleBlockDown(e, block, "move")}
                     onTouchStart={e => !block.isPreview && handleBlockDown(e, block, "move")}
                     onDoubleClick={() => { if (!block.isPreview) { setEditId(block.id); setEditVal(block.label); } }}>
-                    {!block.isPreview && (
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderRight: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
-                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
-                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
-                      </div>
-                    )}
                     {editId === block.id ? (
                       <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                         onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
@@ -2006,40 +2036,52 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         {block.label}
                       </span>
                     )}
-                    {!block.isPreview && (
-                      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: isSel ? 22 : 8, cursor: "ew-resize", zIndex: 12, background: isSel ? "rgba(0,0,0,0.20)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: isSel ? "1px solid rgba(255,255,255,0.22)" : "none" }}
-                        onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-                        onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
-                        {isSel && <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>{[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.9)" }} />)}</div>}
-                      </div>
-                    )}
                   </div>
                 );
               })}
-              {/* Asas de límite común — visibles solo cuando ninguno de los dos bloques está seleccionado */}
-              {adjacentPairs.map(({ left, right }) => {
-                if (selected === left.id || selected === right.id) return null;
-                return (
-                  <div key={`sh-${left.id}-${right.id}`} data-block="true"
-                    title="Arrastra para mover el límite común"
-                    style={{
-                      position: "absolute", top: "14%", bottom: "14%",
-                      left: `${(left.end / duration) * 100}%`,
-                      width: 12, transform: "translateX(-50%)",
-                      background: "rgba(26,25,21,0.28)",
-                      border: "1px solid rgba(255,255,255,0.50)",
-                      borderRadius: 4, cursor: "col-resize", zIndex: 9,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      boxShadow: "0 1px 5px rgba(0,0,0,0.18)",
-                    }}
-                    onMouseDown={e => handleSharedHandleDown(e, left, right)}
-                    onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3, pointerEvents: "none" }}>
-                      {[0,1,2].map(i => <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.88)" }} />)}
-                    </div>
-                  </div>
-                );
+              {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
+              {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
+                const hBase = {
+                  position: "absolute", top: SCHEMA_HND_TOP,
+                  width: SCHEMA_HND_W, height: SCHEMA_HND_H,
+                  background: "rgba(255,255,255,0.88)", borderRadius: 5,
+                  cursor: "ew-resize", zIndex: 10,
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                };
+                const out = [];
+                if (!adjLeftIds.has(block.id))
+                  out.push(
+                    <div key={`hl-${block.id}`} data-block="true"
+                      style={{ ...hBase, left: `calc(${(block.start / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+                    />
+                  );
+                if (!adjRightIds.has(block.id))
+                  out.push(
+                    <div key={`hr-${block.id}`} data-block="true"
+                      style={{ ...hBase, left: `calc(${(block.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
+                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+                    />
+                  );
+                return out;
               })}
+              {/* ── Asas comunes (límite compartido entre dos bloques adyacentes) ── */}
+              {adjacentPairs.map(({ left, right }) => (
+                <div key={`sh-${left.id}-${right.id}`} data-block="true"
+                  title="Arrastra para mover el límite común"
+                  style={{
+                    position: "absolute", zIndex: 11, cursor: "col-resize",
+                    top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H,
+                    left: `calc(${(left.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)`,
+                    background: "rgba(255,255,255,0.88)", borderRadius: 5,
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
+                  }}
+                  onMouseDown={e => handleSharedHandleDown(e, left, right)}
+                  onTouchStart={e => handleSharedHandleDown(e, left, right)}
+                />
+              ))}
             </div>
             );
           })}
@@ -2062,7 +2104,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             </div>
           )}
           <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar esquema" : "Entregar"}
+            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
         </div>
 
@@ -2073,7 +2115,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
             </div>
           ))}
-          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Borde = redimensiona y aprieta al vecino · Asa central = límite común</span>
+          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques</span>
         </div>
       </div>
     </div>
@@ -2087,40 +2129,59 @@ function CorrectionView({ exercise, result, margin, onBack }) {
 
   // Modelo esquema — sin puntuación automática
   if (result.type === "esquema") {
-    const blocks = result.blocks || [];
+    const blocks    = result.blocks || [];
+    const schemaKey = exercise.schemaKey || [];
+    const hasKey    = schemaKey.length > 0;
+
+    const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
+        {SCHEMA_LEVELS.map(lv => {
+          const lvBlocks = bks.filter(b => b.level === lv.id);
+          if (lvBlocks.length === 0) return null;
+          return (
+            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+              <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
+                {lvBlocks.map((b, i) => (
+                  <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Mis ejercicios</button>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Volver</button>
           <h2 style={S.h2}>Esquema entregado: {exercise.title}</h2>
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>OK</div>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
             <div style={{ color: C.muted, lineHeight: 1.6 }}>
               Esquema enviado al profesor para revisión.<br />
               <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
             </div>
           </div>
-          {blocks.length > 0 && (
+
+          {(blocks.length > 0 || hasKey) && (
             <div style={S.card}>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>Resumen de tu esquema:</div>
-              {SCHEMA_LEVELS.map(lv => {
-                const lvBlocks = blocks.filter(b => b.level === lv.id);
-                if (lvBlocks.length === 0) return null;
-                return (
-                  <div key={lv.id} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, color: lv.color, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</div>
-                    <div style={{ position: "relative", height: 28, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
-                      {lvBlocks.map((b, i) => (
-                        <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF }}>{b.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {hasKey && (
+                <>
+                  <SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} />
+                  <hr style={{ ...S.divider, margin: "10px 0 14px" }} />
+                </>
+              )}
+              {blocks.length > 0 && (
+                <SchemaStrip title="Tu esquema" bks={blocks} />
+              )}
             </div>
           )}
+
           <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>Volver a mis ejercicios</button>
         </div>
       </div>
@@ -2330,7 +2391,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
   const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
   const {
     time, playing, audioReady, audioError, hasAudio,
-    togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd,
+    timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd,
   } = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
 
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
@@ -2379,7 +2440,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
-            <WaveformDisplay time={time} duration={dur} allIntervals={[]}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={{}} questionRegion={questionRegion}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -2946,7 +3007,7 @@ function TeacherDash({
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
-  onRecord, onAdd, onLogout,
+  onRecord, onPreview, onAdd, onLogout,
   categories, onAddCategory, onUpdateCategory, onDeleteCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
@@ -3021,6 +3082,7 @@ function TeacherDash({
         exercise={selectedExercise}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
+        onPreview={onPreview}
         onUpdate={(patch) => onUpdateExercise(selectedExercise.id, patch)}
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
@@ -3183,7 +3245,7 @@ function TeacherDash({
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
+function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
   const isCreating = exercise == null;
 
   // Estado del formulario
@@ -3533,17 +3595,70 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
           </>
         )}
 
-        {/* Esquema · info + boton probar */}
+        {/* Esquema · info + botones grabar/probar */}
         {model === "esquema" && !isCreating && (
           <>
             <p style={SECTION_STYLE}>Esquema formal</p>
-            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. No requiere clave de corrección automática: el profesor revisa los esquemas manualmente.
+            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
             </div>
-            <button onClick={() => onRecord(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
-              <span>Probar ejercicio</span>
-              <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>{">"}</span>
-            </button>
+
+            {/* Estado de la clave */}
+            {(() => {
+              const key = exercise.schemaKey;
+              const hasKey = Array.isArray(key) && key.length > 0;
+              const byLevel = hasKey ? SCHEMA_LEVELS.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
+              return (
+                <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
+                  <div style={{ ...S.row, gap: 8, marginBottom: hasKey ? 10 : 0 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: hasKey ? C.fnT : C.muted2, flexShrink: 0, display: "inline-block" }} />
+                    <span style={{ fontSize: 13, color: hasKey ? C.fnT : C.muted, fontWeight: 600 }}>
+                      {hasKey ? `Clave grabada · ${key.length} ${key.length === 1 ? "bloque" : "bloques"}` : "Sin clave de corrección"}
+                    </span>
+                  </div>
+                  {hasKey && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {byLevel.map(({ lv, blocks }) => (
+                        <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                          <div style={{ flex: 1, position: "relative", height: 20, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                            {blocks.map((b, i) => (
+                              <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                <span style={{ fontSize: 8, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => onRecord(exercise)} style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: !exercise.schemaKey?.length ? C.ink : C.paper2,
+                color:      !exercise.schemaKey?.length ? C.paper : C.ink,
+                border:     !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
+                borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+              }}>
+                <span>{exercise.schemaKey?.length ? "Regrabar clave" : "Grabar clave"}</span>
+                <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
+              </button>
+              {onPreview && (
+                <button onClick={() => onPreview(exercise)} style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: C.paper2, color: C.ink,
+                  border: `1.5px solid ${C.line}`,
+                  borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+                }}>
+                  <span>Probar ejercicio</span>
+                  <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>›</span>
+                </button>
+              )}
+            </div>
           </>
         )}
 
@@ -4786,12 +4901,16 @@ export default function App() {
         setView("teacher-dash");
         return;
       }
+      // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
       const data = { type: "esquema", blocks: payload.blocks, timestamp: Date.now() };
-      if (isGuest) {
-        setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
-      } else if (user) {
-        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
-        dbUpsertResult(user.id, ex.id, data);
+      if (payload.mode !== "preview") {
+        // Solo guardar si es un alumno real
+        if (isGuest) {
+          setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+        } else if (user) {
+          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
+          dbUpsertResult(user.id, ex.id, data);
+        }
       }
       setLastResult(data);
       setView("correction");
@@ -4969,11 +5088,15 @@ export default function App() {
   }
 
   if (view === "correction" && exCtx && lastResult) {
+    const wasPreview = exCtx.mode === "preview";
     return (
       <CorrectionView
         exercise={freshExercise(exCtx.exercise)}
         result={lastResult} margin={margin}
-        onBack={() => { setExCtx(null); setLastResult(null); setView("student-dash"); }}
+        onBack={() => {
+          setExCtx(null); setLastResult(null);
+          setView(wasPreview ? "teacher-dash" : "student-dash");
+        }}
       />
     );
   }
@@ -5021,6 +5144,11 @@ export default function App() {
         if (modelOf(fresh) === "cuestionario") openQM(fresh);
         else if (modelOf(fresh) === "esquema") { setExCtx({ exercise: fresh, mode: "record" }); setView("schema"); }
         else { setExCtx({ exercise: fresh, mode: "record" }); setView("exercise"); }
+      }}
+      onPreview={(ex) => {
+        const fresh = freshExercise(ex);
+        setExCtx({ exercise: fresh, mode: "preview" });
+        setView("schema");
       }}
       onAdd={addExercise}
       onLogout={onLogout}
