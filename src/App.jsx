@@ -992,7 +992,13 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     src.connect(ctx.destination);
     src.onended = () => {
       const lq = loopRegionRef?.current;
-      if (!lq && playingRef.current) { playOffsetRef.current = dur; setPlaying(false); }
+      if (!lq && playingRef.current) {
+        // Asegurar que el tiempo llega exactamente al final antes de parar
+        timeRef.current = dur;
+        playOffsetRef.current = dur;
+        setTime(dur);
+        setPlaying(false);
+      }
     };
     src.start(0, Math.min(offset, bufferRef.current.duration));
     sourceRef.current     = src;
@@ -1035,9 +1041,18 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         if (scrubbingRef.current) return;
         setTime((t) => {
           const lq = loopRegionRef?.current;
-          if (lq && t >= lq.audioEnd) return lq.audioStart;
-          if (!lq && t >= dur) { setPlaying(false); return dur; }
-          return t + 0.05;
+          let next;
+          if (lq && t >= lq.audioEnd) {
+            next = lq.audioStart;
+          } else if (!lq && t >= dur) {
+            timeRef.current = dur;
+            setPlaying(false);
+            return dur;
+          } else {
+            next = t + 0.05;
+          }
+          timeRef.current = next;
+          return next;
         });
       }, 50);
     }
@@ -1063,7 +1078,12 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           const t = Math.min(dur, rawT);
           timeRef.current = t;
           setTime(t);
-          if (!lq && t >= dur) { setPlaying(false); return; }
+          if (!lq && rawT >= dur) {
+            timeRef.current = dur;
+            setTime(dur);
+            setPlaying(false);
+            return;
+          }
         }
       }
       raf = requestAnimationFrame(tick);
@@ -1911,7 +1931,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const handleSubmit = () => {
     onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode });
   };
-
   return (
     <div style={S.app}>
       <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
@@ -2085,7 +2104,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             </div>
           )}
           <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar esquema" : "Entregar"}
+            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
         </div>
 
@@ -2110,40 +2129,59 @@ function CorrectionView({ exercise, result, margin, onBack }) {
 
   // Modelo esquema — sin puntuación automática
   if (result.type === "esquema") {
-    const blocks = result.blocks || [];
+    const blocks    = result.blocks || [];
+    const schemaKey = exercise.schemaKey || [];
+    const hasKey    = schemaKey.length > 0;
+
+    const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
+        {SCHEMA_LEVELS.map(lv => {
+          const lvBlocks = bks.filter(b => b.level === lv.id);
+          if (lvBlocks.length === 0) return null;
+          return (
+            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+              <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
+                {lvBlocks.map((b, i) => (
+                  <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Mis ejercicios</button>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Volver</button>
           <h2 style={S.h2}>Esquema entregado: {exercise.title}</h2>
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>OK</div>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
             <div style={{ color: C.muted, lineHeight: 1.6 }}>
               Esquema enviado al profesor para revisión.<br />
               <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
             </div>
           </div>
-          {blocks.length > 0 && (
+
+          {(blocks.length > 0 || hasKey) && (
             <div style={S.card}>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>Resumen de tu esquema:</div>
-              {SCHEMA_LEVELS.map(lv => {
-                const lvBlocks = blocks.filter(b => b.level === lv.id);
-                if (lvBlocks.length === 0) return null;
-                return (
-                  <div key={lv.id} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, color: lv.color, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</div>
-                    <div style={{ position: "relative", height: 28, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
-                      {lvBlocks.map((b, i) => (
-                        <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF }}>{b.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {hasKey && (
+                <>
+                  <SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} />
+                  <hr style={{ ...S.divider, margin: "10px 0 14px" }} />
+                </>
+              )}
+              {blocks.length > 0 && (
+                <SchemaStrip title="Tu esquema" bks={blocks} />
+              )}
             </div>
           )}
+
           <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>Volver a mis ejercicios</button>
         </div>
       </div>
@@ -2969,7 +3007,7 @@ function TeacherDash({
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
-  onRecord, onAdd, onLogout,
+  onRecord, onPreview, onAdd, onLogout,
   categories, onAddCategory, onUpdateCategory, onDeleteCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
@@ -3044,6 +3082,7 @@ function TeacherDash({
         exercise={selectedExercise}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
+        onPreview={onPreview}
         onUpdate={(patch) => onUpdateExercise(selectedExercise.id, patch)}
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
@@ -3206,7 +3245,7 @@ function TeacherDash({
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
+function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
   const isCreating = exercise == null;
 
   // Estado del formulario
@@ -3556,17 +3595,70 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onUpdate, onCreate, on
           </>
         )}
 
-        {/* Esquema · info + boton probar */}
+        {/* Esquema · info + botones grabar/probar */}
         {model === "esquema" && !isCreating && (
           <>
             <p style={SECTION_STYLE}>Esquema formal</p>
-            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. No requiere clave de corrección automática: el profesor revisa los esquemas manualmente.
+            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
             </div>
-            <button onClick={() => onRecord(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
-              <span>Probar ejercicio</span>
-              <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>{">"}</span>
-            </button>
+
+            {/* Estado de la clave */}
+            {(() => {
+              const key = exercise.schemaKey;
+              const hasKey = Array.isArray(key) && key.length > 0;
+              const byLevel = hasKey ? SCHEMA_LEVELS.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
+              return (
+                <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
+                  <div style={{ ...S.row, gap: 8, marginBottom: hasKey ? 10 : 0 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: hasKey ? C.fnT : C.muted2, flexShrink: 0, display: "inline-block" }} />
+                    <span style={{ fontSize: 13, color: hasKey ? C.fnT : C.muted, fontWeight: 600 }}>
+                      {hasKey ? `Clave grabada · ${key.length} ${key.length === 1 ? "bloque" : "bloques"}` : "Sin clave de corrección"}
+                    </span>
+                  </div>
+                  {hasKey && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {byLevel.map(({ lv, blocks }) => (
+                        <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                          <div style={{ flex: 1, position: "relative", height: 20, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                            {blocks.map((b, i) => (
+                              <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                <span style={{ fontSize: 8, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => onRecord(exercise)} style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: !exercise.schemaKey?.length ? C.ink : C.paper2,
+                color:      !exercise.schemaKey?.length ? C.paper : C.ink,
+                border:     !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
+                borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+              }}>
+                <span>{exercise.schemaKey?.length ? "Regrabar clave" : "Grabar clave"}</span>
+                <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
+              </button>
+              {onPreview && (
+                <button onClick={() => onPreview(exercise)} style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: C.paper2, color: C.ink,
+                  border: `1.5px solid ${C.line}`,
+                  borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+                }}>
+                  <span>Probar ejercicio</span>
+                  <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>›</span>
+                </button>
+              )}
+            </div>
           </>
         )}
 
@@ -4809,12 +4901,16 @@ export default function App() {
         setView("teacher-dash");
         return;
       }
+      // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
       const data = { type: "esquema", blocks: payload.blocks, timestamp: Date.now() };
-      if (isGuest) {
-        setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
-      } else if (user) {
-        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
-        dbUpsertResult(user.id, ex.id, data);
+      if (payload.mode !== "preview") {
+        // Solo guardar si es un alumno real
+        if (isGuest) {
+          setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+        } else if (user) {
+          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
+          dbUpsertResult(user.id, ex.id, data);
+        }
       }
       setLastResult(data);
       setView("correction");
@@ -4992,11 +5088,15 @@ export default function App() {
   }
 
   if (view === "correction" && exCtx && lastResult) {
+    const wasPreview = exCtx.mode === "preview";
     return (
       <CorrectionView
         exercise={freshExercise(exCtx.exercise)}
         result={lastResult} margin={margin}
-        onBack={() => { setExCtx(null); setLastResult(null); setView("student-dash"); }}
+        onBack={() => {
+          setExCtx(null); setLastResult(null);
+          setView(wasPreview ? "teacher-dash" : "student-dash");
+        }}
       />
     );
   }
@@ -5044,6 +5144,11 @@ export default function App() {
         if (modelOf(fresh) === "cuestionario") openQM(fresh);
         else if (modelOf(fresh) === "esquema") { setExCtx({ exercise: fresh, mode: "record" }); setView("schema"); }
         else { setExCtx({ exercise: fresh, mode: "record" }); setView("exercise"); }
+      }}
+      onPreview={(ex) => {
+        const fresh = freshExercise(ex);
+        setExCtx({ exercise: fresh, mode: "preview" });
+        setView("schema");
       }}
       onAdd={addExercise}
       onLogout={onLogout}
