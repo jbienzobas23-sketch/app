@@ -84,11 +84,13 @@ const SCHEMA_LEVELS = [
   { id: 1, sub: "Partes",  color: "#C77A1A", bg: "rgba(199,122,26,0.10)" },
   { id: 2, sub: "Frases",  color: "#2F6FB8", bg: "rgba(47,111,184,0.08)" },
   { id: 3, sub: "Armonía", color: "#3F9B5B", bg: "rgba(63,155,91,0.08)"  },
+  { id: 4, sub: "Texto",   color: "#7A7460", bg: "rgba(122,116,96,0.09)" },
 ];
 const SCHEMA_DEFAULT_LABELS = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
   2: ["a", "b", "c", "d", "e", "a'", "b'"],
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
+  4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
@@ -316,17 +318,17 @@ const toggleInSet = (set, id) => {
 
 // ─── Helpers del modelo Esquema (snap + push) ──────────────────────────────
 // excludeIds: string | string[] | null
-function schemaSnapTime(t, blocks, excludeIds, duration) {
+function schemaSnapTime(t, blocks, excludeIds, duration, marks = []) {
   const excl = excludeIds == null ? [] : Array.isArray(excludeIds) ? excludeIds : [excludeIds];
-  const bounds = [0, duration, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
+  const bounds = [0, duration, ...marks, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
   let best = t, bestDist = SCHEMA_SNAP_THR + 0.01;
   for (const bv of bounds) { const d = Math.abs(t - bv); if (d < bestDist) { bestDist = d; best = bv; } }
   return best;
 }
 // Snap con prioridad al cursor de reproducción sobre los límites de bloque
-function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead) {
+function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead, marks = []) {
   if (Math.abs(t - playhead) <= SCHEMA_SNAP_THR) return playhead;
-  return schemaSnapTime(t, blocks, excludeIds, duration);
+  return schemaSnapTime(t, blocks, excludeIds, duration, marks);
 }
 
 function schemaApplyPush(blocks, movedId, level, duration) {
@@ -1856,6 +1858,14 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const [editVal,  setEditVal]  = useState("");
   const [guides,   setGuides]   = useState([]);
 
+  // Modo escucha sin navegación
+  const listenOnly = !!exercise.listenOnly;
+  const [playCount,    setPlayCount]    = useState(0);
+  const [schemaMarks,  setSchemaMarks]  = useState([]);   // marcas persistentes [segundos]
+  const schemaMarksRef = useRef([]);
+  schemaMarksRef.current = schemaMarks;
+  const marksBarRef = useRef(null);
+
   // Guarda snapshot antes de una operación destructiva y actualiza blocks
   const setBlocksWithHistory = (updater) => {
     setHistory(prev => [...prev, blocksRef.current]);
@@ -1916,6 +1926,45 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   const getClientX = e => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
 
+  // ── Barra de marcas (listen-only) ──────────────────────────────────────────
+  const handleMarksBarDown = (e) => {
+    if (e.target.closest("[data-mark]")) return;
+    const el = marksBarRef.current; if (!el) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const x = e.touches?.[0]?.clientX ?? e.clientX;
+    const t = Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
+    setSchemaMarks(prev => [...prev, t].sort((a, b) => a - b));
+  };
+  const handleMarkDown = (e, idx) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const el = marksBarRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = e.touches?.[0]?.clientX ?? e.clientX;
+    let moved = false;
+    const mv = (ev) => {
+      if (ev.cancelable) ev.preventDefault();
+      const x = ev.touches?.[0]?.clientX ?? ev.clientX;
+      if (!moved && Math.abs(x - startX) > 3) moved = true;
+      if (moved) {
+        const t = Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
+        setSchemaMarks(prev => { const n = [...prev]; n[idx] = t; return n; });
+      }
+    };
+    const up = () => {
+      if (!moved) setSchemaMarks(prev => prev.filter((_, i) => i !== idx));
+      window.removeEventListener("mousemove", mv);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv);
+      window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false });
+    window.addEventListener("touchend", up);
+  };
+
   // Timeline drag logic
   useEffect(() => {
     const pixToTime = (e, lvId) => {
@@ -1933,7 +1982,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       // ── Crear bloque ────────────────────────────────────────────────────
       if (d.type === "create") {
         let s = Math.min(d.anchor, t), e2 = Math.max(d.anchor, t);
-        const ss = schemaSnapTime(s, all, d.pid, duration), se = schemaSnapTime(e2, all, d.pid, duration);
+        const ss = schemaSnapTime(s, all, d.pid, duration, schemaMarksRef.current), se = schemaSnapTime(e2, all, d.pid, duration, schemaMarksRef.current);
         const ng = [];
         if (Math.abs(s  - ss) <= SCHEMA_SNAP_THR) { s  = ss; ng.push(ss); }
         if (Math.abs(e2 - se) <= SCHEMA_SNAP_THR) { e2 = se; ng.push(se); }
@@ -1946,8 +1995,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
         let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
-        // Snap a bordes globales y de otros niveles (no empuja; solo guía visual)
-        const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
+        // Snap a bordes globales, marcas y de otros niveles (no empuja; solo guía visual)
+        const xb = [0, duration, ...schemaMarksRef.current, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
         let snapped = false;
         for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
         if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
@@ -1968,7 +2017,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
         const minNs  = leftNb ? leftNb.end : 0;   // hard stop en el borde del vecino
-        let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph);
+        let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph, schemaMarksRef.current);
         ns = Math.max(minNs, Math.min(ns, d.oe - SCHEMA_MIN_DUR));
         setGuides([ns]);
         setBlocks(prev => prev.map(b => {
@@ -1982,7 +2031,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
         const maxNe   = rightNb ? rightNb.start : duration;  // hard stop en el borde del vecino
-        let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph);
+        let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph, schemaMarksRef.current);
         ne = Math.max(d.os + SCHEMA_MIN_DUR, Math.min(ne, maxNe));
         setGuides([ne]);
         setBlocks(prev => prev.map(b => {
@@ -1994,7 +2043,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
       // ── Asa de límite común: mueve el borde compartido de dos bloques ─────
       if (d.type === "shared-edge") {
-        let ns = schemaSnapWithPlayhead(t, all, [d.leftId, d.rightId], duration, ph);
+        let ns = schemaSnapWithPlayhead(t, all, [d.leftId, d.rightId], duration, ph, schemaMarksRef.current);
         ns = Math.max(d.leftStart + SCHEMA_MIN_DUR, Math.min(ns, d.rightEnd - SCHEMA_MIN_DUR));
         setGuides([ns]);
         setBlocks(prev => prev.map(b => {
@@ -2154,27 +2203,61 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} waveformDuration={audioDuration} allIntervals={[]} exerciseId={exercise.id}
               waveformData={waveformData} colorByFn={{}} questionRegion={null}
-              onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
+              onScrubBegin={listenOnly ? () => {} : scrubBegin}
+              onScrubTo={listenOnly   ? () => {} : scrubTo}
+              onScrubEnd={listenOnly  ? () => {} : scrubEnd} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-            <div />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
-              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }}
-                primary size={48} disabled={hasAudio && !audioReady && !audioError}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+          {listenOnly ? (
+            /* ── Controles listen-only ─────────────────────────────────── */
+            <div style={{ paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <CircleButton onClick={togglePlay} primary size={52}
+                  disabled={hasAudio && !audioReady && !audioError}
+                  title={playing ? "Pausa" : "Reproducir"}>
+                  {playing ? "❚❚" : "▶"}
+                </CircleButton>
+                <button
+                  onClick={() => { seekTo(0); setPlayCount(p => p + 1); if (!playing) togglePlay(); }}
+                  disabled={hasAudio && !audioReady && !audioError}
+                  style={{ ...S.btn, padding: "9px 18px", fontSize: 13, fontWeight: 600, opacity: (hasAudio && !audioReady && !audioError) ? 0.4 : 1 }}>
+                  Empezar de nuevo
+                </button>
+              </div>
+              <div style={{ textAlign: "center", marginTop: 10, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
+                <span style={{ fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                  {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+                </span>
+                {playCount > 0 && (
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+                    Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+          ) : (
+            /* ── Controles normales ────────────────────────────────────── */
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+              <div />
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
+                <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }}
+                  primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+                  {playing ? "❚❚" : "▶"}
+                </CircleButton>
+                <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+              </div>
+              <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
-          <div ref={rulerRef} style={{ position: "relative", height: 44, background: C.paper2, borderBottom: `1px solid ${C.line}`, cursor: "pointer", userSelect: "none", touchAction: "none", overflow: "hidden" }}
-            onMouseDown={handleRulerDrag} onTouchStart={handleRulerDrag}>
+          <div ref={el => { rulerRef.current = el; marksBarRef.current = el; }}
+            style={{ position: "relative", height: 44, background: C.paper2, borderBottom: `1px solid ${C.line}`, cursor: listenOnly ? "crosshair" : "pointer", userSelect: "none", touchAction: "none", overflow: "hidden" }}
+            onMouseDown={listenOnly ? handleMarksBarDown : handleRulerDrag}
+            onTouchStart={listenOnly ? handleMarksBarDown : handleRulerDrag}>
             <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${(time / duration) * 100}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />
             {ticks.map((t, i) => {
               const isFirst = i === 0, isLast = i === ticks.length - 1;
@@ -2185,9 +2268,25 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 </div>
               );
             })}
+            {/* Marcas persistentes (listen-only) */}
+            {listenOnly && schemaMarks.map((mt, i) => (
+              <div key={i} data-mark="true"
+                style={{ position: "absolute", top: 0, left: `${(mt / duration) * 100}%`, width: 28, height: "100%", transform: "translateX(-50%)", zIndex: 15, cursor: "grab", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start" }}
+                onMouseDown={e => handleMarkDown(e, i)}
+                onTouchStart={e => handleMarkDown(e, i)}>
+                <div style={{ width: 2, height: "100%", background: "rgba(184,74,58,0.6)", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }} />
+                <div style={{ width: 12, height: 12, borderRadius: "50%", background: C.danger, border: "2px solid white", marginTop: 4, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", position: "relative", zIndex: 1, flexShrink: 0 }} />
+                <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_MONO, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none" }}>{fmt(mt)}</span>
+              </div>
+            ))}
             {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.5)", pointerEvents: "none", zIndex: 9 }} />)}
             <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
             <div style={{ position: "absolute", top: "50%", left: `${(time / duration) * 100}%`, transform: "translate(-50%, -50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 11 }} />
+            {listenOnly && (
+              <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 6, pointerEvents: "none", zIndex: 12 }}>
+                <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, background: C.paper2, padding: "2px 5px", borderRadius: 4, border: `1px solid ${C.line}` }}>clic = añadir marca · arrastrar = mover · clic en marca = borrar</span>
+              </div>
+            )}
           </div>
 
           {SCHEMA_LEVELS.map((lv, li) => {
@@ -2214,6 +2313,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 <div key={i} style={{ position: "absolute", top: 0, left: `${(t / duration) * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
               ))}
               {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8 }} />)}
+              {listenOnly && schemaMarks.map((mt, i) => (
+                <div key={`sm-${i}`} style={{ position: "absolute", top: 0, left: `${(mt / duration) * 100}%`, width: 1, height: "100%", background: "rgba(184,74,58,0.28)", pointerEvents: "none", zIndex: 7 }} />
+              ))}
               <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1, height: "100%", background: C.danger, opacity: 0.5, pointerEvents: "none", zIndex: 6 }} />
               {blocks.filter(b => b.level === lv.id).map(block => {
                 const isActive = activeAt[lv.id] === block.id, isSel = selected === block.id;
@@ -2316,7 +2418,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
               <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
               {/* ── Pastilla de color custom ── */}
-              {(() => {
+              {selBlock.level !== 4 && (() => {
                 const { bg: swatchBg } = selBlock.customColor
                   ? harmonyBlockColors(null, selBlock.customColor)
                   : selLv.id === 3
@@ -2342,7 +2444,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </span>
                 );
               })()}
-              {selBlock.customColor && (
+              {selBlock.level !== 4 && selBlock.customColor && (
                 <button
                   title="Restablecer color automático"
                   onClick={() => setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: undefined } : b))}
@@ -2377,16 +2479,37 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           <PillSubmitButton onClick={handleSubmit}>
             {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
+          {/* ── Nivel 4: área de texto largo ─────────────────────────── */}
+          {selBlock?.level === 4 && !selBlock.isPreview && (
+            <div style={{ width: "100%", marginTop: 4 }}
+              onMouseDown={e => e.stopPropagation()}
+              onTouchStart={e => e.stopPropagation()}>
+              <label style={{ ...S.label, marginBottom: 4, color: SCHEMA_LEVELS[3].color }}>
+                Texto / Observaciones — <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>solo visible al seleccionar el bloque</span>
+              </label>
+              <textarea
+                style={{ ...S.input, minHeight: 100, resize: "vertical", fontFamily: FONT_SANS, lineHeight: 1.6, fontSize: 13 }}
+                placeholder="Escribe aquí el texto completo para este bloque… (solo tú lo verás al seleccionarlo)"
+                value={selBlock.bodyText || ""}
+                onChange={e => setBlocks(prev => prev.map(b => b.id === selected ? { ...b, bodyText: e.target.value } : b))}
+                onClick={e => e.stopPropagation()}
+              />
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
           {SCHEMA_LEVELS.map(lv => (
             <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
-              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}{lv.id === 4 ? " (selecciona el bloque para ver/editar texto)" : ""}</span>
             </div>
           ))}
-          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques</span>
+          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>
+            {listenOnly
+              ? "Modo escucha · Solo play/pausa y empezar de nuevo · Clic en la barra = añadir marca · Arrastra = mover · Clic en marca = borrar · Los bloques se imanan a las marcas"
+              : "Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques"}
+          </span>
         </div>
       </div>
     </div>
@@ -2411,15 +2534,38 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
           const lvBlocks = bks.filter(b => b.level === lv.id);
           if (lvBlocks.length === 0) return null;
           return (
-            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-              <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
-                {lvBlocks.map((b, i) => (
-                  <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 10 : 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: lv.id === 4 ? 6 : 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                {lv.id !== 4 && (
+                  <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
+                    {lvBlocks.map((b, i) => (
+                      <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
+              {/* Nivel 4: lista de bloques con texto */}
+              {lv.id === 4 && (
+                <div style={{ paddingLeft: 56, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {lvBlocks.map((b, i) => (
+                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
+                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 13, color: lv.color }}>{b.label}</span>
+                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                      </div>
+                      {b.bodyText && (
+                        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
+                      )}
+                      {!b.bodyText && (
+                        <div style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -3590,6 +3736,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   );
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
 
   const toggleCategory = (id) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
@@ -3659,6 +3806,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     if (model !== modelOf(exercise)) return true;
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
+    if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
 
     if (model === "interactivo") {
       const exCats = categoriesOf(exercise);
@@ -3706,6 +3854,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         categories: model === "interactivo" ? safe : [],
         answers:    {},
         ...(model === "cuestionario" ? { questions: [] } : {}),
+        ...(model === "esquema" ? { listenOnly } : {}),
       });
       return;
     }
@@ -3724,6 +3873,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     patch.audioUrl     = audioUrl     || null;
     patch.audioName    = audioName    || null;
     patch.waveformData = waveformData || null;
+    if (model === "esquema") patch.listenOnly = listenOnly;
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
     }
@@ -3907,7 +4057,22 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
           <>
             <p style={SECTION_STYLE}>Esquema formal</p>
             <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+              El alumno dibuja bloques de forma musical (partes, frases, armonía, texto) sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+            </div>
+
+            {/* Toggle: reproducción sin navegación */}
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${listenOnly ? C.fnD + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={listenOnly}
+                  onChange={e => setListenOnly(e.target.checked)}
+                  style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Reproducción sin navegación</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>
+                    El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo. Activa una barra de marcas donde se pueden colocar, mover y borrar puntos de referencia a los que los bloques se imantan.
+                  </div>
+                </div>
+              </label>
             </div>
 
             {/* Estado de la clave */}
