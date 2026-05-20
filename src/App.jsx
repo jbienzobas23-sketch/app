@@ -2180,6 +2180,11 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const selBlock = selected ? blocks.find(b => b.id === selected) : null;
   const selLv    = selBlock ? SCHEMA_LEVELS.find(l => l.id === selBlock.level) : null;
 
+  // Niveles activos según la configuración del ejercicio
+  const activeLevels = SCHEMA_LEVELS.filter(lv =>
+    !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+  );
+
   const handleSubmit = () => {
     onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode });
   };
@@ -2289,7 +2294,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             )}
           </div>
 
-          {SCHEMA_LEVELS.map((lv, li) => {
+          {activeLevels.map((lv, li) => {
             // Detectar pares de bloques yuxtapuestos (touching) para el asa de límite común
             const lvBlocks = blocks
               .filter(b => b.level === lv.id && !b.isPreview)
@@ -2304,7 +2309,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             const adjRightIds = new Set(adjacentPairs.map(p => p.left.id));
             return (
             <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
-              style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
+              style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < activeLevels.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
               onMouseDown={e => handleTrackDown(e, lv.id)} onTouchStart={e => handleTrackDown(e, lv.id)}>
               <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
@@ -2499,7 +2504,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         </div>
 
         <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
-          {SCHEMA_LEVELS.map(lv => (
+          {activeLevels.map(lv => (
             <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
               <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}{lv.id === 4 ? " (selecciona el bloque para ver/editar texto)" : ""}</span>
@@ -2527,10 +2532,14 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     const schemaKey = exercise.schemaKey || [];
     const hasKey    = schemaKey.length > 0;
 
-    const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
+    const SchemaStrip = ({ title: stripTitle, bks, accent }) => {
+      const corrLevels = SCHEMA_LEVELS.filter(lv =>
+        !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+      );
+      return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
-        {SCHEMA_LEVELS.map(lv => {
+        {corrLevels.map(lv => {
           const lvBlocks = bks.filter(b => b.level === lv.id);
           if (lvBlocks.length === 0) return null;
           return (
@@ -2570,7 +2579,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
           );
         })}
       </div>
-    );
+      );
+    };
 
     return (
       <div style={S.app}>
@@ -3737,6 +3747,14 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
   const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [schemaLevels,      setSchemaLevels]      = useState(
+    () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
+  );
+  const toggleSchemaLevel = (id) => setSchemaLevels(prev => {
+    const n = new Set(prev);
+    if (n.has(id)) { if (n.size > 1) n.delete(id); } else n.add(id);
+    return n;
+  });
 
   const toggleCategory = (id) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
@@ -3807,6 +3825,10 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
     if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if (model === "esquema") {
+      const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
+      if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
+    }
 
     if (model === "interactivo") {
       const exCats = categoriesOf(exercise);
@@ -3826,7 +3848,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       if (manual !== exercise.duration) return true;
     }
     return false;
-  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio]);
+  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, schemaLevels]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
 
@@ -3854,7 +3876,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         categories: model === "interactivo" ? safe : [],
         answers:    {},
         ...(model === "cuestionario" ? { questions: [] } : {}),
-        ...(model === "esquema" ? { listenOnly } : {}),
+        ...(model === "esquema" ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
       });
       return;
     }
@@ -3873,7 +3895,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     patch.audioUrl     = audioUrl     || null;
     patch.audioName    = audioName    || null;
     patch.waveformData = waveformData || null;
-    if (model === "esquema") patch.listenOnly = listenOnly;
+    if (model === "esquema") { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
     }
@@ -4060,6 +4082,40 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
               El alumno dibuja bloques de forma musical (partes, frases, armonía, texto) sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
             </div>
 
+            {/* Selección de niveles activos */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ ...S.label, marginBottom: 8 }}>Niveles que verá el alumno</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {SCHEMA_LEVELS.map(lv => {
+                  const active = schemaLevels.has(lv.id);
+                  const isLast = active && schemaLevels.size === 1;
+                  return (
+                    <button key={lv.id} type="button"
+                      onClick={() => !isLast && toggleSchemaLevel(lv.id)}
+                      title={isLast ? "Debe haber al menos un nivel activo" : undefined}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 7,
+                        padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer",
+                        border: `1.5px solid ${active ? lv.color : C.line}`,
+                        background: active ? lv.color + "18" : C.paper2,
+                        transition: "all .12s",
+                        opacity: isLast ? 0.6 : 1,
+                        fontFamily: FONT_SANS,
+                      }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: active ? lv.color : C.muted2, flexShrink: 0, transition: "background .12s" }} />
+                      <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? lv.color : C.muted, transition: "all .12s" }}>{lv.sub}</span>
+                      {active && <span style={{ fontSize: 10, color: lv.color, opacity: 0.7, marginLeft: 1 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {schemaLevels.size < SCHEMA_LEVELS.length && (
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>
+                  Solo se mostrarán las pistas seleccionadas. Los niveles desactivados no aparecen al alumno.
+                </p>
+              )}
+            </div>
+
             {/* Toggle: reproducción sin navegación */}
             <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${listenOnly ? C.fnD + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
@@ -4079,7 +4135,10 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
             {(() => {
               const key = exercise.schemaKey;
               const hasKey = Array.isArray(key) && key.length > 0;
-              const byLevel = hasKey ? SCHEMA_LEVELS.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
+              const keyLevels = SCHEMA_LEVELS.filter(lv =>
+                !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+              );
+              const byLevel = hasKey ? keyLevels.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
               return (
                 <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
                   <div style={{ ...S.row, gap: 8, marginBottom: hasKey ? 10 : 0 }}>
