@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "./supabase.js";
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -84,11 +84,13 @@ const SCHEMA_LEVELS = [
   { id: 1, sub: "Partes",  color: "#C77A1A", bg: "rgba(199,122,26,0.10)" },
   { id: 2, sub: "Frases",  color: "#2F6FB8", bg: "rgba(47,111,184,0.08)" },
   { id: 3, sub: "Armonía", color: "#3F9B5B", bg: "rgba(63,155,91,0.08)"  },
+  { id: 4, sub: "Texto",   color: "#7A7460", bg: "rgba(122,116,96,0.09)" },
 ];
 const SCHEMA_DEFAULT_LABELS = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
   2: ["a", "b", "c", "d", "e", "a'", "b'"],
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
+  4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
@@ -316,17 +318,17 @@ const toggleInSet = (set, id) => {
 
 // ─── Helpers del modelo Esquema (snap + push) ──────────────────────────────
 // excludeIds: string | string[] | null
-function schemaSnapTime(t, blocks, excludeIds, duration) {
+function schemaSnapTime(t, blocks, excludeIds, duration, marks = []) {
   const excl = excludeIds == null ? [] : Array.isArray(excludeIds) ? excludeIds : [excludeIds];
-  const bounds = [0, duration, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
+  const bounds = [0, duration, ...marks, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
   let best = t, bestDist = SCHEMA_SNAP_THR + 0.01;
   for (const bv of bounds) { const d = Math.abs(t - bv); if (d < bestDist) { bestDist = d; best = bv; } }
   return best;
 }
 // Snap con prioridad al cursor de reproducción sobre los límites de bloque
-function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead) {
+function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead, marks = []) {
   if (Math.abs(t - playhead) <= SCHEMA_SNAP_THR) return playhead;
-  return schemaSnapTime(t, blocks, excludeIds, duration);
+  return schemaSnapTime(t, blocks, excludeIds, duration, marks);
 }
 
 function schemaApplyPush(blocks, movedId, level, duration) {
@@ -1836,76 +1838,893 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
   );
 }
 
+
+
+// ─── Repeat timeline helpers ────────────────────────────────────────────────
+
+
+/**
+ * Divide la grabación en segmentos visuales. Cada repetición ocupa un slot cuyo
+ * ancho de referencia es la duración de la 1ª vez; la 2ª vez comparte ese mismo
+ * ancho horizontal pero se muestra en la fila inferior.
+ */
+function buildRepeatSegments(duration, repetitions) {
+  if (!repetitions?.length) {
+    return [{ type: "normal", recStart: 0, recEnd: duration, canonDur: duration, vStart: 0, vEnd: 1, index: 0 }];
+  }
+  const reps = [...repetitions]
+    .filter(r => r?.first?.start != null && r?.second?.end != null)
+    .sort((a, b) => a.first.start - b.first.start);
+  const raw = [];
+  let cur = 0;
+  for (const rep of reps) {
+    if (cur < rep.first.start - 0.01)
+      raw.push({ type: "normal", recStart: cur, recEnd: rep.first.start, canonDur: rep.first.start - cur });
+    raw.push({ type: "repeat", rep, canonDur: rep.first.end - rep.first.start });
+    cur = rep.second.end;
+  }
+  if (cur < duration - 0.01)
+    raw.push({ type: "normal", recStart: cur, recEnd: duration, canonDur: duration - cur });
+  const total = raw.reduce((s, g) => s + g.canonDur, 0) || 1;
+  let v = 0;
+  raw.forEach((g, i) => { g.vStart = v; v += g.canonDur / total; g.vEnd = v; g.index = i; });
+  return raw;
+}
+
+/** Devuelve { min, max } en segundos de grabación para un segmento + fila. */
+function getSegBounds(seg, pass) {
+  if (seg.type === "normal")         return { min: seg.recStart, max: seg.recEnd };
+  if (seg.type === "repeat-first")   return { min: seg.recStart, max: seg.recEnd };
+  if (seg.type === "repeat-second")  return { min: seg.recStart, max: seg.recEnd };
+  return pass === "second"
+    ? { min: seg.rep.second.start, max: seg.rep.second.end }
+    : { min: seg.rep.first.start,  max: seg.rep.first.end  };
+}
+
+/**
+ * En vista "completa": expande las repeticiones en segmentos secuenciales planos
+ * (sin doble altura). Cada repetición produce dos segmentos consecutivos:
+ * { type:"repeat-first"|"repeat-second", rep, recStart, recEnd, canonDur }
+ */
+function buildCompleteViewSegments(duration, repetitions) {
+  if (!repetitions?.length) {
+    return [{ type: "normal", recStart: 0, recEnd: duration, canonDur: duration, vStart: 0, vEnd: 1, index: 0 }];
+  }
+  const reps = [...repetitions]
+    .filter(r => r?.first?.start != null && r?.second?.end != null)
+    .sort((a, b) => a.first.start - b.first.start);
+  const raw = [];
+  let cur = 0;
+  for (const rep of reps) {
+    if (cur < rep.first.start - 0.01)
+      raw.push({ type: "normal", recStart: cur, recEnd: rep.first.start, canonDur: rep.first.start - cur });
+    raw.push({ type: "repeat-first",  rep, recStart: rep.first.start,  recEnd: rep.first.end,  canonDur: rep.first.end  - rep.first.start  });
+    // Gap entre fin del original y comienzo de la repetición (si existe)
+    if (rep.second.start > rep.first.end + 0.01)
+      raw.push({ type: "normal", recStart: rep.first.end, recEnd: rep.second.start, canonDur: rep.second.start - rep.first.end });
+    raw.push({ type: "repeat-second", rep, recStart: rep.second.start, recEnd: rep.second.end, canonDur: rep.second.end - rep.second.start });
+    cur = rep.second.end;
+  }
+  if (cur < duration - 0.01)
+    raw.push({ type: "normal", recStart: cur, recEnd: duration, canonDur: duration - cur });
+  const total = raw.reduce((s, g) => s + g.canonDur, 0) || 1;
+  let v = 0;
+  raw.forEach((g, i) => { g.vStart = v; v += g.canonDur / total; g.vEnd = v; g.index = i; });
+  return raw;
+}
+
+/** Sincroniza los bloques de la 2ª vez a partir de los de la 1ª vez.
+ *  - Bloques NO overridden: se sincronizan completamente (posición y duración).
+ *  - Bloques overridden: conservan su start manual pero la DURACIÓN siempre
+ *    sigue proporcional a la del bloque original. Así, redimensionar el original
+ *    actualiza la duración de la repetición aunque haya sido editada.
+ *  - Bloques anclados a bordes de zona (_lockedStart/_lockedEnd): el asa
+ *    correspondiente no se muestra para impedir separarlo del borde.
+ */
+function syncSecondPassBlocks(blocks, reps) {
+  let result = [...blocks];
+  for (const rep of reps) {
+    const fd    = (rep.first.end  - rep.first.start)  || 1;
+    const sd    = (rep.second.end - rep.second.start) || 1;
+    const ratio = sd / fd;
+    const firstBlocks  = blocks.filter(b => b.repeatId === rep.id && b.pass === "first"  && !b.isPreview);
+    const secondBlocks = blocks.filter(b => b.repeatId === rep.id && b.pass === "second" && !b.isPreview);
+    const newSecond = [];
+
+    for (const fb of firstBlocks) {
+      const isAtZoneStart = Math.abs(fb.start - rep.first.start) < 0.08;
+      const isAtZoneEnd   = Math.abs(fb.end   - rep.first.end)   < 0.08;
+      const derivedDur    = (fb.end - fb.start) * ratio;
+      // Posición por defecto (sin override)
+      const ds = isAtZoneStart ? rep.second.start : rep.second.start + ((fb.start - rep.first.start) / fd) * sd;
+      const de = isAtZoneEnd   ? rep.second.end   : ds + derivedDur;
+
+      const mirror = secondBlocks.find(b => b.mirrorId === fb.id);
+      if (mirror?.overridden) {
+        // Preservar start manual pero actualizar end con la duración proporcional
+        let newStart, newEnd;
+        if (isAtZoneStart) {
+          newStart = rep.second.start;
+          newEnd   = rep.second.start + derivedDur;
+        } else if (isAtZoneEnd) {
+          newEnd   = rep.second.end;
+          newStart = rep.second.end - derivedDur;
+        } else {
+          newStart = mirror.start;
+          newEnd   = mirror.start + derivedDur;
+        }
+        newStart = Math.max(rep.second.start, newStart);
+        newEnd   = Math.min(rep.second.end,   newEnd);
+        newSecond.push({ ...mirror, start: newStart, end: newEnd, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+      } else if (mirror) {
+        newSecond.push({ ...mirror, start: ds, end: de, label: fb.label, level: fb.level, customColor: fb.customColor, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+      } else {
+        newSecond.push({ ...fb, id: uid("sb"), pass: "second", mirrorId: fb.id, start: ds, end: de, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+      }
+    }
+    // Overridden sin espejo primario: conservar
+    for (const sb of secondBlocks) {
+      if (sb.overridden && !newSecond.find(b => b.id === sb.id)) newSecond.push(sb);
+    }
+    result = result.filter(b => !(b.repeatId === rep.id && b.pass === "second" && !b.isPreview));
+    result = [...result, ...newSecond];
+  }
+  return result;
+}
+
+/** Genera marcas de tiempo internas para la regla de un segmento. */
+function rulerTicksForSeg(start, end, widthPx) {
+  const d = end - start; if (d <= 0) return [];
+  const STEPS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300];
+  const target = d / Math.max(2, Math.floor((widthPx || 200) / 55));
+  const step = STEPS.find(s => s >= target) || STEPS[STEPS.length - 1];
+  const ticks = [];
+  const first_t = Math.ceil(start / step) * step;
+  for (let t = first_t; t < end - step * 0.1; t += step) ticks.push({ t, frac: (t - start) / d });
+  return ticks;
+}
+
+// ─── Barras de repetición (notación musical SVG) ─────────────────────────────
+// Lado "start" (apertura): línea gruesa | línea fina | puntos  →
+// Lado "end"   (cierre):   ← puntos | línea fina | línea gruesa
+const REPEAT_BARLINE_W = 17;   // ancho total del SVG (px)
+function RepeatBarline({ side = "start", height = 44 }) {
+  const THICK = 3.5, THIN = 1.3, GAP = 2.5, DOT_R = 2.3;
+  const isStart = side === "start";
+  // Posiciones: el par de líneas ocupa THICK+GAP+THIN desde el borde exterior
+  const thickX = isStart ? 0.5                             : REPEAT_BARLINE_W - THICK - 0.5;
+  const thinX  = isStart ? THICK + GAP + 0.5               : REPEAT_BARLINE_W - THICK - GAP - THIN - 0.5;
+  const dotCX  = isStart ? REPEAT_BARLINE_W - DOT_R - 1.5  : DOT_R + 1.5;
+  const dotY1  = height * 0.33, dotY2 = height * 0.67;
+  return (
+    <svg width={REPEAT_BARLINE_W} height={height} style={{ display: "block", flexShrink: 0, pointerEvents: "none" }}>
+      <rect x={thickX} y={0} width={THICK} height={height} fill="black" opacity={0.65} />
+      <rect x={thinX}  y={0} width={THIN}  height={height} fill="black" opacity={0.40} />
+      <circle cx={dotCX} cy={dotY1} r={DOT_R} fill="black" opacity={0.70} />
+      <circle cx={dotCX} cy={dotY2} r={DOT_R} fill="black" opacity={0.70} />
+    </svg>
+  );
+}
+
+// ─── Modal de gestión de repeticiones (solo modo "record") ───────────────────
+function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
+  const [reps, setReps] = useState(
+    (exercise.repetitions || []).map(r => ({ ...r, first: { ...r.first }, second: { ...r.second } }))
+  );
+  const [err, setErr] = useState("");
+
+  const addRep = () => {
+    if (!Number.isFinite(duration) || duration <= 0) {
+      setErr("El ejercicio no tiene duración válida. Sube el audio antes de añadir repeticiones.");
+      return;
+    }
+    const sorted  = [...reps].sort((a, b) => a.second.end - b.second.end);
+    const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
+    const avail   = duration - lastEnd;
+    if (avail < SCHEMA_MIN_DUR * 2) {
+      setErr("No queda espacio suficiente al final del audio para otra repetición.");
+      return;
+    }
+    const d       = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
+    const start   = lastEnd;
+    setReps(prev => [...prev, {
+      id: uid("rep"), label: "",
+      first:  { start, end: start + d },
+      second: { start: start + d, end: Math.min(start + d * 2, duration) },
+    }]);
+  };
+
+  const validate = () => {
+    for (const r of reps) {
+      if ((r.first.end - r.first.start) < 1) return "La 1ª vez debe durar al menos 1 s.";
+      if ((r.second.end - r.first.end)   < 1) return "La 2ª vez debe durar al menos 1 s.";
+      if (r.second.end > duration + 0.5)      return `La 2ª vez supera la duración del audio (${fmt(duration)}).`;
+    }
+    const sorted = [...reps].sort((a, b) => a.first.start - b.first.start);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (sorted[i].second.end > sorted[i + 1].first.start + 0.01)
+        return `Las repeticiones #${i + 1} y #${i + 2} se solapan. Ajusta los tiempos.`;
+    }
+    return "";
+  };
+
+  // Cuando cambia first.end, propaga a second.start
+  const updFirst = (id, field, raw) => {
+    setErr("");
+    const v = Math.max(0, parseFloat(raw) || 0);
+    setReps(p => p.map(r => {
+      if (r.id !== id) return r;
+      const newFirst = { ...r.first, [field]: v };
+      // second.start siempre = first.end; second.end se ajusta proporcionalmente
+      const origFD = (r.first.end - r.first.start) || 1;
+      const origSD = (r.second.end - r.second.start) || 1;
+      const ratio  = origSD / origFD;
+      const newSD  = field === "end" ? Math.max(1, (newFirst.end - newFirst.start) * ratio) : origSD;
+      const newSecond = { ...r.second, start: newFirst.end, end: newFirst.end + newSD };
+      return { ...r, first: newFirst, second: newSecond };
+    }));
+  };
+  const updSecondEnd = (id, raw) => {
+    setErr("");
+    const v = Math.max(0, parseFloat(raw) || 0);
+    setReps(p => p.map(r => r.id === id ? { ...r, second: { ...r.second, end: v } } : r));
+  };
+
+  const handleSave = () => {
+    const e = validate(); if (e) { setErr(e); return; }
+    // Garantizar second.start = first.end antes de guardar
+    onSave(reps.map(r => ({ ...r, second: { ...r.second, start: r.first.end } })));
+  };
+
+  return (
+    <ModalShell width={520} align="top" zIndex={250}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <h3 style={{ ...S.h2, margin: 0, fontSize: 16 }}>Gestionar repeticiones</h3>
+        <button onClick={onClose} style={{ ...S.btn, padding: "4px 10px", fontSize: 12 }}>Cancelar</button>
+      </div>
+      <p style={{ fontSize: 12, color: C.muted, margin: "0 0 14px", lineHeight: 1.6 }}>
+        La 2ª vez empieza obligatoriamente donde termina la 1ª. Solo indica los tiempos de inicio, fin de 1ª vez y fin de 2ª vez.
+      </p>
+
+      {reps.length === 0 && (
+        <div style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "14px 0" }}>Sin repeticiones definidas.</div>
+      )}
+
+      {reps.map((r, i) => (
+        <div key={r.id} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.ink2, minWidth: 22 }}>#{i + 1}</span>
+            <input style={{ ...S.input, flex: 1, padding: "5px 8px", fontSize: 12 }}
+              placeholder="Etiqueta opcional (p.ej. «A», «Estribillo»)"
+              value={r.label || ""}
+              onChange={e => setReps(p => p.map(x => x.id === r.id ? { ...x, label: e.target.value } : x))} />
+            <button onClick={() => setReps(p => p.filter(x => x.id !== r.id))}
+              style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 11 }}>✕</button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr auto 1fr", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, color: C.fnS, fontWeight: 700 }}>Inicio</span>
+            <input type="number" min={0} max={duration} step={0.5}
+              style={{ ...S.input, padding: "5px 8px", fontSize: 12 }}
+              value={r.first.start}
+              onChange={e => updFirst(r.id, "start", e.target.value)} />
+
+            <span style={{ fontSize: 11, color: C.fnS, fontWeight: 700 }}>Fin 1ª</span>
+            <input type="number" min={0} max={duration} step={0.5}
+              style={{ ...S.input, padding: "5px 8px", fontSize: 12 }}
+              value={r.first.end}
+              onChange={e => updFirst(r.id, "end", e.target.value)} />
+
+            <span style={{ fontSize: 11, color: C.fnT, fontWeight: 700 }}>Fin 2ª</span>
+            <input type="number" min={0} max={duration} step={0.5}
+              style={{ ...S.input, padding: "5px 8px", fontSize: 12 }}
+              value={r.second.end}
+              onChange={e => updSecondEnd(r.id, e.target.value)} />
+          </div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_MONO }}>
+            {fmt(r.first.start)} → {fmt(r.first.end)} → {fmt(r.second.end)}
+            &nbsp;·&nbsp;1ª: {fmt(r.first.end - r.first.start)} · 2ª: {fmt(Math.max(0, r.second.end - r.first.end))}
+          </div>
+        </div>
+      ))}
+
+      {err && <p style={{ color: C.danger, fontSize: 12, margin: "6px 0 10px" }}>{err}</p>}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button onClick={addRep} style={{ ...S.btn, fontSize: 12 }}>+ Añadir repetición</button>
+        <div style={{ flex: 1 }} />
+        <button onClick={handleSave} style={{ ...S.btnPrimary }}>Guardar</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ═══ 9b. SCHEMA EXERCISE VIEW (modelo Esquema) ══════════════════════════════
 
 function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const duration = exercise.duration;
   const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
-  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
-  const { time, playing, audioReady, audioError, hasAudio, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, timeRef: audioTimeRef, audioDuration } =
-    useAudioPlayer(exercise, { onWaveform });
+  const onWaveform = exercise.waveformData ? null : wd => setWaveformData(wd);
+  const {
+    time, playing, audioReady, audioError, hasAudio,
+    togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd,
+    timeRef: audioTimeRef, audioDuration,
+  } = useAudioPlayer(exercise, { onWaveform });
 
-  // Ref siempre actualizado al tiempo de reproducción — legible dentro de los cierres de drag
   const timeRef = useRef(0);
   timeRef.current = time;
 
-  const [blocks,   setBlocks]   = useState([]);
-  const [history,  setHistory]  = useState([]);   // stack de snapshots para deshacer
-  const [selected, setSelected] = useState(null);
-  const [editId,   setEditId]   = useState(null);
-  const [editVal,  setEditVal]  = useState("");
-  const [guides,   setGuides]   = useState([]);
+  const [blocks,       setBlocks]       = useState(exercise.blocks || []);
+  const [history,      setHistory]      = useState([]);
+  const [selected,     setSelected]     = useState(null);
+  const [editId,       setEditId]       = useState(null);
+  const [editVal,      setEditVal]      = useState("");
+  const [guides,       setGuides]       = useState([]);
+  const [localReps,    setLocalReps]    = useState(exercise.repetitions || []);
+  const [showRepModal, setShowRepModal] = useState(false);
+  // repDraw: null | { step:"first"|"second"|"done"|"error", first?, second?, pendingStart?, pendingEnd? }
+  const [repDraw,      setRepDraw]      = useState(null);
+  // selectedPass: { [repId]: "first"|"second" } — qué vez mostrar cuando no está sonando
+  const [selectedPass,    setSelectedPass]    = useState({});
+  const repResizeRef    = useRef(null);   // drag de resize de zona de repetición
+  const [repResizeGuide, setRepResizeGuide] = useState(null); // null | { xFrac, color }
+  const localRepsRef = useRef(localReps);
+  localRepsRef.current = localReps;
 
-  // Guarda snapshot antes de una operación destructiva y actualiza blocks
-  const setBlocksWithHistory = (updater) => {
-    setHistory(prev => [...prev, blocksRef.current]);
-    setBlocks(updater);
-  };
-  const undo = () => {
-    setHistory(prev => {
-      if (prev.length === 0) return prev;
-      const snapshot = prev[prev.length - 1];
-      setBlocks(snapshot);
-      setSelected(null); setEditId(null); setEditVal("");
-      return prev.slice(0, -1);
+  const listenOnly = !!exercise.listenOnly;
+  const [playCount,   setPlayCount]   = useState(0);
+  const [schemaMarks, setSchemaMarks] = useState([]);
+  const schemaMarksRef = useRef([]);
+  schemaMarksRef.current = schemaMarks;
+
+  // ── Zoom y desplazamiento horizontal del esquema ─────────────────────────
+  const [schemaZoom,       setSchemaZoom]       = useState(1);
+  const [schemaScrollFrac, setSchemaScrollFrac] = useState(0);
+  const schemaOuterRef = useRef(null);
+  const pinchRef       = useRef(null);
+
+  // ── Modo de vista: "completa" (edición secuencial, sin doble altura)
+  //               | "resumida" (doble altura, solo lectura)
+  const [viewMode, setViewMode] = useState("completa");
+  const viewModeRef = useRef("completa");
+  viewModeRef.current = viewMode;
+
+  // ── Estado de la banda de repetición ────────────────────────────────────
+  // bandDrag = null
+  //   | { type:"create", startT, curT }          — arrastrando para crear
+  //   | { type:"handle", handle, origRep }        — arrastrando asa de borde
+  const [bandDrag, setBandDrag] = useState(null);
+  const bandRef    = useRef(null);
+
+  const segments    = useMemo(() =>
+    viewMode === "resumida"
+      ? buildRepeatSegments(duration, localReps)
+      : buildCompleteViewSegments(duration, localReps),
+    [duration, localReps, viewMode]);
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+  const hasRepeats = localReps.length > 0;
+
+  // ¿En qué repetición y qué vez estamos reproduciendo ahora?
+  const activeRepeatPass = useMemo(() => {
+    for (const r of localReps) {
+      if (time >= r.first.start  && time < r.first.end)  return { repId: r.id, pass: "first"  };
+      if (time >= r.second.start && time < r.second.end) return { repId: r.id, pass: "second" };
+    }
+    return null;
+  }, [time, localReps]);
+
+  // ── Sync 2ª vez al activar vista completa o al cambiar repeticiones ─────
+  useEffect(() => {
+    if (viewMode === "completa" && localReps.length > 0) {
+      setBlocks(prev => syncSecondPassBlocks(prev, localReps));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, localReps.length]);
+
+  // ── History helpers ──────────────────────────────────────────────────────
+  const setBlocksSnap = updater => {
+    setHistory(p => [...p, blocksRef.current]);
+    setBlocks(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // En vista completa, sincronizar la 2ª vez a partir de la 1ª
+      if (viewMode === "completa" && localRepsRef.current.length > 0) {
+        return syncSecondPassBlocks(next, localRepsRef.current);
+      }
+      return next;
     });
   };
-  const resetAll = () => {
-    setHistory([]);
-    setBlocks([]); setSelected(null); setEditId(null); setEditVal("");
-  };
+  const undo = () => setHistory(p => {
+    if (!p.length) return p;
+    setBlocks(p[p.length - 1]);
+    setSelected(null); setEditId(null); setEditVal("");
+    return p.slice(0, -1);
+  });
+  const resetAll = () => { setHistory([]); setBlocks([]); setLocalReps([]); setSelected(null); setEditId(null); setEditVal(""); };
 
-  const trackRefs    = useRef({});
-  const dragRef      = useRef(null);
-  const blocksRef    = useRef(blocks);
+  // ── Refs ─────────────────────────────────────────────────────────────────
+  // trackSegRefs: key = `${lvId}_${segIndex}_${pass}`  ("pass" = "normal"|"first"|"second")
+  // ruler refs:   key = `ruler_${segIndex}_${pass}`
+  const trackSegRefs  = useRef({});
+  const dragRef       = useRef(null);
+  const blocksRef     = useRef(blocks);
   const colorInputRef = useRef(null);
-  blocksRef.current = blocks;
+  blocksRef.current   = blocks;
 
-  // Ruler width → adaptive ticks
+  // Ruler container width (para calcular densidad de marcas)
   const [rulerW, setRulerW] = useState(600);
-  const rulerRef = useRef(null);
+  const rulerContainerRef   = useRef(null);
   useEffect(() => {
-    const el = rulerRef.current; if (!el) return;
+    const el = rulerContainerRef.current; if (!el) return;
     setRulerW(el.getBoundingClientRect().width);
     const ro = new ResizeObserver(([e]) => setRulerW(e.contentRect.width));
     ro.observe(el); return () => ro.disconnect();
   }, []);
-  const NICE_N = [2, 3, 4, 6, 8, 12];
-  const maxN   = Math.max(2, Math.floor(rulerW / 58));
-  const numIv  = [...NICE_N].reverse().find(n => n <= maxN) || 2;
-  const ticks  = Array.from({ length: numIv + 1 }, (_, i) => i * duration / numIv);
 
-  const handleRulerDrag = e => {
-    const el = rulerRef.current; if (!el) return;
+  // ── Rueda del ratón → zoom (listener no-pasivo para poder preventDefault) ──
+  useEffect(() => {
+    const outer = schemaOuterRef.current; if (!outer) return;
+    const handler = e => {
+      e.preventDefault();
+      const rect    = outer.getBoundingClientRect();
+      const curFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const factor  = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setSchemaZoom(prevZoom => {
+        const nextZoom = Math.min(8, Math.max(1, prevZoom * factor));
+        if (nextZoom !== prevZoom) {
+          setSchemaScrollFrac(prevSf => {
+            if (nextZoom === 1) return 0;
+            const newSf = (((prevSf * (prevZoom - 1)) + curFrac) * (nextZoom / prevZoom) - curFrac) / (nextZoom - 1);
+            return Math.max(0, Math.min(1, newSf));
+          });
+        }
+        return nextZoom;
+      });
+    };
+    outer.addEventListener('wheel', handler, { passive: false });
+    return () => outer.removeEventListener('wheel', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Guardar repeticiones desde el modal ─────────────────────────────────
+  const handleSaveRepetitions = newReps => {
+    setShowRepModal(false);
+    setRepDraw(null);
+    const oldIds = new Set(localRepsRef.current.map(r => r.id));
+    const newIds = new Set(newReps.map(r => r.id));
+    setBlocksSnap(prev => {
+      let upd = [...prev];
+      // Eliminar etiquetas de repeticiones borradas
+      const removed = [...oldIds].filter(id => !newIds.has(id));
+      upd = upd.map(b => removed.includes(b.repeatId) ? { ...b, repeatId: null, pass: null } : b);
+      upd = upd.filter(b => !(removed.includes(b.repeatId) && b.pass === "second"));
+      // Procesar repeticiones nuevas
+      for (const rep of newReps.filter(r => !oldIds.has(r.id))) {
+        // Etiquetar bloques existentes que caen dentro de la 1ª vez
+        upd = upd.map(b => {
+          if (b.repeatId) return b;
+          if (b.start >= rep.first.start - 0.01 && b.end <= rep.first.end + 0.01)
+            return { ...b, repeatId: rep.id, pass: "first" };
+          return b;
+        });
+        // Crear copias espejadas para la 2ª vez (mismos bloques, escalados a la duración de la 2ª vez)
+        const fd = (rep.first.end  - rep.first.start)  || 1;
+        const sd = (rep.second.end - rep.second.start) || 1;
+        const firstBlocks = upd.filter(b => b.repeatId === rep.id && b.pass === "first");
+        upd = [...upd, ...firstBlocks.map(b => ({
+          ...b,
+          id:    uid("sb"),
+          pass:  "second",
+          start: rep.second.start + ((b.start - rep.first.start) / fd) * sd,
+          end:   rep.second.start + ((b.end   - rep.first.start) / fd) * sd,
+        }))];
+      }
+      // Escalar bloques de repeticiones actualizadas proporcionalmente a la nueva zona
+      for (const newRep of newReps.filter(r => oldIds.has(r.id))) {
+        const oldRep = localRepsRef.current.find(r => r.id === newRep.id);
+        if (!oldRep) continue;
+        if (oldRep.first.start === newRep.first.start && oldRep.first.end === newRep.first.end &&
+            oldRep.second.start === newRep.second.start && oldRep.second.end === newRep.second.end) continue;
+        const oldFD = (oldRep.first.end  - oldRep.first.start)  || 1;
+        const newFD = (newRep.first.end  - newRep.first.start)  || 1;
+        const oldSD = (oldRep.second.end - oldRep.second.start) || 1;
+        const newSD = (newRep.second.end - newRep.second.start) || 1;
+        upd = upd.map(b => {
+          if (b.repeatId !== newRep.id) return b;
+          if (b.pass === "first") {
+            // Escalar dentro de la nueva 1ª zona
+            const relS = (b.start - oldRep.first.start) / oldFD;
+            const relE = (b.end   - oldRep.first.start) / oldFD;
+            return { ...b, start: newRep.first.start + relS * newFD, end: newRep.first.start + relE * newFD };
+          } else {
+            // Escalar dentro de la nueva 2ª zona (todos: overridden y no overridden)
+            const relS = (b.start - oldRep.second.start) / oldSD;
+            const relE = (b.end   - oldRep.second.start) / oldSD;
+            return { ...b, start: newRep.second.start + relS * newSD, end: newRep.second.start + relE * newSD };
+          }
+        }).filter(b => !(b.repeatId === newRep.id && b.end - b.start < 0.1));
+      }
+      return upd;
+    });
+    setLocalReps(newReps);
+  };
+
+  // ── Mapeo tiempo→posición visual (para bandas del overlay de dibujo) ─────
+  const recToVisX = t => {
+    for (const seg of segmentsRef.current) {
+      if (seg.type === "normal" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat-first" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat-second" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat") {
+        const fp = seg.rep.first, fd = (fp.end - fp.start) || 1;
+        if (t >= fp.start - 0.01 && t <= fp.end + 0.01)
+          return seg.vStart + Math.max(0, Math.min(1, (t - fp.start) / fd)) * (seg.vEnd - seg.vStart);
+      }
+    }
+    return t <= 0 ? 0 : 1;
+  };
+
+  // Igual que recToVisX pero, para segmentos "repeat" (vista resumida), mapea
+  // la 2ª vez TAMBIÉN de forma proporcional dentro del mismo segmento visual.
+  // Esto permite que bloques sin repeatId cuyo end cae en la 2ª ocurrencia
+  // calculen su anchura visual correctamente (en vez de devolver siempre 1.0).
+  const recToVisXResumed = t => {
+    for (const seg of segmentsRef.current) {
+      if (seg.type === "normal" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat-first" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat-second" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
+        return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
+      if (seg.type === "repeat") {
+        const fp = seg.rep.first, sp = seg.rep.second;
+        const fd = (fp.end - fp.start) || 1;
+        const sd = (sp.end - sp.start) || 1;
+        // 1ª vez: igual que recToVisX
+        if (t >= fp.start - 0.01 && t <= fp.end + 0.01)
+          return seg.vStart + Math.max(0, Math.min(1, (t - fp.start) / fd)) * (seg.vEnd - seg.vStart);
+        // 2ª vez: mapeo proporcional dentro del mismo rango visual
+        if (t >= sp.start - 0.01 && t <= sp.end + 0.01)
+          return seg.vStart + Math.max(0, Math.min(1, (t - sp.start) / sd)) * (seg.vEnd - seg.vStart);
+      }
+    }
+    return t <= 0 ? 0 : 1;
+  };
+
+  // ── Eliminar una repetición por id ───────────────────────────────────────
+  const deleteRepeat = repId => handleSaveRepetitions(localRepsRef.current.filter(r => r.id !== repId));
+
+  // ── Banda de repetición: helpers y handlers ──────────────────────────────
+  // En vista completa la fracción es lineal: frac = t / duration
+  const timeToFrac = t  => Math.max(0, Math.min(1, t / duration));
+  const fracToTime = f  => f * duration;   // sin redondeo para movimiento suave
+
+  const getBandClientX = ev =>
+    ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
+
+  const getBandFrac = ev => {
+    const el = bandRef.current; if (!el) return 0;
+    const r  = el.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (getBandClientX(ev) - r.left) / r.width));
+  };
+
+  // Iniciar drag de creación — funciona aunque ya haya repeticiones
+  const handleBandCreateDown = e => {
+    if (e.target.closest("button") || e.target.closest("[data-band-handle]")) return;
     e.preventDefault();
+    const BAND_SNAP  = Math.max(0.3, duration * 0.02);
+    const AUTOSNAP_S = 5;
+    const snapT = raw => {
+      const pts = [0, duration,
+        ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end]),
+        ...localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.end]),
+      ];
+      let best = raw, bestDist = BAND_SNAP;
+      for (const c of pts) { const d = Math.abs(raw - c); if (d < bestDist) { bestDist = d; best = c; } }
+      return best;
+    };
+    const startT = snapT(fracToTime(getBandFrac(e)));
+    setBandDrag({ type: "create", startT, curT: startT });
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      setBandDrag(p => p ? { ...p, curT: snapT(fracToTime(getBandFrac(ev))) } : null);
+    };
+    const up = () => {
+      setBandDrag(prev => {
+        if (!prev) return null;
+        const s  = Math.min(prev.startT, prev.curT);
+        const e2 = Math.max(prev.startT, prev.curT);
+        const d  = e2 - s;
+        if (d >= SCHEMA_MIN_DUR) {
+          let fs = s < 3 ? 0 : s;
+          for (const r of localRepsRef.current) {
+            if (fs > r.second.end - 0.1 && fs <= r.second.end + AUTOSNAP_S) { fs = r.second.end; break; }
+          }
+          const fe = fs + d, se = Math.min(duration, fe + d);
+          handleSaveRepetitions([
+            ...localRepsRef.current,
+            { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
+          ]);
+        }
+        return null;
+      });
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup",   up);
+    window.addEventListener("touchmove", mv, { passive: false });
+    window.addEventListener("touchend",  up);
+  };
+
+  // Añadir repetición programáticamente tras la última existente
+  const handleAddNextRep = e => {
+    e.stopPropagation();
+    const sorted  = [...localRepsRef.current].sort((a, b) => a.second.end - b.second.end);
+    const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
+    const avail   = duration - lastEnd;
+    if (avail < SCHEMA_MIN_DUR * 2) return;
+    const d  = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
+    const fs = lastEnd, fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
+    const se = Math.min(duration, fe + d);
+    handleSaveRepetitions([
+      ...localRepsRef.current,
+      { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
+    ]);
+  };
+
+  // Iniciar drag de asa de borde
+  // handle: "first.start" | "junction" (first.end = second.start) | "second.end"
+  const handleBandHandleDown = (e, rep, handle) => {
+    e.preventDefault(); e.stopPropagation();
+
+    const BAND_SNAP = Math.max(0.3, duration * 0.02);
+    const snapT = raw => {
+      const candidates = [0, duration, ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end])];
+      let best = raw, bestDist = BAND_SNAP;
+      for (const c of candidates) { const dd = Math.abs(raw - c); if (dd < bestDist) { bestDist = dd; best = c; } }
+      return best;
+    };
+
+    const calcNewRep = raw => {
+      const t = snapT(raw);
+      const r = { ...rep, first: { ...rep.first }, second: { ...rep.second } };
+      if (handle === "first.start") {
+        r.first.start = Math.max(0, Math.min(t, r.first.end - SCHEMA_MIN_DUR));
+      } else if (handle === "junction") {
+        // Mover juntos: fin del original = inicio de la repetición
+        const jt = Math.max(r.first.start + SCHEMA_MIN_DUR, Math.min(t, duration - SCHEMA_MIN_DUR));
+        // La 2ª vez se ajusta proporcionalmente: si el original crece/encoge, la repetición también
+        const origFD = rep.first.end - rep.first.start || 1;
+        const origSD = rep.second.end - rep.second.start || 1;
+        const ratio  = origSD / origFD;
+        r.first.end    = jt;
+        r.second.start = jt;
+        r.second.end   = Math.min(duration, jt + (jt - r.first.start) * ratio);
+      } else {
+        r.second.end = Math.max(r.second.start + SCHEMA_MIN_DUR, Math.min(t, duration));
+      }
+      return r;
+    };
+
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
+      setLocalReps(prev => prev.map(r => r.id === rep.id ? newRep : r));
+    };
+    const up = ev => {
+      const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
+      handleSaveRepetitions(localRepsRef.current.map(r => r.id === rep.id ? newRep : r));
+      setBandDrag(null);
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup",   up);
+    window.addEventListener("touchmove", mv, { passive: false });
+    window.addEventListener("touchend",  up);
+  };
+
+  // ── Dibujar repetición arrastrando en la regla ───────────────────────────
+  const handleDrawDown = e => {
+    if (!repDraw || repDraw.step === "done" || repDraw.step === "error") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = rulerContainerRef.current; if (!el) return;
     const rect = el.getBoundingClientRect();
-    const toT  = x => Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
-    const getX = ev => ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
-    // Usar seekTo (seek atómico) en lugar del mecanismo scrubBegin/scrubTo/scrubEnd,
-    // que está diseñado para el arrastre relativo de la onda y provoca inconsistencias
-    // de estado cuando se usa para seek absoluto desde la barra de navegación.
-    seekTo(toT(getX(e)));
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(toT(getX(ev))); };
+    const toT = ev => {
+      const x = ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
+      return containerXToRec(Math.max(0, Math.min(1, (x - rect.left) / rect.width)));
+    };
+    const startT = toT(e);
+    setRepDraw(prev => {
+      if (!prev) return null;
+      // En paso 2, el inicio siempre es first.end
+      const ps = prev.step === "second" ? prev.first.end : startT;
+      return { ...prev, pendingStart: ps, pendingEnd: startT };
+    });
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      setRepDraw(prev => {
+        if (!prev) return null;
+        // En paso 2, pendingStart fijo en first.end
+        const ps = prev.step === "second" ? prev.first.end : prev.pendingStart;
+        return { ...prev, pendingStart: ps, pendingEnd: toT(ev) };
+      });
+    };
+    const up = () => {
+      setRepDraw(prev => {
+        if (!prev || prev.pendingStart === null) return prev;
+        if (prev.step === "first") {
+          const s  = Math.min(prev.pendingStart, prev.pendingEnd ?? prev.pendingStart);
+          const e2 = Math.max(prev.pendingStart, prev.pendingEnd ?? prev.pendingStart);
+          if (e2 - s < 1) return { ...prev, pendingStart: null, pendingEnd: null };
+          return { step: "second", first: { start: s, end: e2 }, pendingStart: null, pendingEnd: null };
+        }
+        if (prev.step === "second") {
+          // Inicio fijo en first.end; el usuario solo arrastra el final
+          const endT = Math.max(prev.pendingEnd ?? prev.first.end, prev.first.end + 1);
+          return { step: "done", first: prev.first, second: { start: prev.first.end, end: endT } };
+        }
+        return prev;
+      });
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
+  };
+
+  // Confirmar repetición cuando llega al estado "done"
+  useEffect(() => {
+    if (repDraw?.step !== "done") return;
+    let { first, second } = repDraw;
+    // Enganche al inicio si la 1ª vez empieza antes de 5 s
+    if (first.start < 5) first = { ...first, start: 0 };
+    // Garantizar second.start = first.end siempre
+    second = { ...second, start: first.end };
+    handleSaveRepetitions([...localRepsRef.current, { id: uid("rep"), label: "", first, second }]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repDraw?.step]);
+
+  // Cancelar con ESC
+  useEffect(() => {
+    if (!repDraw) return;
+    const onKey = e => { if (e.key === "Escape") setRepDraw(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [!!repDraw]);
+
+  // ── Resize de barras de repetición arrastrando en la regla ─────────────
+  const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
+
+  const handleRepZoneRulerDown = (e, seg, pass) => {
+    if (repDraw || listenOnly) return;
+    const rowKey = `ruler_${seg.index}_${pass}`;
+    const rowEl  = trackSegRefs.current[rowKey]; if (!rowEl) return;
+    const rowRect  = rowEl.getBoundingClientRect();
+    const rulerEl  = rulerContainerRef.current; if (!rulerEl) return;
+    const rulerRect = rulerEl.getBoundingClientRect();
+    const mouseX   = getClientX(e);
+    const distL = mouseX - rowRect.left;
+    const distR = rowRect.right - mouseX;
+    const edgePx = Math.min(RESIZE_PX, rowRect.width * 0.28);
+    const isLeft  = distL < edgePx;
+    const isRight = distR < edgePx;
+
+    if (!isLeft && !isRight) { handleSegRulerDown(e, seg, pass); return; }
+
+    e.preventDefault();
+    const { rep } = seg;
+    // Ambos bordes del centro son la "junction" (first.end = second.start)
+    const field = pass === "first"
+      ? (isLeft ? "first.start" : "junction")
+      : (isLeft ? "junction"    : "second.end");
+    const color = pass === "first" ? C.fnS : C.fnT;
+    repResizeRef.current = { repId: rep.id, field, rulerRect, seg, rep: { ...rep, first: { ...rep.first }, second: { ...rep.second } } };
+
+    const toXFrac = ev => Math.max(0, Math.min(1, (getClientX(ev) - rulerRect.left) / rulerRect.width));
+    setRepResizeGuide({ xFrac: toXFrac(e), color: "black" });
+
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      setRepResizeGuide({ xFrac: toXFrac(ev), color: "black" });
+    };
+    const up = ev => {
+      const d = repResizeRef.current; if (!d) return;
+      const xFrac      = toXFrac(ev);
+      const xInSeg     = (xFrac - d.seg.vStart) / Math.max(0.001, d.seg.vEnd - d.seg.vStart);
+      const cf         = Math.max(0, Math.min(1, xInSeg));
+      const { rep: origRep } = d;
+      let f = { ...origRep.first }, s = { ...origRep.second };
+      const fd = f.end - f.start || 1, sd = s.end - s.start || 1;
+      if (d.field === "first.start") {
+        f.start = Math.min(f.end - 1, origRep.first.start + cf * fd);
+        // Snap al inicio si < 5 s
+        if (f.start < 5) f.start = 0;
+      } else if (d.field === "junction") {
+        // Mueve first.end y second.start juntos; second.end se ajusta en proporción
+        const origSD = origRep.second.end - origRep.second.start || 1;
+        const ratio  = origSD / fd;
+        const newJunction = origRep.first.start + cf * fd;
+        f.end   = Math.max(f.start + 1, Math.min(duration - 1, newJunction));
+        s.start = f.end;
+        const newFD = f.end - f.start;
+        s.end = Math.min(duration, f.end + newFD * ratio);
+      } else {
+        s.end = Math.max(s.start + 1, origRep.second.start + cf * sd);
+      }
+      f.start = Math.max(0, f.start); f.end = Math.min(duration, f.end);
+      s.start = f.end;               s.end = Math.min(duration, s.end);
+      const newRep  = { ...origRep, first: f, second: s };
+      const newReps = localRepsRef.current.map(r => r.id === d.repId ? newRep : r);
+      handleSaveRepetitions(newReps);
+      setRepResizeGuide(null);
+      repResizeRef.current = null;
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
+  };
+
+  // Cursor ew-resize al pasar por los bordes (sin asa visible)
+  const handleRepRowMouseMove = (e, rowEl) => {
+    if (!rowEl || repDraw) return;
+    const rect  = rowEl.getBoundingClientRect();
+    const distL = getClientX(e) - rect.left;
+    const distR = rect.right - getClientX(e);
+    const edgePx = Math.min(RESIZE_PX, rect.width * 0.28);
+    rowEl.style.cursor = (distL < edgePx || distR < edgePx) ? "ew-resize" : "default";
+  };
+
+  // ── Navegador de la regla ────────────────────────────────────────────────
+  const getClientX = e => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+
+  // Igual que containerXToRec pero, para segmentos "repeat" (vista resumida),
+  // puede mapear a la 1ª O la 2ª vez según el parámetro `pass`.
+  // Esto permite arrastrar de forma continua a través de todos los segmentos.
+  const containerXToRecForPass = (xFrac, pass) => {
+    const segs = segmentsRef.current;
+    for (const sg of segs) {
+      if (xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
+        const f = sg.vEnd > sg.vStart
+          ? Math.max(0, Math.min(1, (xFrac - sg.vStart) / (sg.vEnd - sg.vStart))) : 0;
+        if (sg.type === "normal")        return sg.recStart + f * sg.canonDur;
+        if (sg.type === "repeat-first")  return sg.recStart + f * sg.canonDur;
+        if (sg.type === "repeat-second") return sg.recStart + f * sg.canonDur;
+        // Segmento "repeat" (vista resumida): mapear a 1ª o 2ª vez según pass
+        if (pass === "second")
+          return sg.rep.second.start + f * (sg.rep.second.end - sg.rep.second.start);
+        return sg.rep.first.start + f * (sg.rep.first.end - sg.rep.first.start);
+      }
+    }
+    return 0;
+  };
+
+  // Drag continuo que abarca AMBAS FILAS del segmento de repetición en vista resumida.
+  // Determina la vez (1ª o 2ª) según la posición vertical del puntero en cada momento,
+  // permitiendo pasar de una fila a la otra sin soltar el botón del ratón.
+  const handleDoubleRowRulerDown = (e, seg, outerEl) => {
+    if (listenOnly) return;
+    e.preventDefault();
+    const containerEl = rulerContainerRef.current; if (!containerEl) return;
+    const getFrac = ev => {
+      const r = containerEl.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
+    };
+    const getPass = ev => {
+      if (!outerEl) return "first";
+      const r   = outerEl.getBoundingClientRect();
+      const y   = ev.touches?.[0]?.clientY ?? ev.changedTouches?.[0]?.clientY ?? ev.clientY;
+      return (y - r.top) > r.height / 2 ? "second" : "first";
+    };
+    const seek = ev => seekTo(containerXToRecForPass(getFrac(ev), getPass(ev)));
+    seek(e);
+    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seek(ev); };
     const up = () => {
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
@@ -1914,444 +2733,1208 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
   };
 
-  const getClientX = e => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+  // Drag del navegador: usa el contenedor COMPLETO de la regla para que la bola
+  // se pueda mover de forma continua a través de todos los segmentos sin pararse
+  // en los bordes de cada uno.
+  const handleSegRulerDown = (e, seg, pass) => {
+    if (listenOnly) return;
+    e.preventDefault();
+    const containerEl = rulerContainerRef.current; if (!containerEl) return;
+    const getFrac = ev => {
+      const r = containerEl.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
+    };
+    seekTo(containerXToRecForPass(getFrac(e), pass));
+    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(containerXToRecForPass(getFrac(ev), pass)); };
+    const up = () => {
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
+  };
 
-  // Timeline drag logic
+  // ── Marcas (listen-only): mapeo visual → tiempo grabación ───────────────
+  const containerXToRec = xFrac => {
+    const segs = segmentsRef.current;
+    for (const sg of segs) {
+      if (xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
+        const f = sg.vEnd > sg.vStart
+          ? Math.max(0, Math.min(1, (xFrac - sg.vStart) / (sg.vEnd - sg.vStart))) : 0;
+        if (sg.type === "normal") return sg.recStart + f * sg.canonDur;
+        if (sg.type === "repeat-first")  return sg.recStart + f * sg.canonDur;
+        if (sg.type === "repeat-second") return sg.recStart + f * sg.canonDur;
+        return sg.rep.first.start + f * (sg.rep.first.end - sg.rep.first.start);
+      }
+    }
+    return 0;
+  };
+  const handleMarksContainerDown = e => {
+    if (e.target.closest("[data-mark]")) return;
+    const el = rulerContainerRef.current; if (!el) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const t = containerXToRec(Math.max(0, Math.min(1, (getClientX(e) - rect.left) / rect.width)));
+    setSchemaMarks(prev => [...prev, t].sort((a, b) => a - b));
+  };
+  const handleMarkDown = (e, idx) => {
+    e.stopPropagation(); e.preventDefault();
+    const el = rulerContainerRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = getClientX(e);
+    let moved = false;
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      const x = getClientX(ev);
+      if (!moved && Math.abs(x - startX) > 3) moved = true;
+      if (moved) {
+        const t = containerXToRec(Math.max(0, Math.min(1, (x - rect.left) / rect.width)));
+        setSchemaMarks(prev => { const n = [...prev]; n[idx] = t; return n; });
+      }
+    };
+    const up = () => {
+      if (!moved) setSchemaMarks(prev => prev.filter((_, i) => i !== idx));
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
+  };
+
+  // ── Drag principal (crear / mover / redimensionar bloques) ───────────────
   useEffect(() => {
-    const pixToTime = (e, lvId) => {
-      const el = trackRefs.current[lvId]; if (!el) return 0;
+    // pixToTime vive dentro del efecto para acceder a los refs sin clausura vieja
+    const pixToTime = e => {
+      const d = dragRef.current; if (!d) return 0;
+      const el = trackSegRefs.current[d.segKey]; if (!el) return d.anchor;
       const r = el.getBoundingClientRect();
       const x = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
-      return Math.max(0, Math.min(duration, ((x - r.left) / r.width) * duration));
+      return d.segMin + Math.max(0, Math.min(1, (x - r.left) / r.width)) * (d.segMax - d.segMin);
     };
+
     const onMove = e => {
       const d = dragRef.current; if (!d) return;
-      const t   = pixToTime(e, d.level);
+      const t   = pixToTime(e);
       const all = blocksRef.current;
-      const ph  = timeRef.current;            // cursor de reproducción en tiempo real
+      const ph  = timeRef.current;
+      // Bloques del mismo contexto (misma repetición + misma vez)
+      const ctx = all.filter(b => b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview);
+      // Puntos de snap: límites del segmento + bordes de zona de repetición + marcas + bordes de bloques del contexto
+      const repBounds = localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.start, r.second.end]);
+      const snap = v => {
+        const pts = [d.segMin, d.segMax,
+          ...repBounds.filter(p => p >= d.segMin - 0.1 && p <= d.segMax + 0.1),
+          ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
+          ...ctx.filter(b => b.id !== d.pid && b.id !== d.bid).flatMap(b => [b.start, b.end]),
+          ph,
+        ];
+        let best = v, bd = SCHEMA_SNAP_THR + 0.01;
+        for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
+        return best;
+      };
+      const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-      // ── Crear bloque ────────────────────────────────────────────────────
       if (d.type === "create") {
-        let s = Math.min(d.anchor, t), e2 = Math.max(d.anchor, t);
-        const ss = schemaSnapTime(s, all, d.pid, duration), se = schemaSnapTime(e2, all, d.pid, duration);
-        const ng = [];
-        if (Math.abs(s  - ss) <= SCHEMA_SNAP_THR) { s  = ss; ng.push(ss); }
-        if (Math.abs(e2 - se) <= SCHEMA_SNAP_THR) { e2 = se; ng.push(se); }
-        setGuides(ng); d.ps = s; d.pe = e2;
-        setBlocks(prev => [...prev.filter(b => b.id !== d.pid), { id: d.pid, level: d.level, start: s, end: e2, label: "\u2026", isPreview: true }]);
+        let s  = cl(Math.min(d.anchor, t), d.segMin, d.segMax);
+        let e2 = cl(Math.max(d.anchor, t), d.segMin, d.segMax);
+        s = cl(snap(s), d.segMin, d.segMax); e2 = cl(snap(e2), d.segMin, d.segMax);
+        d.ps = s; d.pe = e2;
+        const ng = [s, e2].filter(v => v > d.segMin + 0.1 && v < d.segMax - 0.1);
+        setGuides(ng);
+        setBlocks(prev => [...prev.filter(b => b.id !== d.pid),
+          { id: d.pid, level: d.level, start: s, end: e2, label: "…", isPreview: true, repeatId: d.repeatId, pass: d.pass }]);
         return;
       }
 
-      // ── Mover bloque (se detiene en vecinos del mismo nivel, sin empuje) ──
       if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
-        let ns = Math.max(0, Math.min(duration - dur2, d.os + delta)), ne = ns + dur2;
-        // Snap a bordes globales y de otros niveles (no empuja; solo guía visual)
-        const xb = [0, duration, ...all.filter(b => b.id !== d.bid && b.level !== d.level && !b.isPreview).flatMap(b => [b.start, b.end])];
+        let ns = cl(d.os + delta, d.segMin, d.segMax - dur2), ne = ns + dur2;
+        const xb = [d.segMin, d.segMax,
+          ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
+          ...all.filter(b => b.id !== d.bid && b.level !== d.level && b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview).flatMap(b => [b.start, b.end]),
+        ];
         let snapped = false;
         for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
         if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
-        // Freno al tocar vecinos del mismo nivel (sin empuje)
-        for (const nb of all.filter(b => b.level === d.level && b.id !== d.bid && !b.isPreview)) {
+        for (const nb of ctx.filter(b => b.level === d.level && b.id !== d.bid)) {
           if (ns < nb.end - 0.05 && ne > nb.start + 0.05) {
             if (d.os >= nb.end - 0.3) { ns = nb.end; ne = ns + dur2; }
             else                       { ne = nb.start; ns = ne - dur2; }
           }
         }
-        ns = Math.max(0, Math.min(duration - dur2, ns)); ne = ns + dur2;
+        ns = cl(ns, d.segMin, d.segMax - dur2); ne = ns + dur2;
         setGuides([ns, ne]);
         setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b));
         return;
       }
 
-      // ── Redimensionar izquierda: se detiene en el vecino, sin empuje ──────
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
-        const minNs  = leftNb ? leftNb.end : 0;   // hard stop en el borde del vecino
-        let ns = schemaSnapWithPlayhead(t, all, [d.bid, d.leftId].filter(Boolean), duration, ph);
-        ns = Math.max(minNs, Math.min(ns, d.oe - SCHEMA_MIN_DUR));
+        const minNs  = leftNb ? leftNb.end : d.segMin;
+        const ns = cl(snap(t), minNs, d.oe - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid) return { ...b, start: ns };
-          return b;
-        }));
+        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns } : b));
         return;
       }
 
-      // ── Redimensionar derecha: se detiene en el vecino, sin empuje ─────────
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
-        const maxNe   = rightNb ? rightNb.start : duration;  // hard stop en el borde del vecino
-        let ne = schemaSnapWithPlayhead(t, all, [d.bid, d.rightId].filter(Boolean), duration, ph);
-        ne = Math.max(d.os + SCHEMA_MIN_DUR, Math.min(ne, maxNe));
+        const maxNe   = rightNb ? rightNb.start : d.segMax;
+        const ne = cl(snap(t), d.os + SCHEMA_MIN_DUR, maxNe);
         setGuides([ne]);
-        setBlocks(prev => prev.map(b => {
-          if (b.id === d.bid) return { ...b, end: ne };
-          return b;
-        }));
+        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, end: ne } : b));
         return;
       }
 
-      // ── Asa de límite común: mueve el borde compartido de dos bloques ─────
       if (d.type === "shared-edge") {
-        let ns = schemaSnapWithPlayhead(t, all, [d.leftId, d.rightId], duration, ph);
-        ns = Math.max(d.leftStart + SCHEMA_MIN_DUR, Math.min(ns, d.rightEnd - SCHEMA_MIN_DUR));
+        const ns = cl(snap(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b => {
-          if (b.id === d.leftId)  return { ...b, end:   ns };
-          if (b.id === d.rightId) return { ...b, start: ns };
-          return b;
-        }));
+        setBlocks(prev => prev.map(b =>
+          b.id === d.leftId  ? { ...b, end:   ns } :
+          b.id === d.rightId ? { ...b, start: ns } : b));
       }
     };
-    const onUp = (upEvt) => {
+
+    const onUp = upEvt => {
       const d = dragRef.current; if (!d) return;
       if (d.type === "create") {
-        const dur2 = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
-        const elapsed  = Date.now() - (d.downTime ?? 0);
-        const movedPx  = Math.abs((upEvt?.changedTouches?.[0]?.clientX ?? upEvt?.clientX ?? d.downX) - (d.downX ?? 0));
-        const isClick  = elapsed < SCHEMA_CLICK_MS && movedPx < SCHEMA_CLICK_MOVE_THR;
+        const dur2    = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
+        const elapsed = Date.now() - (d.downTime ?? 0);
+        const movedPx = Math.abs((upEvt?.changedTouches?.[0]?.clientX ?? upEvt?.clientX ?? d.downX) - (d.downX ?? 0));
+        const isClick = elapsed < SCHEMA_CLICK_MS && movedPx < SCHEMA_CLICK_MOVE_THR;
+        // Bloques creados manualmente en la 2ª vez se marcan overridden
+        const overrideFlag = d.pass === "second" ? { overridden: true } : {};
 
         if (dur2 >= SCHEMA_MIN_DUR || isClick) {
-          const n     = blocksRef.current.filter(b => b.level === d.level && !b.isPreview).length;
+          const ctx   = blocksRef.current.filter(b => b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview);
+          const n     = ctx.filter(b => b.level === d.level).length;
           const label = SCHEMA_DEFAULT_LABELS[d.level]?.[n] ?? String(n + 1);
 
           if (isClick && dur2 < SCHEMA_MIN_DUR) {
-            // Clic breve: crear bloque de tamaño cómodo centrado en el punto de clic
-            const defaultDur = Math.max(SCHEMA_MIN_DUR * 2, duration * SCHEMA_CLICK_DUR_FRAC);
-            let ns = Math.max(0, d.anchor - defaultDur / 2);
-            let ne = ns + defaultDur;
-            if (ne > duration) { ne = duration; ns = Math.max(0, ne - defaultDur); }
-            // Evitar solapamiento con bloques existentes del mismo nivel
-            const same = blocksRef.current.filter(b => b.level === d.level && !b.isPreview);
-            for (const nb of same) {
+            const segDur = d.segMax - d.segMin;
+            const defDur = Math.max(SCHEMA_MIN_DUR * 2, segDur * SCHEMA_CLICK_DUR_FRAC);
+            let ns = Math.max(d.segMin, d.anchor - defDur / 2), ne = ns + defDur;
+            if (ne > d.segMax) { ne = d.segMax; ns = Math.max(d.segMin, ne - defDur); }
+            for (const nb of ctx.filter(b => b.level === d.level)) {
               if (ns < nb.end && ne > nb.start) {
-                // Intentar colocarlo a la derecha del vecino
-                if (nb.end + defaultDur <= duration) { ns = nb.end; ne = ns + defaultDur; }
-                // Si no cabe, a la izquierda
-                else if (nb.start - defaultDur >= 0) { ne = nb.start; ns = ne - defaultDur; }
+                if (nb.end + defDur <= d.segMax) { ns = nb.end; ne = ns + defDur; }
+                else if (nb.start - defDur >= d.segMin) { ne = nb.start; ns = ne - defDur; }
               }
             }
-            setBlocks(prev => [
-              ...prev.filter(b => b.id !== d.pid),
-              { id: d.pid, level: d.level, start: ns, end: ne, label, isPreview: false },
-            ]);
+            setBlocks(prev => [...prev.filter(b => b.id !== d.pid),
+              { id: d.pid, level: d.level, start: ns, end: ne, label, isPreview: false, repeatId: d.repeatId, pass: d.pass, ...overrideFlag }]);
           } else {
-            setBlocks(prev => prev.map(b => b.id === d.pid ? { ...b, label, isPreview: false } : b));
+            setBlocks(prev => prev.map(b => b.id === d.pid
+              ? { ...b, label, isPreview: false, repeatId: d.repeatId, pass: d.pass, ...overrideFlag } : b));
           }
           setSelected(d.pid);
         } else {
-          // Creación cancelada — revertir el snapshot guardado
           setHistory(prev => prev.slice(0, -1));
           setBlocks(prev => prev.filter(b => b.id !== d.pid));
         }
       }
+      // Si se movió/redimensionó un bloque de 2ª vez, marcarlo como overridden
+      if ((d.type === "move" || d.type === "resize-l" || d.type === "resize-r" || d.type === "shared-edge") && d.pass === "second") {
+        setBlocks(prev => prev.map(b => {
+          if (d.type === "shared-edge") {
+            if (b.id === d.leftId || b.id === d.rightId) return { ...b, overridden: true };
+          } else {
+            if (b.id === d.bid) return { ...b, overridden: true };
+          }
+          return b;
+        }));
+      }
+      // Si se editó la 1ª vez (o zona normal), re-sincronizar la 2ª vez
+      if (viewModeRef.current === "completa" && localRepsRef.current.length > 0 &&
+          (d.pass === "first" || d.pass === null)) {
+        setBlocks(prev => syncSecondPassBlocks(prev, localRepsRef.current));
+      }
       setGuides([]); dragRef.current = null;
     };
-    window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onMove, { passive: false }); window.addEventListener("touchend", onUp);
+
+    window.addEventListener("mousemove", onMove);  window.addEventListener("mouseup",      onUp);
+    window.addEventListener("touchmove", onMove, { passive: false }); window.addEventListener("touchend",   onUp);
     window.addEventListener("touchcancel", onUp);
     return () => {
-      window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onUp);
+      window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup",     onUp);
+      window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend",    onUp);
       window.removeEventListener("touchcancel", onUp);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration]);
 
+  // ── Edición de etiquetas ─────────────────────────────────────────────────
   const commitEdit = () => {
     if (!editId) return;
-    setBlocks(prev => prev.map(b => b.id === editId ? { ...b, label: editVal } : b));
+    setBlocks(prev => {
+      const edited = prev.find(b => b.id === editId);
+      return prev.map(b => {
+        if (b.id === editId) return { ...b, label: editVal };
+        // Propagar el nuevo label al bloque espejo de la 2ª vez
+        if (edited?.pass === "first" && b.mirrorId === editId) return { ...b, label: editVal };
+        return b;
+      });
+    });
     setEditId(null); setEditVal("");
   };
-  const handleTrackDown = (e, lvId) => {
+
+  // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
+  const handleTrackSegDown = (e, lvId, seg, pass) => {
     if (editId) commitEdit();
     if (e.target.closest("[data-block]")) return;
-    const el = trackRefs.current[lvId]; if (!el) return;
+    const sk = `${lvId}_${seg.index}_${pass}`;
+    const el = trackSegRefs.current[sk]; if (!el) return;
     const r = el.getBoundingClientRect();
-    const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
-    // Guardar snapshot antes de crear
+    const bounds = getSegBounds(seg, pass);
+    const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
     setHistory(prev => [...prev, blocksRef.current]);
-    dragRef.current = { type: "create", level: lvId, anchor: t, pid: uid("sb"), ps: t, pe: t, downTime: Date.now(), downX: getClientX(e) };
+    // Para segmentos de tipo repeat-first/repeat-second usamos el rep.id y el pass inferido
+    const repeatId = seg.type === "repeat" ? seg.rep.id
+                   : seg.type === "repeat-first"  ? seg.rep.id
+                   : seg.type === "repeat-second" ? seg.rep.id
+                   : null;
+    const infPass  = seg.type === "repeat"        ? pass
+                   : seg.type === "repeat-first"  ? "first"
+                   : seg.type === "repeat-second" ? "second"
+                   : null;
+    dragRef.current = {
+      type: "create", level: lvId, anchor: t, pid: uid("sb"),
+      ps: t, pe: t, downTime: Date.now(), downX: getClientX(e),
+      segKey: sk, segMin: bounds.min, segMax: bounds.max,
+      repeatId, pass: infPass,
+    };
     setSelected(null); e.preventDefault();
   };
+
+  // ── Inicio de drag en bloque existente (mover / redimensionar) ───────────
   const handleBlockDown = (e, block, type = "move") => {
     if (editId) commitEdit();
-    // Para "move", si el bloque estaba en edición, solo confirmamos y no iniciamos drag
     if (type === "move" && editId === block.id) return;
-    // Guardar snapshot antes de mover/redimensionar
     setHistory(prev => [...prev, blocksRef.current]);
     e.stopPropagation(); setSelected(block.id);
-    const el = trackRefs.current[block.level]; if (!el) return;
+
+    const seg = segmentsRef.current.find(sg => {
+      if (sg.type === "normal") return !block.repeatId && block.start >= sg.recStart - 0.01 && block.start < sg.recEnd + 0.01;
+      if (sg.type === "repeat-first")  return block.repeatId === sg.rep.id && block.pass === "first";
+      if (sg.type === "repeat-second") return block.repeatId === sg.rep.id && block.pass === "second";
+      return block.repeatId === sg.rep.id; // legacy "repeat" type
+    });
+    if (!seg) return;
+    const pass = block.pass || "normal";
+    const sk   = `${block.level}_${seg.index}_${pass}`;
+    const el   = trackSegRefs.current[sk]; if (!el) return;
     const r = el.getBoundingClientRect();
-    const t = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
-    const sameLevel = blocksRef.current.filter(b => b.level === block.level && b.id !== block.id && !b.isPreview);
+    const bounds = getSegBounds(seg, pass);
+    const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
+
+    const ctx = blocksRef.current.filter(b =>
+      b.level === block.level && b.id !== block.id &&
+      b.repeatId === block.repeatId && b.pass === block.pass && !b.isPreview
+    );
     let extra = {};
     if (type === "resize-r") {
-      // Vecino derecho inmediato: primer bloque cuyo start >= nuestro end
-      const rn = sameLevel.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
+      const rn = ctx.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
       extra = { rightId: rn?.id, rightEnd: rn?.end };
     } else if (type === "resize-l") {
-      // Vecino izquierdo inmediato: último bloque cuyo end <= nuestro start
-      const ln = sameLevel.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
+      const ln = ctx.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
       extra = { leftId: ln?.id, leftStart: ln?.start };
     }
-    dragRef.current = { type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end, ...extra };
-    e.preventDefault();
-  };
-
-  // Asa de límite común — mueve el borde final del bloque izquierdo y el borde inicial del derecho a la vez
-  const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
-    if (editId) commitEdit();
-    // Guardar snapshot antes de mover límite compartido
-    setHistory(prev => [...prev, blocksRef.current]);
-    e.stopPropagation();
-    const el = trackRefs.current[leftBlock.level]; if (!el) return;
-    const r  = el.getBoundingClientRect();
-    const t  = Math.max(0, Math.min(duration, ((getClientX(e) - r.left) / r.width) * duration));
     dragRef.current = {
-      type: "shared-edge", level: leftBlock.level,
-      leftId:    leftBlock.id,   rightId:   rightBlock.id,
-      leftStart: leftBlock.start,            // fijo para clamping
-      rightEnd:  rightBlock.end,             // fijo para clamping
-      anchor: t, os: leftBlock.end,
+      type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end,
+      segKey: sk, segMin: bounds.min, segMax: bounds.max,
+      repeatId: block.repeatId, pass: block.pass, ...extra,
     };
     e.preventDefault();
   };
 
-  // Dimensiones de las asas de redimensionado (modo esquema)
-  // Bloque: track 62px − 6px top − 6px bottom = 50px de alto.
-  // Asa: 2/3 de esa altura, centrada verticalmente en el bloque.
-  const SCHEMA_HND_W   = 18;
-  const SCHEMA_HND_H   = Math.round(50 * 2 / 3);                      // ≈ 33 px
-  const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);     // ≈ 14 px desde el top del track
+  // ── Asa de borde compartido ──────────────────────────────────────────────
+  const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
+    if (editId) commitEdit();
+    setHistory(prev => [...prev, blocksRef.current]);
+    e.stopPropagation();
+    const seg = segmentsRef.current.find(sg => {
+      if (sg.type === "normal") return !leftBlock.repeatId;
+      if (sg.type === "repeat-first")  return leftBlock.repeatId === sg.rep.id && leftBlock.pass === "first";
+      if (sg.type === "repeat-second") return leftBlock.repeatId === sg.rep.id && leftBlock.pass === "second";
+      return leftBlock.repeatId === sg.rep.id;
+    });
+    if (!seg) return;
+    const pass = leftBlock.pass || "normal";
+    const sk   = `${leftBlock.level}_${seg.index}_${pass}`;
+    const el   = trackSegRefs.current[sk]; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const bounds = getSegBounds(seg, pass);
+    const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
+    dragRef.current = {
+      type: "shared-edge", level: leftBlock.level,
+      leftId: leftBlock.id, rightId: rightBlock.id,
+      leftStart: leftBlock.start, rightEnd: rightBlock.end,
+      anchor: t, os: leftBlock.end,
+      segKey: sk, segMin: bounds.min, segMax: bounds.max,
+      repeatId: leftBlock.repeatId, pass: leftBlock.pass,
+    };
+    e.preventDefault();
+  };
 
+  const SCHEMA_HND_W   = 18;
+  const SCHEMA_HND_H   = Math.round(50 * 2 / 3);
+  const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);
+
+  const activeLevels = SCHEMA_LEVELS.filter(lv =>
+    !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+  );
+
+  // Lookup de bloques activos (según el cursor de reproducción + contexto de repetición)
   const activeAt = {};
-  for (const b of blocks) { if (!b.isPreview && time >= b.start && time < b.end) activeAt[b.level] = b.id; }
+  for (const b of blocks) {
+    if (b.isPreview || time < b.start || time >= b.end) continue;
+    if (!b.repeatId) { activeAt[b.level] = b.id; continue; }
+    if (activeRepeatPass && b.repeatId === activeRepeatPass.repId && b.pass === activeRepeatPass.pass)
+      activeAt[b.level] = b.id;
+  }
   const selBlock = selected ? blocks.find(b => b.id === selected) : null;
   const selLv    = selBlock ? SCHEMA_LEVELS.find(l => l.id === selBlock.level) : null;
 
-  const handleSubmit = () => {
-    onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode });
+  // ── Renderizado de bloques dentro de un segmento+fila ───────────────────
+  const renderSegBlocks = (seg, pass, lvId) => {
+    const lv = SCHEMA_LEVELS.find(l => l.id === lvId);
+    const bounds = getSegBounds(seg, pass);
+    const segDur = (bounds.max - bounds.min) || 1;
+
+    const segBlocks = blocks.filter(b => {
+      if (b.level !== lvId) return false;
+      if (seg.type === "normal") return !b.repeatId && b.start >= bounds.min - 0.01 && b.start < bounds.max + 0.01;
+      if (seg.type === "repeat-first")  return b.repeatId === seg.rep.id && b.pass === "first";
+      if (seg.type === "repeat-second") return b.repeatId === seg.rep.id && b.pass === "second";
+      return b.repeatId === seg.rep.id && b.pass === pass;
+    });
+    const real = segBlocks.filter(b => !b.isPreview).sort((a, b) => a.start - b.start);
+    const adjPairs = [];
+    for (let i = 0; i < real.length - 1; i++) {
+      if (Math.abs(real[i].end - real[i + 1].start) < 0.5)
+        adjPairs.push({ left: real[i], right: real[i + 1] });
+    }
+    const adjLIds = new Set(adjPairs.map(p => p.right.id));
+    const adjRIds = new Set(adjPairs.map(p => p.left.id));
+
+    // Posición del cursor de reproducción en esta fila
+    let phPct = null;
+    if (seg.type === "normal" && time >= seg.recStart && time < seg.recEnd)
+      phPct = ((time - seg.recStart) / seg.canonDur) * 100;
+    else if (seg.type === "repeat") {
+      if (pass === "first" && time >= seg.rep.first.start && time < seg.rep.first.end)
+        phPct = ((time - seg.rep.first.start) / (seg.rep.first.end - seg.rep.first.start)) * 100;
+      else if (pass === "second" && time >= seg.rep.second.start && time < seg.rep.second.end)
+        phPct = ((time - seg.rep.second.start) / (seg.rep.second.end - seg.rep.second.start)) * 100;
+    }
+
+    const hStyle = { position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
+    const vis    = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
+
+    return (<>
+      {/* Cuadrícula de fondo */}
+      {Array.from({ length: 13 }, (_, i) => i / 12).map((f, i) => (
+        <div key={i} style={{ position: "absolute", top: 0, left: `${f * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
+      ))}
+      {/* Marcas listen-only */}
+      {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, i) => (
+        <div key={i} style={{ position: "absolute", top: 0, left: `${((mt - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(184,74,58,0.28)", pointerEvents: "none", zIndex: 7 }} />
+      ))}
+      {/* Guías de snap */}
+      {guides.filter(g => g >= bounds.min && g <= bounds.max).map((g, i) => (
+        <div key={i} style={{ position: "absolute", top: 0, left: `${((g - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8 }} />
+      ))}
+      {/* Cursor de reproducción */}
+      {phPct !== null && (
+        <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1, height: "100%", background: C.danger, opacity: 0.5, pointerEvents: "none", zIndex: 6 }} />
+      )}
+      {/* Bloques */}
+      {segBlocks.map(block => {
+        const isActive = activeAt[lvId] === block.id, isSel = selected === block.id;
+        // En vista resumida los bloques sin repeatId pueden cruzar la zona de
+        // repetición (la parte abarca tanto la 1ª como la 2ª vez). Usamos
+        // recToVisXResumed para que su anchura visual sea correcta.
+        let lPct, wPct;
+        if (viewMode === "resumida" && seg.type === "normal" && !block.repeatId) {
+          const segVW = (seg.vEnd - seg.vStart) || 1;
+          const visS  = recToVisX(block.start);
+          const visE  = recToVisXResumed(block.end);
+          lPct = Math.max(0, (visS - seg.vStart) / segVW) * 100;
+          wPct = Math.max(0, (visE - visS) / segVW) * 100;
+        } else {
+          lPct = Math.max(0, ((block.start - bounds.min) / segDur) * 100);
+          wPct = Math.max(0, ((block.end - block.start) / segDur) * 100);
+        }
+        const { bg: bBg, textColor: bTx } = block.isPreview
+          ? { bg: lv.color, textColor: "#FFFFFF" }
+          : block.customColor ? harmonyBlockColors(null, block.customColor)
+          : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
+          : { bg: lv.color, textColor: "#FFFFFF" };
+        return (
+          <div key={block.id} data-block="true" style={{
+            position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+            background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
+            border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
+            boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+            zIndex: isSel ? 7 : isActive ? 4 : 3, boxSizing: "border-box",
+          }}
+            onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+            onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+            onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+            {editId === block.id ? (
+              <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                onClick={e => e.stopPropagation()}
+                style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
+            ) : (
+              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: 700, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+                {block.label}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      {/* Asas de borde libre — ocultas en modo resumida y en bordes bloqueados */}
+      {viewMode !== "resumida" && real.flatMap(block => {
+        const lPct = ((block.start - bounds.min) / segDur) * 100;
+        const rPct = ((block.end   - bounds.min) / segDur) * 100;
+        const out = [];
+        // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
+        if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
+          <div key={`hl-${block.id}`} data-block="true"
+            style={{ ...hStyle, left: `calc(${lPct}% - ${SCHEMA_HND_W / 2}px)` }}
+            onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
+            onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
+            <div style={vis} />
+          </div>
+        );
+        // Ocultar el asa derecha si el bloque está bloqueado al borde de zona
+        if (!adjRIds.has(block.id) && !block._lockedEnd) out.push(
+          <div key={`hr-${block.id}`} data-block="true"
+            style={{ ...hStyle, left: `calc(${rPct}% - ${SCHEMA_HND_W / 2}px)` }}
+            onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
+            onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
+            <div style={vis} />
+          </div>
+        );
+        return out;
+      })}
+      {/* Asas de borde compartido — ocultas en modo resumida */}
+      {viewMode !== "resumida" && adjPairs.map(({ left, right }) => {
+        const pct = ((left.end - bounds.min) / segDur) * 100;
+        return (
+          <div key={`sh-${left.id}-${right.id}`} data-block="true"
+            style={{ position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onMouseDown={e => handleSharedHandleDown(e, left, right)}
+            onTouchStart={e => handleSharedHandleDown(e, left, right)}>
+            <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+          </div>
+        );
+      })}
+    </>);
   };
+
+  // ── Pinch-to-zoom (móvil) ─────────────────────────────────────────────────
+  const handleSchemaPinchStart = e => {
+    if (e.touches.length !== 2) return;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    pinchRef.current = { dist: Math.hypot(dx, dy), zoom: schemaZoom, sf: schemaScrollFrac };
+  };
+  const handleSchemaPinchMove = e => {
+    if (e.touches.length !== 2 || !pinchRef.current) return;
+    const dx  = e.touches[0].clientX - e.touches[1].clientX;
+    const dy  = e.touches[0].clientY - e.touches[1].clientY;
+    const newZoom = Math.min(8, Math.max(1, pinchRef.current.zoom * (Math.hypot(dx, dy) / pinchRef.current.dist)));
+    setSchemaZoom(newZoom);
+    if (e.cancelable) e.preventDefault();
+  };
+  const handleSchemaPinchEnd = () => { pinchRef.current = null; };
+
+  // ── Drag de la barra de scroll personalizada ──────────────────────────────
+  // El drag es RELATIVO: el desplazamiento es proporcional al movimiento del ratón/dedo,
+  // sin saltar a la posición absoluta del clic.
+  const handleScrollbarTrackDown = e => {
+    e.preventDefault();
+    const track   = e.currentTarget;
+    const startX  = e.touches?.[0]?.clientX ?? e.clientX;
+    const startSf = schemaScrollFrac;
+    const move = ev => {
+      const rect     = track.getBoundingClientRect();
+      const x        = ev.touches?.[0]?.clientX ?? ev.clientX;
+      const deltaX   = x - startX;
+      const deltaFrac = deltaX / rect.width;
+      // El thumb ocupa 1/zoom del track; el rango de movimiento del thumb es (1 - 1/zoom)
+      const thumbRange = 1 - 1 / Math.max(1, schemaZoom);
+      const newSf    = thumbRange > 0 ? startSf + deltaFrac / thumbRange : 0;
+      setSchemaScrollFrac(Math.max(0, Math.min(1, newSf)));
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up);
+    };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false }); window.addEventListener('touchend', up);
+  };
+
+  const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps });
+
+  // ── JSX principal ────────────────────────────────────────────────────────
   return (
     <div style={S.app}>
+      {/* Cabecera */}
       <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
         <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }}>{"<-"} Volver</button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: FONT_SERIF, fontSize: 18, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Esquema formal</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+            Esquema formal{hasRepeats ? ` · ${localReps.length} repetición${localReps.length !== 1 ? "es" : ""}` : ""}
+          </div>
         </div>
         <span style={{ ...S.badge, background: `${C.fnD}1C`, color: C.fnD, border: `1px solid ${C.fnD}45`, padding: "4px 12px", fontSize: 11, fontWeight: 700, letterSpacing: 0.9, flexShrink: 0 }}>ESQUEMA</span>
+        {hasRepeats && (
+          <button onClick={() => setShowRepModal(true)}
+            style={{ ...S.btn, fontSize: 11, padding: "5px 10px", color: C.muted, flexShrink: 0 }}>
+            Ajustar tiempos
+          </button>
+        )}
       </div>
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 60px" }}
+      {showRepModal && (
+        <RepeatManagerModal
+          exercise={{ ...exercise, repetitions: localReps }}
+          duration={duration}
+          onSave={handleSaveRepetitions}
+          onClose={() => setShowRepModal(false)} />
+      )}
+
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}>
+
+        {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} waveformDuration={audioDuration} allIntervals={[]} exerciseId={exercise.id}
               waveformData={waveformData} colorByFn={{}} questionRegion={null}
-              onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
+              onScrubBegin={listenOnly ? () => {} : scrubBegin}
+              onScrubTo={listenOnly   ? () => {} : scrubTo}
+              onScrubEnd={listenOnly  ? () => {} : scrubEnd} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-            <div />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
-              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }}
-                primary size={48} disabled={hasAudio && !audioReady && !audioError}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+          {listenOnly ? (
+            <div style={{ paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <CircleButton onClick={togglePlay} primary size={52} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausa" : "Reproducir"}>
+                  {playing ? "❚❚" : "▶"}
+                </CircleButton>
+                <button onClick={() => { seekTo(0); setPlayCount(p => p + 1); if (!playing) togglePlay(); }}
+                  disabled={hasAudio && !audioReady && !audioError}
+                  style={{ ...S.btn, padding: "9px 18px", fontSize: 13, fontWeight: 600, opacity: (hasAudio && !audioReady && !audioError) ? 0.4 : 1 }}>
+                  Empezar de nuevo
+                </button>
+              </div>
+              <div style={{ textAlign: "center", marginTop: 10, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
+                <span style={{ fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                  {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+                </span>
+                {playCount > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
+              </div>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+              {/* Switch completa / resumida — estilo interruptor de categorías */}
+              {hasRepeats ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                  <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
+                  <div role="tablist"
+                    style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
+                    {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
+                      <button key={v} type="button" role="tab" aria-selected={viewMode === v}
+                        onClick={() => setViewMode(v)}
+                        title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
+                        style={{
+                          flex: "1 1 0", border: "none", borderRadius: 999,
+                          background: viewMode === v ? C.ink : "transparent",
+                          color: viewMode === v ? C.paper : C.muted,
+                          padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
+                          cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
+                          whiteSpace: "nowrap",
+                        }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : <div />}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
+                <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+                  {playing ? "❚❚" : "▶"}
+                </CircleButton>
+                <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+              </div>
+              <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
-        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
-          <div ref={rulerRef} style={{ position: "relative", height: 44, background: C.paper2, borderBottom: `1px solid ${C.line}`, cursor: "pointer", userSelect: "none", touchAction: "none", overflow: "hidden" }}
-            onMouseDown={handleRulerDrag} onTouchStart={handleRulerDrag}>
-            <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${(time / duration) * 100}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />
-            {ticks.map((t, i) => {
-              const isFirst = i === 0, isLast = i === ticks.length - 1;
-              return (
-                <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: isLast ? "auto" : `${(t / duration) * 100}%`, right: isLast ? 0 : "auto", transform: isFirst || isLast ? "none" : "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: isFirst ? "flex-start" : isLast ? "flex-end" : "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
-                  <div style={{ width: 1, height: 7, background: C.muted2 }} />
-                  <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                </div>
-              );
-            })}
-            {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.5)", pointerEvents: "none", zIndex: 9 }} />)}
-            <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-            <div style={{ position: "absolute", top: "50%", left: `${(time / duration) * 100}%`, transform: "translate(-50%, -50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 11 }} />
-          </div>
+        {/* Regla + pistas (layout flex-segmentado) */}
+        <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: schemaZoom > 1 ? 4 : 12, position: "relative" }}
+          onTouchStart={handleSchemaPinchStart}
+          onTouchMove={handleSchemaPinchMove}
+          onTouchEnd={handleSchemaPinchEnd}
+        >
+          {/* Contenedor de escala: width = zoom*100% con translateX para desplazamiento */}
+          <div style={{
+            width: schemaZoom > 1 ? `${schemaZoom * 100}%` : "100%",
+            position: "relative",
+            transform: schemaZoom > 1
+              ? `translateX(-${schemaScrollFrac * (1 - 1 / schemaZoom) * 100}%)`
+              : "none",
+            willChange: schemaZoom > 1 ? "transform" : "auto",
+          }}>
 
-          {SCHEMA_LEVELS.map((lv, li) => {
-            // Detectar pares de bloques yuxtapuestos (touching) para el asa de límite común
-            const lvBlocks = blocks
-              .filter(b => b.level === lv.id && !b.isPreview)
-              .sort((a, b) => a.start - b.start);
-            const adjacentPairs = [];
-            for (let i = 0; i < lvBlocks.length - 1; i++) {
-              if (Math.abs(lvBlocks[i].end - lvBlocks[i + 1].start) < 0.5)
-                adjacentPairs.push({ left: lvBlocks[i], right: lvBlocks[i + 1] });
-            }
-            // Sets para saber qué bordes de bloque están cubiertos por un asa común
-            const adjLeftIds  = new Set(adjacentPairs.map(p => p.right.id));
-            const adjRightIds = new Set(adjacentPairs.map(p => p.left.id));
-            return (
-            <div key={lv.id} ref={el => trackRefs.current[lv.id] = el}
-              style={{ height: 62, position: "relative", background: lv.bg, borderLeft: `3px solid ${lv.color}`, borderBottom: li < SCHEMA_LEVELS.length - 1 ? `1px solid ${C.line}` : "none", cursor: "crosshair", userSelect: "none", touchAction: "none" }}
-              onMouseDown={e => handleTrackDown(e, lv.id)} onTouchStart={e => handleTrackDown(e, lv.id)}>
-              <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+          {/* ── BANDA DE REPETICIÓN — dentro del wrapper de zoom para que
+               las marcas estén siempre alineadas con la regla y las pistas ── */}
+          {viewMode === "completa" && (
+            <div style={{ borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
+              <div
+                ref={bandRef}
+                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: C.paper2 }}
+                onMouseDown={handleBandCreateDown}
+                onTouchStart={handleBandCreateDown}>
+
+                {/* Zonas de repetición */}
+                {localReps.map(rep => {
+                  const fS  = timeToFrac(rep.first.start)  * 100;
+                  const fE  = timeToFrac(rep.first.end)    * 100;
+                  const sE  = timeToFrac(rep.second.end)   * 100;
+                  const fW  = fE - fS;
+                  const sW  = sE - fE;
+                  return (
+                    <React.Fragment key={rep.id}>
+                      {/* Zona "original" */}
+                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: `${C.fnS}28`, borderRadius: 4, border: `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>original</span>
+                      </div>
+                      {/* Zona "repetición" */}
+                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: `${C.fnT}22`, borderRadius: 4, border: `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>repetición</span>
+                      </div>
+                      {/* Asa: inicio del original */}
+                      <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
+                        title={`Inicio original: ${fmt(rep.first.start)}`}
+                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fS}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnS, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                      </div>
+                      {/* Asa: unión original/repetición */}
+                      <div onMouseDown={e => handleBandHandleDown(e, rep, "junction")} onTouchStart={e => handleBandHandleDown(e, rep, "junction")}
+                        title={`Fin original / inicio repetición: ${fmt(rep.first.end)}`}
+                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fE}% - 6px)`, width: 12, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 4, height: 20, borderRadius: 2, background: C.ink2, boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }} />
+                      </div>
+                      {/* Asa: fin de la repetición */}
+                      <div onMouseDown={e => handleBandHandleDown(e, rep, "second.end")} onTouchStart={e => handleBandHandleDown(e, rep, "second.end")}
+                        title={`Fin repetición: ${fmt(rep.second.end)}`}
+                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${sE}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnT, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                      </div>
+                      {/* Botón eliminar */}
+                      <button onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
+                        onClick={() => deleteRepeat(rep.id)} title="Eliminar repetición"
+                        style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.85)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 5px", fontSize: 9, cursor: "pointer", color: C.muted, lineHeight: 1.6 }}>
+                        ✕
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* Preview mientras se arrastra para crear */}
+                {bandDrag?.type === "create" && (() => {
+                  const s  = Math.min(bandDrag.startT, bandDrag.curT);
+                  const e2 = Math.max(bandDrag.startT, bandDrag.curT);
+                  const fS = timeToFrac(s) * 100, fW = timeToFrac(e2) * 100 - fS;
+                  return fW > 0.5 ? (
+                    <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: `${C.fnS}40`, borderRadius: 4, border: `2px solid ${C.fnS}`, boxSizing: "border-box", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, color: C.fnS }}>original</span>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* Botón añadir repetición siguiente */}
+                {localReps.length > 0 && (
+                  <button data-band-handle="true"
+                    onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
+                    onClick={handleAddNextRep}
+                    title="Añadir otra repetición a continuación"
+                    style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.88)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 7px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1.6, fontWeight: 700 }}>
+                    +
+                  </button>
+                )}
+
+                {/* Hint cuando no hay repetición */}
+                {localReps.length === 0 && !bandDrag && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para marcar el original →</span>
+                  </div>
+                )}
               </div>
-              {Array.from({ length: 13 }, (_, i) => i * duration / 12).map((t, i) => (
-                <div key={i} style={{ position: "absolute", top: 0, left: `${(t / duration) * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
-              ))}
-              {guides.map((g, i) => <div key={i} style={{ position: "absolute", top: 0, left: `${(g / duration) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8 }} />)}
-              <div style={{ position: "absolute", top: 0, left: `${(time / duration) * 100}%`, width: 1, height: "100%", background: C.danger, opacity: 0.5, pointerEvents: "none", zIndex: 6 }} />
-              {blocks.filter(b => b.level === lv.id).map(block => {
-                const isActive = activeAt[lv.id] === block.id, isSel = selected === block.id;
-                const pct = (block.end - block.start) / duration * 100;
-                // Color efectivo: customColor > armonía automática (nivel 3) > color del nivel
-                const { bg: blockBg, textColor: blockText } = block.isPreview
-                  ? { bg: lv.color, textColor: "#FFFFFF" }
-                  : block.customColor
-                    ? harmonyBlockColors(null, block.customColor)   // fuerza el color custom, calcula contraste
-                    : lv.id === 3
-                      ? harmonyBlockColors(block.label, lv.color)
-                      : { bg: lv.color, textColor: "#FFFFFF" };
+            </div>
+          )}
+
+          {/* ── REGLA ── */}
+          <div ref={rulerContainerRef}
+            style={{ display: "flex", borderBottom: `1px solid ${C.line}`, userSelect: "none", touchAction: "none", overflow: "hidden", position: "relative" }}
+            {...(listenOnly ? { onMouseDown: handleMarksContainerDown, onTouchStart: handleMarksContainerDown } : {})}>
+
+            {/* ── Playhead global: línea + bola a lo largo de TODA la regla ──
+                 Se calcula con recToVisX para que sea continuo entre segmentos.
+                 En la doble fila (segmento "repeat", vista resumida) la bola se
+                 posiciona en la fila correcta (arriba = 1ª vez, abajo = 2ª vez).
+                 zIndex 30 para aparecer por encima de todo lo demás en la regla. */}
+            {!listenOnly && (() => {
+              // Determinar posición horizontal y vertical de la bola
+              let xPct = recToVisX(time) * 100;
+              let yPct = 50; // centro por defecto (sección de altura uniforme)
+              for (const sg of segments) {
+                if (sg.type === "repeat") {
+                  const fp = sg.rep.first, sp = sg.rep.second;
+                  const fd = (fp.end - fp.start) || 1;
+                  const sd = (sp.end - sp.start) || 1;
+                  if (time >= fp.start && time < fp.end) {
+                    xPct = (sg.vStart + (time - fp.start) / fd * (sg.vEnd - sg.vStart)) * 100;
+                    yPct = 25; // fila superior (1ª vez)
+                  } else if (time >= sp.start && time < sp.end) {
+                    xPct = (sg.vStart + (time - sp.start) / sd * (sg.vEnd - sg.vStart)) * 100;
+                    yPct = 75; // fila inferior (2ª vez)
+                  }
+                  break;
+                }
+              }
+              return (
+                <>
+                  <div style={{ position: "absolute", top: 0, bottom: 0, left: `${xPct}%`, width: 1.5, background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 30 }} />
+                  <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
+                </>
+              );
+            })()}
+
+            {/* ── Guía de resize de barra de repetición ── */}
+            {repResizeGuide && (
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: `${repResizeGuide.xFrac * 100}%`, width: 1.5, background: repResizeGuide.color, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 28 }} />
+            )}
+
+            {/* ── Overlay de dibujo de repetición ── */}
+            {segments.map((seg, si) => {
+              if (seg.type === "normal") {
+                const bounds  = getSegBounds(seg, "normal");
+                const segDur  = (bounds.max - bounds.min) || 1;
+                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
+                const ticks   = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
+                const phPct   = time >= bounds.min && time <= bounds.max ? ((time - bounds.min) / segDur) * 100 : null;
                 return (
-                  <div key={block.id} data-block="true" style={{
-                    position: "absolute", top: 6, bottom: 6, left: `${(block.start / duration) * 100}%`, width: `${pct}%`,
-                    background: block.isPreview ? `${blockBg}38` : blockBg, borderRadius: 5,
-                    border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
-                    boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    overflow: "hidden", cursor: block.isPreview ? "default" : "grab",
-                    zIndex: isSel ? 7 : isActive ? 4 : 3, boxSizing: "border-box",
-                  }}
-                    onMouseDown={e => !block.isPreview && handleBlockDown(e, block, "move")}
-                    onTouchStart={e => !block.isPreview && handleBlockDown(e, block, "move")}
-                    onDoubleClick={() => { if (!block.isPreview) { setEditId(block.id); setEditVal(block.label); } }}>
-                    {editId === block.id ? (
-                      <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
-                        onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
-                        onClick={e => e.stopPropagation()}
-                        style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
-                    ) : (
-                      <span style={{ fontSize: pct < 3.5 ? 0 : pct < 6 ? 9 : 12, fontWeight: 700, color: blockText, textShadow: blockText === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
-                        {block.label}
-                      </span>
+                  <div key={si}
+                    ref={el => trackSegRefs.current[`ruler_${si}_normal`] = el}
+                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
+                    {...(!listenOnly ? { onMouseDown: e => handleSegRulerDown(e, seg, "normal"), onTouchStart: e => handleSegRulerDown(e, seg, "normal") } : {})}>
+                    {/* Relleno de progreso */}
+                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
+                    {/* Marcas de tiempo */}
+                    {ticks.map(({ t, frac }, i) => (
+                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
+                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
+                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                      </div>
+                    ))}
+                    {/* Marcas listen-only */}
+                    {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, mi) => {
+                      const pct = ((mt - bounds.min) / segDur) * 100;
+                      const globalIdx = schemaMarks.indexOf(mt);
+                      return (
+                        <div key={mi} data-mark="true"
+                          style={{ position: "absolute", top: 0, left: `${pct}%`, width: 28, height: "100%", transform: "translateX(-50%)", zIndex: 15, cursor: "grab", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start" }}
+                          onMouseDown={e => handleMarkDown(e, globalIdx)} onTouchStart={e => handleMarkDown(e, globalIdx)}>
+                          <div style={{ width: 2, height: "100%", background: "rgba(184,74,58,0.6)", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }} />
+                          <div style={{ width: 12, height: 12, borderRadius: "50%", background: C.danger, border: "2px solid white", marginTop: 4, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", position: "relative", zIndex: 1, flexShrink: 0 }} />
+                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_MONO, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none" }}>{fmt(mt)}</span>
+                        </div>
+                      );
+                    })}
+                    {/* Cursor de reproducción — solo línea de fondo; la bola se pinta en el overlay global */}
+                    {phPct !== null && (
+                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
+                    )}
+                    {/* Ayuda listen-only (en el último segmento normal) */}
+                    {listenOnly && si === segments.length - 1 && (
+                      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 6, pointerEvents: "none", zIndex: 12 }}>
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, background: C.paper2, padding: "2px 5px", borderRadius: 4, border: `1px solid ${C.line}` }}>clic = añadir marca · arrastrar = mover · clic en marca = borrar</span>
+                      </div>
                     )}
                   </div>
                 );
-              })}
-              {/* ── Asas de borde libre (rectángulo claro centrado en el borde, 2/3 de altura) ── */}
-              {blocks.filter(b => b.level === lv.id && !b.isPreview).flatMap(block => {
-                const VISUAL_W = SCHEMA_HND_VISUAL_W;  // 6 px visual; hitbox = SCHEMA_HND_W
-                const hHitbox = {
-                  position: "absolute", top: SCHEMA_HND_TOP,
-                  width: SCHEMA_HND_W, height: SCHEMA_HND_H,
-                  background: "transparent", cursor: "ew-resize", zIndex: 10,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                };
-                const hVisual = {
-                  width: VISUAL_W, height: "100%",
-                  background: "rgba(255,255,255,0.88)", borderRadius: 5,
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.16)",
-                  pointerEvents: "none",
-                };
-                const out = [];
-                if (!adjLeftIds.has(block.id))
-                  out.push(
-                    <div key={`hl-${block.id}`} data-block="true"
-                      style={{ ...hHitbox, left: `calc(${(block.start / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
-                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
-                      <div style={hVisual} />
+              }
+
+              // ── Segmento de repetición en vista completa: regla continua ──
+              if (seg.type === "repeat-first" || seg.type === "repeat-second") {
+                const isFirst = seg.type === "repeat-first";
+                const pass    = isFirst ? "first" : "second";
+                const bounds  = getSegBounds(seg, pass);
+                const segDur  = bounds.max - bounds.min || 1;
+                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
+                const ticks   = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
+                const isActive = time >= bounds.min && time < bounds.max;
+                const phPct   = isActive ? ((time - bounds.min) / segDur) * 100 : null;
+                // Tinte muy sutil para info visual: azul claro en 1ª vez, verde claro en 2ª vez
+                const zoneBg  = isFirst ? C.paper2 : `${C.fnT}0A`;
+                return (
+                  <div key={si}
+                    ref={el => trackSegRefs.current[`ruler_${si}_${pass}`] = el}
+                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    {...(!listenOnly ? {
+                      onMouseDown:  e => handleSegRulerDown(e, seg, pass),
+                      onTouchStart: e => handleSegRulerDown(e, seg, pass),
+                    } : {})}>
+                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
+                    {ticks.map(({ t, frac }, i) => (
+                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
+                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
+                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                      </div>
+                    ))}
+                    {/* Línea de fondo (bola en overlay global) */}
+                    {phPct !== null && (
+                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
+                    )}
+                  </div>
+                );
+              }
+
+              // ── Segmento de repetición en la regla (doble altura) ──────────
+              const { rep } = seg;
+              const fd = (rep.first.end  - rep.first.start)  || 1;
+              const sd = (rep.second.end - rep.second.start) || 1;
+              const isFA = time >= rep.first.start  && time < rep.first.end;
+              const isSA = time >= rep.second.start && time < rep.second.end;
+              const fPct = isFA ? ((time - rep.first.start)  / fd) * 100 : null;
+              const sPct = isSA ? ((time - rep.second.start) / sd) * 100 : null;
+              const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
+              const fTicks = rulerTicksForSeg(rep.first.start,  rep.first.end,  segWidthPx * 0.65);
+              const sTicks = rulerTicksForSeg(rep.second.start, rep.second.end, segWidthPx * 0.65);
+              const repLabel = rep.label ? ` — ${rep.label}` : "";
+
+              return (
+                <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column", minHeight: 72 }}>
+                  {/* Sin barras SVG aquí: el overlay del card exterior las pinta de forma continua */}
+
+                  {/* Overlay de navegación continua (resumida): cubre ambas filas,
+                      determina la vez por posición vertical del puntero */}
+                  {viewMode === "resumida" && !listenOnly && (
+                    <div style={{ position: "absolute", inset: 0, zIndex: 22, cursor: "pointer" }}
+                      onMouseDown={e => handleDoubleRowRulerDown(e, seg, e.currentTarget.parentElement)}
+                      onTouchStart={e => handleDoubleRowRulerDown(e, seg, e.currentTarget.parentElement)} />
+                  )}
+
+                  {/* Fila 1ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  <div ref={el => trackSegRefs.current[`ruler_${si}_first`] = el}
+                    style={{ flexShrink: 0, height: 36, position: "relative", background: isFA ? `${C.fnS}1A` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
+                    onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
+                    onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_first`])) : undefined}
+                    onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_first`]; if (el) el.style.cursor = ""; }) : undefined}>
+                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnS, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
+                      1ª vez{repLabel}
                     </div>
-                  );
-                if (!adjRightIds.has(block.id))
-                  out.push(
-                    <div key={`hr-${block.id}`} data-block="true"
-                      style={{ ...hHitbox, left: `calc(${(block.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)` }}
-                      onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-                      onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
-                      <div style={hVisual} />
+                    {fPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${fPct}%`, background: `${C.fnS}12`, pointerEvents: "none" }} />}
+                    {(() => {
+                      const segW = rulerW * (seg.vEnd - seg.vStart);
+                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
+                      return fTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
+                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
+                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
+                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                        </div>
+                      ));
+                    })()}
+                    {/* Línea de fondo — bola gestionada por overlay global */}
+                    {fPct !== null && (
+                      <div style={{ position: "absolute", top: 0, left: `${fPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
+                    )}
+                  </div>
+
+                  {/* Separador entre filas: no cruza las barras de repetición */}
+                  <div style={{ position: "absolute", left: REPEAT_BARLINE_W + 1, right: REPEAT_BARLINE_W + 1, top: 36, height: 1, background: `${C.muted2}55`, borderTop: `1px dashed ${C.muted2}55`, pointerEvents: "none", zIndex: 5 }} />
+
+                  {/* Fila 2ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  <div ref={el => trackSegRefs.current[`ruler_${si}_second`] = el}
+                    style={{ flexShrink: 0, height: 36, position: "relative", background: isSA ? `${C.fnT}1A` : `${C.paper2}`, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
+                    onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
+                    onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_second`])) : undefined}
+                    onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_second`]; if (el) el.style.cursor = ""; }) : undefined}>
+                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnT, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
+                      2ª vez{repLabel}
                     </div>
-                  );
-                return out;
-              })}
-              {/* ── Asas comunes (límite compartido entre dos bloques adyacentes) ── */}
-              {adjacentPairs.map(({ left, right }) => (
-                <div key={`sh-${left.id}-${right.id}`} data-block="true"
-                  title="Arrastra para mover el límite común"
-                  style={{
-                    position: "absolute", zIndex: 11, cursor: "col-resize",
-                    top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H,
-                    left: `calc(${(left.end / duration) * 100}% - ${SCHEMA_HND_W / 2}px)`,
-                    background: "transparent",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}
-                  onMouseDown={e => handleSharedHandleDown(e, left, right)}
-                  onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-                  <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+                    {sPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${sPct}%`, background: `${C.fnT}12`, pointerEvents: "none" }} />}
+                    {(() => {
+                      const segW = rulerW * (seg.vEnd - seg.vStart);
+                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
+                      return sTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
+                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
+                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
+                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                        </div>
+                      ));
+                    })()}
+                    {/* Línea de fondo — bola gestionada por overlay global */}
+                    {sPct !== null && (
+                      <div style={{ position: "absolute", top: 0, left: `${sPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
+                    )}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
+          </div>
+
+          {/* ── PISTAS POR NIVEL con barras de repetición únicas y continuas ── */}
+          <div style={{ position: "relative" }}>
+          {activeLevels.map((lv, li) => (
+            <div key={lv.id} style={{ display: "flex", position: "relative", borderLeft: `3px solid ${lv.color}`, borderBottom: li < activeLevels.length - 1 ? `1px solid ${C.line}` : "none" }}>
+              {segments.map((seg, si) => {
+                if (seg.type === "normal") {
+                  return (
+                    <div key={si}
+                      ref={el => trackSegRefs.current[`${lv.id}_${si}_normal`] = el}
+                      style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
+                      onMouseDown={e => handleTrackSegDown(e, lv.id, seg, "normal")}
+                      onTouchStart={e => handleTrackSegDown(e, lv.id, seg, "normal")}>
+                      {/* Etiqueta del nivel (solo en el primer segmento) */}
+                      {si === 0 && (
+                        <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        </div>
+                      )}
+                      {renderSegBlocks(seg, "normal", lv.id)}
+                    </div>
+                  );
+                }
+
+                // ── Segmentos de repetición en vista completa (fila única, continua) ──
+                if (seg.type === "repeat-first" || seg.type === "repeat-second") {
+                  const { rep } = seg;
+                  const isFirst = seg.type === "repeat-first";
+                  const pass    = isFirst ? "first" : "second";
+                  const bounds    = getSegBounds(seg, pass);
+                  const isActive  = time >= bounds.min && time < bounds.max;
+                  // Fondo: 2ª vez levemente diferente para info visual (sin barras de repetición)
+                  const zoneBg = isFirst ? lv.bg : `${lv.bg.replace(")", ", 0.6)").replace("rgba(", "rgba(").replace("0.08)", "0.12)").replace("0.10)", "0.15)").replace("0.09)", "0.13)")}`;
+                  return (
+                    <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                      <div
+                        ref={el => trackSegRefs.current[`${lv.id}_${si}_${pass}`] = el}
+                        style={{ position: "absolute", inset: 0 }}
+                        onMouseDown={e => handleTrackSegDown(e, lv.id, seg, pass)}
+                        onTouchStart={e => handleTrackSegDown(e, lv.id, seg, pass)}>
+                        {si === 0 && (
+                          <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                          </div>
+                        )}
+                        {/* Indicador visual sutil de zona de repetición en 2ª vez */}
+                        {!isFirst && (
+                          <div style={{ position: "absolute", inset: 0, background: `${lv.color}09`, pointerEvents: "none", zIndex: 0 }} />
+                        )}
+                        {renderSegBlocks(seg, pass, lv.id)}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // ── Segmento de repetición en la pista (fila única activa) ──────
+                const { rep } = seg;
+                const isFA = time >= rep.first.start  && time < rep.first.end;
+                const isSA = time >= rep.second.start && time < rep.second.end;
+                // Qué vez mostrar: la que suena, o la seleccionada manualmente
+                const displayPass = isFA ? "first" : isSA ? "second" : (selectedPass[rep.id] || "first");
+                const isActiveInThis = isFA || isSA;
+
+                return (
+                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                    {/* Zona de interacción — insetada REPEAT_BARLINE_W px para que
+                        los bloques nunca solapen con las barras de repetición del overlay */}
+                    <div
+                      ref={el => {
+                        trackSegRefs.current[`${lv.id}_${si}_first`]  = el;
+                        trackSegRefs.current[`${lv.id}_${si}_second`] = el;
+                      }}
+                      style={{ position: "absolute", top: 0, bottom: 0, left: REPEAT_BARLINE_W, right: REPEAT_BARLINE_W }}
+                      {...(viewMode !== "resumida" ? {
+                        onMouseDown:  e => handleTrackSegDown(e, lv.id, seg, displayPass),
+                        onTouchStart: e => handleTrackSegDown(e, lv.id, seg, displayPass),
+                      } : {})}>
+                      {si === 0 && (
+                        <div style={{ position: "absolute", top: 4, left: 4, zIndex: 5, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        </div>
+                      )}
+                      {renderSegBlocks(seg, displayPass, lv.id)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            );
-          })}
+          ))}
+          </div>
+
+          {/* ── Barras de repetición continuas (solo vista resumida) ─────────
+               position:absolute top:0/bottom:0 relativo al contenedor de escala
+               (que tiene position:relative), por lo que abarcan REGLA + NIVELES.  ── */}
+          {viewMode === "resumida" && (() => {
+            const zones = segments
+              .filter(s => s.type === "repeat")
+              .map(s => ({ startV: s.vStart, endV: s.vEnd }));
+            // Geometría:
+            //  Barra simple inicio:  [THICK outer][GAP][THIN inner][SPACE][·dots·]
+            //  Barra simple fin:     [·dots·][SPACE][THIN inner][GAP][THICK outer]
+            //  Barra acoplada:       [·dots·][SPACE][THIN][GAP][THICK][GAP][THIN][SPACE][·dots·]
+            const THICK=4, THIN=1.5, GAP=2, SPACE=3, DOT_R=2.3, DOT_GAP=8;
+            const DW = DOT_R*2;
+            const BW_S = THICK + GAP + THIN + SPACE + DW + 1;
+            const BW_C = DW + SPACE + THIN + GAP + THICK + GAP + THIN + SPACE + DW;
+            // Mapa posición→{isStart,isEnd} para detectar barras acopladas
+            const ev = new Map();
+            const kv = v => v.toFixed(5);
+            zones.forEach(({ startV, endV }) => {
+              const ks=kv(startV); if(!ev.has(ks)) ev.set(ks,{v:startV,isStart:false,isEnd:false}); ev.get(ks).isStart=true;
+              const ke=kv(endV);   if(!ev.has(ke)) ev.set(ke,{v:endV,  isStart:false,isEnd:false}); ev.get(ke).isEnd=true;
+            });
+            const dt1=`calc(50% - ${DOT_GAP+DOT_R}px)`, dt2=`calc(50% + ${DOT_GAP-DOT_R}px)`;
+            const D=(extra)=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
+            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.65)",...extra});
+            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.40)",...extra});
+            return [...ev.values()].map(({ v, isStart, isEnd }, bi) => {
+              if (isStart && isEnd) {
+                // ── Barra acoplada: ·thin║thin· ──────────────────────────
+                const cx = BW_C/2;
+                return (
+                  <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_C, transform:"translateX(-50%)", pointerEvents:"none", zIndex:18 }}>
+                    <div style={D({left:0, top:dt1})} /><div style={D({left:0, top:dt2})} />
+                    <div style={Vt({left:DW+SPACE, width:THIN})} />
+                    <div style={V({left:cx-THICK/2, width:THICK})} />
+                    <div style={Vt({right:DW+SPACE, width:THIN})} />
+                    <div style={D({right:0, top:dt1})} /><div style={D({right:0, top:dt2})} />
+                  </div>
+                );
+              } else if (isStart) {
+                // ── Barra inicio: THICK | thin | dots ────────────────────
+                const dL = THICK+GAP+THIN+SPACE;
+                return (
+                  <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, pointerEvents:"none", zIndex:18 }}>
+                    <div style={V({left:0.5, width:THICK})} />
+                    <div style={Vt({left:THICK+GAP+0.5, width:THIN})} />
+                    <div style={D({left:dL, top:dt1})} /><div style={D({left:dL, top:dt2})} />
+                  </div>
+                );
+              } else {
+                // ── Barra fin: dots | thin | THICK ───────────────────────
+                const dR = THICK+GAP+THIN+SPACE;
+                return (
+                  <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, transform:"translateX(-100%)", pointerEvents:"none", zIndex:18 }}>
+                    <div style={D({right:dR, top:dt1})} /><div style={D({right:dR, top:dt2})} />
+                    <div style={Vt({right:THICK+GAP+0.5, width:THIN})} />
+                    <div style={V({right:0.5, width:THICK})} />
+                  </div>
+                );
+              }
+            });
+          })()}
+          </div>{/* /contenedor de escala */}
         </div>
 
+        {/* ── Barra de desplazamiento horizontal del esquema ─────────────────
+             Aparece debajo del esquema cuando el zoom es > 1.
+             En ordenador: usar la rueda del ratón para hacer zoom.
+             En móvil: pellizcar con dos dedos para hacer zoom.  ── */}
+        {schemaZoom > 1 && (() => {
+          const thumbW  = Math.max(4, 100 / schemaZoom);
+          const thumbL  = schemaScrollFrac * (100 - thumbW);
+          return (
+            <div style={{ marginBottom: 12, marginTop: 0 }}>
+              {/* Track */}
+              <div
+                style={{ height: 14, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, position: "relative", cursor: "pointer", userSelect: "none", overflow: "hidden", touchAction: "none" }}
+                onMouseDown={handleScrollbarTrackDown}
+                onTouchStart={handleScrollbarTrackDown}
+              >
+                {/* Thumb */}
+                <div style={{
+                  position: "absolute", top: 2, bottom: 2,
+                  left: `${thumbL}%`, width: `${thumbW}%`,
+                  background: C.muted, borderRadius: 5, pointerEvents: "none",
+                  transition: "background .12s",
+                }} />
+                {/* Indicador de zoom */}
+                <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.muted2, fontFamily: FONT_MONO, fontWeight: 600, pointerEvents: "none", letterSpacing: 0.3 }}>
+                  ×{schemaZoom.toFixed(1)}
+                </div>
+              </div>
+              {/* Ayuda */}
+              <div style={{ fontSize: 10, color: C.muted2, marginTop: 4, textAlign: "center", fontFamily: FONT_SANS, letterSpacing: 0.2 }}>
+                Arrastra para desplazar · Rueda del ratón para hacer zoom · Pellizca en móvil
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Panel de selección de bloque */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {selBlock && !selBlock.isPreview && selLv ? (
-            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}
+              onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: selLv.color, flexShrink: 0 }} />
               <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
-              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur. {fmt(selBlock.end - selBlock.start)}</span>
-              {/* ── Pastilla de color custom ── */}
-              {(() => {
+              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>
+                {selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
+              </span>
+              {/* Selector de color */}
+              {selBlock.level !== 4 && (() => {
                 const { bg: swatchBg } = selBlock.customColor
                   ? harmonyBlockColors(null, selBlock.customColor)
-                  : selLv.id === 3
-                    ? harmonyBlockColors(selBlock.label, selLv.color)
-                    : { bg: selLv.color };
+                  : selLv.id === 3 ? harmonyBlockColors(selBlock.label, selLv.color)
+                  : { bg: selLv.color };
                 return (
-                  <span title="Cambiar color del bloque" style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
-                    <span
-                      onClick={() => colorInputRef.current?.click()}
-                      style={{
-                        display: "inline-block", width: 22, height: 22, borderRadius: 5,
-                        background: swatchBg, border: `2px solid ${C.line}`,
-                        boxShadow: "inset 0 1px 2px rgba(0,0,0,0.12)",
-                        cursor: "pointer",
-                      }} />
-                    <input ref={colorInputRef} type="color"
-                      value={swatchBg}
-                      onChange={e => {
-                        const hex = e.target.value;
-                        setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: hex } : b));
-                      }}
+                  <span title="Cambiar color" style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+                    <span onClick={() => colorInputRef.current?.click()}
+                      style={{ display: "inline-block", width: 22, height: 22, borderRadius: 5, background: swatchBg, border: `2px solid ${C.line}`, boxShadow: "inset 0 1px 2px rgba(0,0,0,0.12)", cursor: "pointer" }} />
+                    <input ref={colorInputRef} type="color" value={swatchBg}
+                      onChange={e => { const hex = e.target.value; setBlocks(prev => prev.map(b => {
+                        if (b.id === selected) return { ...b, customColor: hex };
+                        if (prev.find(x => x.id === selected)?.pass === "first" && b.mirrorId === selected) return { ...b, customColor: hex };
+                        return b;
+                      })); }}
                       style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", top: 0, left: 0, cursor: "pointer", border: "none", padding: 0 }} />
                   </span>
                 );
               })()}
-              {selBlock.customColor && (
-                <button
-                  title="Restablecer color automático"
-                  onClick={() => setBlocks(prev => prev.map(b => b.id === selected ? { ...b, customColor: undefined } : b))}
-                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", color: C.muted, lineHeight: 1 }}>
-                  ↺
-                </button>
+              {selBlock.level !== 4 && selBlock.customColor && (
+                <button title="Restablecer color automático"
+                  onClick={() => setBlocks(prev => { const selB = prev.find(b => b.id === selected); return prev.map(b => { if (b.id === selected) return { ...b, customColor: undefined }; if (selB?.pass === "first" && b.mirrorId === selected) return { ...b, customColor: undefined }; return b; }); })}
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
               )}
-              <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
-              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
+              {selBlock.pass !== "second" && (
+                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }}
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
+              )}
+              {selBlock.pass === "second" && (
+                <span style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>texto igual al original</span>
+              )}
+              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }}
+                style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
           ) : (
             <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
@@ -2360,33 +3943,70 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""}. Selecciona uno para editar.`}
             </div>
           )}
-          <button
-            onClick={undo}
-            disabled={history.length === 0}
-            title="Deshacer"
-            style={{ ...S.btn, padding: "8px 12px", fontSize: 16, lineHeight: 1, opacity: history.length === 0 ? 0.35 : 1, cursor: history.length === 0 ? "not-allowed" : "pointer" }}>
-            ↩
-          </button>
-          <button
-            onClick={resetAll}
-            disabled={blocks.filter(b => !b.isPreview).length === 0}
-            title="Empezar de nuevo"
-            style={{ ...S.btn, fontSize: 12, opacity: blocks.filter(b => !b.isPreview).length === 0 ? 0.35 : 1, cursor: blocks.filter(b => !b.isPreview).length === 0 ? "not-allowed" : "pointer" }}>
-            ✕ Borrar todo
-          </button>
+          <button onClick={undo} disabled={history.length === 0} title="Deshacer"
+            style={{ ...S.btn, padding: "8px 12px", fontSize: 16, lineHeight: 1, opacity: history.length === 0 ? 0.35 : 1, cursor: history.length === 0 ? "not-allowed" : "pointer" }}>↩</button>
+          <button onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Empezar de nuevo"
+            style={{ ...S.btn, fontSize: 12, opacity: blocks.filter(b => !b.isPreview).length === 0 ? 0.35 : 1, cursor: blocks.filter(b => !b.isPreview).length === 0 ? "not-allowed" : "pointer" }}>✕ Borrar todo</button>
           <PillSubmitButton onClick={handleSubmit}>
             {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
+
+          {/* Área de texto (nivel 4) */}
+          {selBlock?.level === 4 && !selBlock.isPreview && (
+            <div style={{ width: "100%", marginTop: 4 }}
+              onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+              <label style={{ ...S.label, marginBottom: 4, color: SCHEMA_LEVELS[3].color }}>
+                Texto / Observaciones
+                {selBlock.pass !== "second"
+                  ? <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> — solo visible al seleccionar el bloque</span>
+                  : <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: C.muted }}> — sincronizado del original (solo lectura)</span>}
+              </label>
+              {selBlock.pass === "second" ? (
+                <div style={{ ...S.input, minHeight: 60, lineHeight: 1.6, fontSize: 13, color: selBlock.bodyText ? C.ink : C.muted2, fontStyle: selBlock.bodyText ? "normal" : "italic", background: C.paper2, opacity: 0.75, pointerEvents: "none", userSelect: "none" }}>
+                  {selBlock.bodyText || "Sin texto en el original"}
+                </div>
+              ) : (
+                <textarea
+                  style={{ ...S.input, minHeight: 100, resize: "vertical", fontFamily: FONT_SANS, lineHeight: 1.6, fontSize: 13 }}
+                  placeholder="Escribe aquí el texto completo para este bloque… (solo tú lo verás al seleccionarlo)"
+                  value={selBlock.bodyText || ""}
+                  onChange={e => {
+                    const newText = e.target.value;
+                    setBlocks(prev => prev.map(b => {
+                      if (b.id === selected) return { ...b, bodyText: newText };
+                      // Propagar el texto al bloque espejo de la 2ª vez
+                      if (b.mirrorId === selected) return { ...b, bodyText: newText };
+                      return b;
+                    }));
+                  }}
+                  onClick={e => e.stopPropagation()} />
+              )}
+            </div>
+          )}
         </div>
 
+        {/* Leyenda */}
         <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
-          {SCHEMA_LEVELS.map(lv => (
+          {activeLevels.map(lv => (
             <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
-              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}{lv.id === 4 ? " (selecciona el bloque para ver/editar texto)" : ""}</span>
             </div>
           ))}
-          <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques</span>
+          {hasRepeats ? (
+            <span style={{ fontSize: 11, color: C.fnS, marginLeft: 4 }}>
+              ♩ La pista muestra la vez que suena · si no hay reproducción, usa los botones <b>1ª / 2ª</b> para cambiar · ✕ en la regla para borrar
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>
+              ♩ Repeticiones — pulsa "Añadir repetición" en la cabecera y arrastra en la regla para marcarlas
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: C.muted2 }}>
+            {listenOnly
+              ? "Modo escucha · Clic en la barra = añadir marca · Arrastra = mover · Clic en marca = borrar · Los bloques se imanan a las marcas"
+              : "Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques"}
+          </span>
         </div>
       </div>
     </div>
@@ -2404,27 +4024,55 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     const schemaKey = exercise.schemaKey || [];
     const hasKey    = schemaKey.length > 0;
 
-    const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
+    const SchemaStrip = ({ title: stripTitle, bks, accent }) => {
+      const corrLevels = SCHEMA_LEVELS.filter(lv =>
+        !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+      );
+      return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
-        {SCHEMA_LEVELS.map(lv => {
+        {corrLevels.map(lv => {
           const lvBlocks = bks.filter(b => b.level === lv.id);
           if (lvBlocks.length === 0) return null;
           return (
-            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-              <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
-                {lvBlocks.map((b, i) => (
-                  <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 10 : 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: lv.id === 4 ? 6 : 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                {lv.id !== 4 && (
+                  <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
+                    {lvBlocks.map((b, i) => (
+                      <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
+              {/* Nivel 4: lista de bloques con texto */}
+              {lv.id === 4 && (
+                <div style={{ paddingLeft: 56, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {lvBlocks.map((b, i) => (
+                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
+                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 13, color: lv.color }}>{b.label}</span>
+                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                      </div>
+                      {b.bodyText && (
+                        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
+                      )}
+                      {!b.bodyText && (
+                        <div style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-    );
+      );
+    };
 
     return (
       <div style={S.app}>
@@ -3590,6 +5238,15 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   );
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [schemaLevels,      setSchemaLevels]      = useState(
+    () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
+  );
+  const toggleSchemaLevel = (id) => setSchemaLevels(prev => {
+    const n = new Set(prev);
+    if (n.has(id)) { if (n.size > 1) n.delete(id); } else n.add(id);
+    return n;
+  });
 
   const toggleCategory = (id) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
@@ -3659,6 +5316,11 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     if (model !== modelOf(exercise)) return true;
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
+    if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if (model === "esquema") {
+      const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
+      if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
+    }
 
     if (model === "interactivo") {
       const exCats = categoriesOf(exercise);
@@ -3678,7 +5340,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       if (manual !== exercise.duration) return true;
     }
     return false;
-  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio]);
+  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, schemaLevels]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
 
@@ -3706,6 +5368,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         categories: model === "interactivo" ? safe : [],
         answers:    {},
         ...(model === "cuestionario" ? { questions: [] } : {}),
+        ...(model === "esquema" ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
       });
       return;
     }
@@ -3724,6 +5387,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     patch.audioUrl     = audioUrl     || null;
     patch.audioName    = audioName    || null;
     patch.waveformData = waveformData || null;
+    if (model === "esquema") { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
     }
@@ -3907,14 +5571,66 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
           <>
             <p style={SECTION_STYLE}>Esquema formal</p>
             <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía) sobre una línea de tiempo. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+              El alumno dibuja bloques de forma musical (partes, frases, armonía, texto) sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+            </div>
+
+            {/* Selección de niveles activos */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ ...S.label, marginBottom: 8 }}>Niveles que verá el alumno</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {SCHEMA_LEVELS.map(lv => {
+                  const active = schemaLevels.has(lv.id);
+                  const isLast = active && schemaLevels.size === 1;
+                  return (
+                    <button key={lv.id} type="button"
+                      onClick={() => !isLast && toggleSchemaLevel(lv.id)}
+                      title={isLast ? "Debe haber al menos un nivel activo" : undefined}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 7,
+                        padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer",
+                        border: `1.5px solid ${active ? lv.color : C.line}`,
+                        background: active ? lv.color + "18" : C.paper2,
+                        transition: "all .12s",
+                        opacity: isLast ? 0.6 : 1,
+                        fontFamily: FONT_SANS,
+                      }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: active ? lv.color : C.muted2, flexShrink: 0, transition: "background .12s" }} />
+                      <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? lv.color : C.muted, transition: "all .12s" }}>{lv.sub}</span>
+                      {active && <span style={{ fontSize: 10, color: lv.color, opacity: 0.7, marginLeft: 1 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {schemaLevels.size < SCHEMA_LEVELS.length && (
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>
+                  Solo se mostrarán las pistas seleccionadas. Los niveles desactivados no aparecen al alumno.
+                </p>
+              )}
+            </div>
+
+            {/* Toggle: reproducción sin navegación */}
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${listenOnly ? C.fnD + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={listenOnly}
+                  onChange={e => setListenOnly(e.target.checked)}
+                  style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Reproducción sin navegación</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>
+                    El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo. Activa una barra de marcas donde se pueden colocar, mover y borrar puntos de referencia a los que los bloques se imantan.
+                  </div>
+                </div>
+              </label>
             </div>
 
             {/* Estado de la clave */}
             {(() => {
               const key = exercise.schemaKey;
               const hasKey = Array.isArray(key) && key.length > 0;
-              const byLevel = hasKey ? SCHEMA_LEVELS.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
+              const keyLevels = SCHEMA_LEVELS.filter(lv =>
+                !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+              );
+              const byLevel = hasKey ? keyLevels.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
               return (
                 <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
                   <div style={{ ...S.row, gap: 8, marginBottom: hasKey ? 10 : 0 }}>
