@@ -2014,10 +2014,18 @@ function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
   const [err, setErr] = useState("");
 
   const addRep = () => {
+    if (!Number.isFinite(duration) || duration <= 0) {
+      setErr("El ejercicio no tiene duración válida. Sube el audio antes de añadir repeticiones.");
+      return;
+    }
     const sorted  = [...reps].sort((a, b) => a.second.end - b.second.end);
     const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
     const avail   = duration - lastEnd;
-    const d       = Math.max(2, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
+    if (avail < SCHEMA_MIN_DUR * 2) {
+      setErr("No queda espacio suficiente al final del audio para otra repetición.");
+      return;
+    }
+    const d       = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
     const start   = lastEnd;
     setReps(prev => [...prev, {
       id: uid("rep"), label: "",
@@ -2146,7 +2154,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const timeRef = useRef(0);
   timeRef.current = time;
 
-  const [blocks,       setBlocks]       = useState([]);
+  const [blocks,       setBlocks]       = useState(exercise.blocks || []);
   const [history,      setHistory]      = useState([]);
   const [selected,     setSelected]     = useState(null);
   const [editId,       setEditId]       = useState(null);
