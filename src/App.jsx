@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
    FUNCIONES ARMÓNICAS · APP ROOT
    ───────────────────────────────────────────────────────────────────────────
    Estructura del archivo:
+     0. Hash router (#/… → navegación por URL, atrás/adelante, enlaces)
      1. Design tokens (colores, fuentes, estilos base)
      2. Constantes de dominio (categorías por defecto, ejercicios iniciales…)
      3. Utilidades puras (audio, intervalos, scoring, criptografía)
@@ -19,6 +20,114 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
     14. Modales restantes (categorías, cursos, usuarios, audio library)
     15. App root (estado global + Supabase + routing)
    ═══════════════════════════════════════════════════════════════════════════ */
+
+// ═══ 0. HASH ROUTER ═════════════════════════════════════════════════════════
+// Enrutado por almohadilla (#/…). Funciona en cualquier hosting estático
+// (incluido Vercel) SIN configuración extra: todo lo que va detrás de "#" lo
+// gestiona el navegador en el cliente, así que recargar o pegar un enlace
+// profundo nunca da 404. La URL es la fuente de verdad de la navegación de alto
+// nivel; el contexto de ejercicio se reconstruye a partir del id de la URL.
+//
+// Mapa de rutas:
+//   /                                  → inicio (elegir rol)
+//   /entrar/profesor · /entrar/alumno  → login
+//   /configuracion                     → setup del primer admin
+//   /alumno                            → panel alumno · todos los ejercicios
+//   /alumno/cursos                     → panel alumno · por cursos
+//   /alumno/elegir-profesor            → selección de profesor
+//   /alumno/ejercicio/:id              → sesión de ejercicio (alumno)
+//   /alumno/ejercicio/:id/correccion   → corrección (alumno)
+//   /profesor                          → panel profesor · ejercicios
+//   /profesor/cursos|alumnos|categorias|audios|ajustes|usuarios → pestañas
+//   /profesor/ejercicio/nuevo          → crear ejercicio
+//   /profesor/ejercicio/:id            → detalle del ejercicio
+//   /profesor/ejercicio/:id/grabar     → grabar clave (interactivo/esquema)
+//   /profesor/ejercicio/:id/previsualizar → previsualizar esquema
+//   /profesor/ejercicio/:id/preguntas  → gestor de preguntas (cuestionario)
+//   /profesor/ejercicio/:id/correccion → corrección (previsualización)
+
+function parseHash() {
+  let h = (typeof window !== "undefined" && window.location.hash) || "";
+  if (h.startsWith("#")) h = h.slice(1);
+  const q = h.indexOf("?");
+  if (q >= 0) h = h.slice(0, q);
+  return h.split("/").filter(Boolean).map((s) => {
+    try { return decodeURIComponent(s); } catch { return s; }
+  });
+}
+
+// Segmentos de URL → ruta lógica { name, params }
+function routeFromSegments(segs) {
+  const [a, b, c, d] = segs;
+  if (!a) return { name: "home", params: {} };
+  if (a === "configuracion") return { name: "setup", params: {} };
+
+  if (a === "entrar") {
+    const role = b === "profesor" ? "teacher" : b === "alumno" ? "student" : null;
+    return role ? { name: "login", params: { role } } : { name: "home", params: {} };
+  }
+
+  if (a === "alumno") {
+    if (b === "elegir-profesor") return { name: "pick-teacher", params: {} };
+    if (b === "ejercicio" && c) {
+      if (d === "correccion") return { name: "correction", params: { exId: c, from: "student" } };
+      return { name: "session", params: { exId: c, mode: "student" } };
+    }
+    if (b === "cursos") return { name: "student", params: { tab: "courses" } };
+    return { name: "student", params: { tab: "all" } };
+  }
+
+  if (a === "profesor") {
+    if (b === "ejercicio" && c) {
+      if (d === "grabar")        return { name: "session", params: { exId: c, mode: "record" } };
+      if (d === "previsualizar") return { name: "session", params: { exId: c, mode: "preview" } };
+      if (d === "preguntas")     return { name: "question-manager", params: { exId: c } };
+      if (d === "correccion")    return { name: "correction", params: { exId: c, from: "teacher" } };
+      return { name: "teacher-detail", params: { exId: c } };
+    }
+    const TAB = {
+      cursos: "courses", alumnos: "students", categorias: "categories",
+      audios: "audios", ajustes: "settings", usuarios: "users",
+    };
+    return { name: "teacher", params: { tab: (b && TAB[b]) || "exercises" } };
+  }
+
+  return { name: "home", params: {} };
+}
+
+// Pestaña interna del profesor → ruta
+const TEACHER_TAB_PATH = {
+  exercises: "/profesor", courses: "/profesor/cursos", students: "/profesor/alumnos",
+  categories: "/profesor/categorias", audios: "/profesor/audios",
+  settings: "/profesor/ajustes", users: "/profesor/usuarios",
+};
+
+// Hook de enrutado: devuelve la ruta actual y un navegador.
+function useHashRoute() {
+  const [segs, setSegs] = useState(() => parseHash());
+
+  useEffect(() => {
+    const onChange = () => setSegs(parseHash());
+    window.addEventListener("hashchange", onChange);
+    if (!window.location.hash) { window.history.replaceState(null, "", "#/"); }
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+
+  const navigate = (path, opts = {}) => {
+    const next = path.startsWith("/") ? path : "/" + path;
+    const current = window.location.hash.replace(/^#/, "") || "/";
+    if (current === next) return;
+    if (opts.replace) {
+      window.history.replaceState(null, "", "#" + next);
+      setSegs(parseHash());
+    } else {
+      window.location.hash = next; // dispara "hashchange"
+    }
+  };
+
+  const route = useMemo(() => routeFromSegments(segs), [segs]);
+  return { route, navigate };
+}
 
 // ═══ 1. DESIGN TOKENS ═══════════════════════════════════════════════════════
 const C = {
@@ -1037,8 +1146,9 @@ function ExerciseRow({ ex, result, onOpen }) {
 }
 
 // Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher }) {
-  const [view,          setView]          = useState("all");
+function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher, tab = "all", onTab }) {
+  const view    = tab;             // controlado por la URL
+  const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
   const [openUnitIds,   setOpenUnitIds]   = useState(new Set());
   const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
@@ -4982,6 +5092,7 @@ function TeacherDash({
   onAddUnit, onUpdateUnit, onDeleteUnit,
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
+  tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }) {
   const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
 
@@ -4991,8 +5102,10 @@ function TeacherDash({
   );
   const teachers = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
 
-  const [tab, setTab] = useState("exercises");
-  const [selectedExerciseId, setSelectedExerciseId] = useState(null);
+  const setTab = onTab || (() => {});
+  // Detalle de ejercicio controlado por la URL ("new" para creación)
+  const selectedExerciseId = detailExId;
+  const setSelectedExerciseId = onSelectExercise || (() => {});
   // Para que el profesor vea la respuesta detallada de un alumno en un ejercicio
   const [viewingAnswer, setViewingAnswer] = useState(null); // null | { student, exercise, result }
 
@@ -5067,7 +5180,7 @@ function TeacherDash({
   }
 
   const selectedExercise = selectedExerciseId != null
-    ? (exercises.find((e) => e.id === selectedExerciseId) || lastCreatedExRef.current)
+    ? (exercises.find((e) => String(e.id) === String(selectedExerciseId)) || lastCreatedExRef.current)
     : null;
 
   if (selectedExercise) {
@@ -6670,14 +6783,25 @@ export default function App() {
   const [dbReady, setDbReady] = useState(false);
   const [user,    setUser]    = useState(null);
 
-  // Navegación
-  const [loginRole,    setLoginRole]      = useState(null);   // "admin" | "teacher" | "student" | null
-  const [view,         setView]           = useState("home"); // home | student-dash | teacher-dash | exercise | questionnaire | question-manager | correction
-  const [exCtx,        setExCtx]          = useState(null);   // { exercise, mode: 'student'|'record' }
-  const [qmCtx,        setQmCtx]          = useState(null);   // { exercise }
+  // Navegación — la URL (#/…) es la fuente de verdad
+  const { route, navigate } = useHashRoute();
   const [lastResult,   setLastResult]     = useState(null);
   const [guestResults, setGuestResults]   = useState({});
   const [pickingTeacher, setPickingTeacher] = useState(false);
+  const redirectAfterLogin = useRef(null);   // enlace profundo a recuperar tras login
+
+  // Ejercicio referenciado por la URL (reconstruido desde el id)
+  const routeExercise = useMemo(() => {
+    const exId = route.params?.exId;
+    if (!exId || exId === "nuevo") return null;
+    // Los ids de la URL son texto; los del modelo pueden ser numéricos → comparar como texto
+    return (exercises || []).find((e) => String(e.id) === String(exId)) || null;
+  }, [route, exercises]);
+  const exCtx = routeExercise
+    ? { exercise: routeExercise, mode: route.params?.mode || "student" }
+    : null;
+  const qmCtx = routeExercise ? { exercise: routeExercise } : null;
+  const loginRole = route.name === "login" ? route.params.role : null;
 
   // ─── Carga inicial desde Supabase (import dinámico) ─────────────────────
   // En la web, el import resuelve y carga datos reales.
@@ -6803,8 +6927,7 @@ export default function App() {
   const handleSetup = (adminUser) => {
     setUsers([adminUser]);
     setUser(adminUser);
-    setLoginRole(null);
-    setView("teacher-dash");
+    navigate("/profesor");
     dbUpsertUser(adminUser);
   };
 
@@ -6943,19 +7066,26 @@ export default function App() {
   // ─── Navegación helpers ──────────────────────────────────────────────────
   const freshExercise = (ex) => exercises.find((e) => e.id === ex.id) || ex;
 
+  // Si entras sin sesión a una ruta protegida, recuérdala para volver tras login
+  useEffect(() => {
+    if (user) return;
+    const open = route.name === "home" || route.name === "login" || route.name === "setup";
+    if (!open) {
+      redirectAfterLogin.current = window.location.hash.replace(/^#/, "") || null;
+    }
+  }, [user, route]);
+
   const openEx = (ex, mode = "student") => {
-    const fresh = freshExercise(ex);
-    setExCtx({ exercise: fresh, mode });
-    const m = modelOf(fresh);
-    if (m === "esquema") setView("schema");
-    else if (mode === "student" && m === "cuestionario") setView("questionnaire");
-    else setView("exercise");
+    if (mode === "record") {
+      // El cuestionario se "graba" desde el gestor de preguntas
+      if (modelOf(ex) === "cuestionario") navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
+      else navigate(`/profesor/ejercicio/${ex.id}/grabar`);
+    } else {
+      navigate(`/alumno/ejercicio/${ex.id}`);
+    }
   };
 
-  const openQM = (ex) => {
-    setQmCtx({ exercise: freshExercise(ex) });
-    setView("question-manager");
-  };
+  const openQM = (ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
   const submitAnswer = (payload) => {
@@ -6973,7 +7103,7 @@ export default function App() {
         dbUpsertResult(user.id, ex.id, data);
       }
       setLastResult(data);
-      setView("correction");
+      navigate(`/alumno/ejercicio/${ex.id}/correccion`);
       return;
     }
 
@@ -6982,8 +7112,7 @@ export default function App() {
       if (payload.mode === "record") {
         // El profesor guarda el esquema como modelo de referencia
         updateExercise(ex.id, { schemaKey: payload.blocks });
-        setExCtx(null);
-        setView("teacher-dash");
+        navigate("/profesor");
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
@@ -6998,7 +7127,9 @@ export default function App() {
         }
       }
       setLastResult(data);
-      setView("correction");
+      navigate(payload.mode === "preview"
+        ? `/profesor/ejercicio/${ex.id}/correccion`
+        : `/alumno/ejercicio/${ex.id}/correccion`);
       return;
     }
 
@@ -7018,8 +7149,7 @@ export default function App() {
       const patchAnswers = { ...(ex.answers || {}) };
       entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
       updateExercise(ex.id, { answers: patchAnswers });
-      setExCtx(null);
-      setView("teacher-dash");
+      navigate("/profesor");
       return;
     }
 
@@ -7053,7 +7183,7 @@ export default function App() {
       dbUpsertResult(user.id, ex.id, data);
     }
     setLastResult(data);
-    setView("correction");
+    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
   };
 
   // ─── Routing ─────────────────────────────────────────────────────────────
@@ -7069,21 +7199,34 @@ export default function App() {
   const hasAdmin = (users || []).some((u) => u.role === "admin");
   if (!hasAdmin) return <SetupView onSetup={handleSetup} />;
 
-  // Selección de profesor para alumno (al primer login o al pedirlo)
-  if (pickingTeacher && user?.role === "student") {
+  // Selección de profesor para alumno (al primer login o desde "Cambiar profesor")
+  if ((pickingTeacher || route.name === "pick-teacher") && user?.role === "student") {
     const teacherList = (users || []).filter((u) => u.role === "teacher");
     return (
       <TeacherPickerView
         teachers={teacherList}
         currentTeacherId={user.teacherId}
-        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); setPickingTeacher(false); }}
-        onLogout={() => { setUser(null); setLoginRole(null); setPickingTeacher(false); setView("home"); }}
+        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); setPickingTeacher(false); navigate("/alumno"); }}
+        onLogout={() => { setUser(null); setPickingTeacher(false); navigate("/"); }}
       />
     );
   }
 
   // Login flow
   if (!user) {
+    const finishLogin = (u) => {
+      setUser(u);
+      const dest = redirectAfterLogin.current;
+      redirectAfterLogin.current = null;
+      if (u.role === "student") {
+        const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
+        if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
+        navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
+      } else {
+        navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
+      }
+    };
+
     if (loginRole) {
       const labels = { admin: "administrador", teacher: "profesor", student: "alumno" };
       return (
@@ -7091,111 +7234,87 @@ export default function App() {
           roleLabel={labels[loginRole]}
           filterRole={loginRole}
           users={users}
-          onLogin={(u) => {
-            setUser(u);
-            setLoginRole(null);
-            if (u.role === "student") {
-              const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
-              if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
-              setView("student-dash");
-            } else {
-              setView("teacher-dash");
-            }
-          }}
-          onBack={() => setLoginRole(null)}
+          onLogin={finishLogin}
+          onBack={() => navigate("/")}
           onGuest={loginRole === "student" ? () => {
             const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
-            setUser(guest); setLoginRole(null); setView("student-dash");
+            setUser(guest); navigate("/alumno");
           } : null}
         />
       );
     }
     return (
       <HomeView
-        onTeacher={() => setLoginRole("teacher")}
-        onStudent={() => setLoginRole("student")}
+        onTeacher={() => navigate("/entrar/profesor")}
+        onStudent={() => navigate("/entrar/alumno")}
       />
     );
   }
 
   // Vistas autenticadas
-  const onLogout = () => { setUser(null); setView("home"); setGuestResults({}); };
+  const onLogout = () => { setUser(null); setGuestResults({}); navigate("/"); };
   const userResults = user.isGuest ? guestResults : (results[user.id] || {});
+  const isStudent = user.role === "student";
 
-  if (view === "exercise" && exCtx) {
-    return (
-      <ExerciseView
-        exercise={exCtx.exercise} mode={exCtx.mode}
-        onSubmit={submitAnswer}
-        onBack={() => {
-          setExCtx(null);
-          setView(exCtx.mode === "record" ? "teacher-dash" : "student-dash");
-        }}
-      />
-    );
+  // Mensaje cuando el ejercicio referenciado por la URL no existe (o no cargó)
+  const NotFound = ({ to }) => (
+    <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted, fontSize: 14, padding: 24, textAlign: "center" }}>
+      <span>No se encontró este ejercicio.</span>
+      <button style={S.btn} onClick={() => navigate(to)}>← Volver</button>
+    </div>
+  );
+
+  // ── Sesión de ejercicio (interactivo / esquema / cuestionario) ──
+  if (route.name === "session") {
+    const back = isStudent ? "/alumno" : "/profesor";
+    // Un alumno no puede entrar a modos de profesor
+    if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
+    if (!exCtx) return <NotFound to={back} />;
+    const m = modelOf(exCtx.exercise);
+    const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
+    if (m === "esquema") {
+      return <SchemaExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    if (exCtx.mode === "student" && m === "cuestionario") {
+      return <QuestionnaireView exercise={exCtx.exercise} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    return <ExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
   }
 
-  if (view === "schema" && exCtx) {
-    return (
-      <SchemaExerciseView
-        exercise={exCtx.exercise} mode={exCtx.mode}
-        onSubmit={submitAnswer}
-        onBack={() => {
-          setExCtx(null);
-          setView(exCtx.mode === "record" ? "teacher-dash" : "student-dash");
-        }}
-      />
-    );
-  }
-
-  if (view === "questionnaire" && exCtx) {
-    return (
-      <QuestionnaireView
-        exercise={exCtx.exercise}
-        onSubmit={submitAnswer}
-        onBack={() => { setExCtx(null); setView("student-dash"); }}
-      />
-    );
-  }
-
-  if (view === "question-manager" && qmCtx) {
+  // ── Gestor de preguntas (cuestionario) ──
+  if (route.name === "question-manager") {
+    if (isStudent) { navigate("/alumno"); return null; }
+    if (!qmCtx) return <NotFound to="/profesor" />;
     return (
       <QuestionManagerView
         exercise={qmCtx.exercise}
-        onSave={(questions) => {
-          updateExercise(qmCtx.exercise.id, { questions });
-          setQmCtx(null); setView("teacher-dash");
-        }}
-        onBack={() => { setQmCtx(null); setView("teacher-dash"); }}
+        onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate("/profesor"); }}
+        onBack={() => navigate("/profesor")}
       />
     );
   }
 
-  if (view === "correction" && exCtx && lastResult) {
-    const wasPreview = exCtx.mode === "preview";
+  // ── Corrección (depende del resultado recién entregado) ──
+  if (route.name === "correction") {
+    const back = route.params.from === "teacher" ? "/profesor" : "/alumno";
+    if (!exCtx) return <NotFound to={back} />;
+    if (!lastResult) {
+      // La corrección no se puede reconstruir desde un enlace pegado/recargado
+      return <NotFound to={exCtx ? `/alumno/ejercicio/${exCtx.exercise.id}` : back} />;
+    }
+    const wasPreview = route.params.from === "teacher";
     return (
       <CorrectionView
         exercise={freshExercise(exCtx.exercise)}
         result={lastResult} margin={margin}
-        onBack={() => {
-          setExCtx(null); setLastResult(null);
-          setView(wasPreview ? "teacher-dash" : "student-dash");
-        }}
+        onBack={() => { setLastResult(null); navigate(wasPreview ? "/profesor" : "/alumno"); }}
       />
     );
   }
 
-  if (user.role === "student") {
-    const teacherId = user.teacherId;
-    const visibleExercises = teacherId
-      ? exercises.filter((ex) => {
-          // El alumno ve los ejercicios asignados a través de cursos/unidades del profesor
-          // (heurística: cualquier ejercicio en alguna unidad de algún curso del profesor)
-          // Si no hay sistema de propietario, mostramos todos los del banco.
-          return true;
-        })
-      : exercises;
-
+  // ── Panel del alumno ──
+  if (isStudent) {
+    const visibleExercises = exercises; // (heurística actual: banco completo)
     return (
       <StudentDash
         user={user}
@@ -7203,14 +7322,16 @@ export default function App() {
         results={userResults}
         courses={courses}
         units={units}
+        tab={route.name === "student" ? route.params.tab : "all"}
+        onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
         onExercise={(ex) => openEx(ex, "student")}
         onLogout={onLogout}
-        onChangeTeacher={user.isGuest ? null : () => setPickingTeacher(true)}
+        onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
       />
     );
   }
 
-  // Teacher / Admin dashboard
+  // ── Panel del profesor / admin ──
   return (
     <TeacherDash
       currentUser={user}
@@ -7223,17 +7344,16 @@ export default function App() {
       onDeleteExercise={deleteExercise}
       results={results}
       margin={margin} onMargin={updateMargin}
-      onRecord={(ex) => {
-        const fresh = freshExercise(ex);
-        if (modelOf(fresh) === "cuestionario") openQM(fresh);
-        else if (modelOf(fresh) === "esquema") { setExCtx({ exercise: fresh, mode: "record" }); setView("schema"); }
-        else { setExCtx({ exercise: fresh, mode: "record" }); setView("exercise"); }
+      tab={route.name === "teacher" ? route.params.tab : "exercises"}
+      onTab={(t) => navigate(TEACHER_TAB_PATH[t] || "/profesor")}
+      detailExId={route.name === "teacher-detail" ? (route.params.exId === "nuevo" ? "new" : route.params.exId) : null}
+      onSelectExercise={(id) => {
+        if (id == null) navigate(route.name === "teacher" ? (TEACHER_TAB_PATH[route.params.tab] || "/profesor") : "/profesor");
+        else if (id === "new") navigate("/profesor/ejercicio/nuevo");
+        else navigate(`/profesor/ejercicio/${id}`);
       }}
-      onPreview={(ex) => {
-        const fresh = freshExercise(ex);
-        setExCtx({ exercise: fresh, mode: "preview" });
-        setView("schema");
-      }}
+      onRecord={(ex) => openEx(freshExercise(ex), "record")}
+      onPreview={(ex) => navigate(`/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
       onLogout={onLogout}
       categories={categories}
