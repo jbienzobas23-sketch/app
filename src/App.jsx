@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { supabase } from "./supabase.js";
-
 /* ═══════════════════════════════════════════════════════════════════════════
    FUNCIONES ARMÓNICAS · APP ROOT
    ───────────────────────────────────────────────────────────────────────────
@@ -24,37 +22,45 @@ import { supabase } from "./supabase.js";
 
 // ═══ 1. DESIGN TOKENS ═══════════════════════════════════════════════════════
 const C = {
-  bg: "#ECE7DA", paper: "#F5F0E5", paper2: "#EDE8DC",
-  ink: "#1C1A14", ink2: "#3D3A2F", muted: "#7A7460", muted2: "#B0AA96", line: "#D8D2C0",
+  // Base palette
+  bg: "#f8f8f6", paper: "#ffffff", paper2: "#f0f0ee",
+  ink: "#1a1a1a", ink2: "#555555", muted: "#b0b0a8", muted2: "#b0b0a8", line: "#e6e6e3",
+  // V0_9 aliases (usados por primitivos compartidos)
+  border: "#e6e6e3", rail: "#e0e0db", chevron: "#c0c0b8",
+  chipBg: "#f0f0ee", chipInk: "#888888", tabOff: "#aaaaaa",
+  noteBg: "#fffaeb", noteInk: "#c07427",
+  field: "#fcfcfb", fieldFocus: "#555",
+  // Colores funcionales — sin cambios
   fnT: "#3F9B5B", fnS: "#2F6FB8", fnD: "#C77A1A",
   fnI: "#9A4FB8", fnIV: "#3A8CA8", fnV: "#C9A33A",
   quiz: "#2F6FB8",
   danger: "#B84A3A",
 };
 
-const FONT_SANS  = "'Geist', 'Inter', system-ui, -apple-system, sans-serif";
-const FONT_SERIF = "'Fraunces', Georgia, 'Times New Roman', serif";
-const FONT_MONO  = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const FONT_SANS  = "'Outfit', system-ui, sans-serif";
+const FONT_SERIF = "'Cormorant Garamond', Georgia, serif";
+const FONT_MONO  = "'Outfit', system-ui, sans-serif";
+const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
   app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
-  page:       { maxWidth: 780, margin: "0 auto", padding: "1.5rem 1rem" },
-  card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, padding: "1.25rem 1.5rem", marginBottom: 14 },
-  h1:         { fontSize: 26, fontWeight: 600, margin: "0 0 4px", color: C.ink, letterSpacing: -0.8, fontFamily: FONT_SERIF },
-  h2:         { fontSize: 19, fontWeight: 600, margin: "0 0 12px", color: C.ink, fontFamily: FONT_SERIF },
-  label:      { fontSize: 11, color: C.muted, marginBottom: 5, display: "block", textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600 },
-  btn:        { background: C.paper, border: `1px solid ${C.line}`, color: C.ink2, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontSize: 13, transition: "all .15s", fontFamily: FONT_SANS },
-  btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: C.paper, borderRadius: 7, padding: "9px 18px", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_SANS },
-  btnDanger:  { background: "transparent", border: `1px solid ${C.danger}`, color: C.danger, borderRadius: 7, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS },
-  input:      { background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, padding: "9px 12px", fontSize: 14, width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS },
+  page:       { maxWidth: 740, margin: "0 auto", padding: "22px 24px 80px" },
+  card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
+  h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
+  h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
+  label:      { fontSize: 11, color: "#999", marginBottom: 6, display: "block", fontFamily: FONT_SANS, fontWeight: 500 },
+  btn:        { background: C.paper, border: `1px solid ${C.line}`, color: "#555", borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: FONT_SANS },
+  btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: "#fff", borderRadius: 7, padding: "7px 15px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
+  btnDanger:  { background: "transparent", border: `1px solid rgba(184,74,58,0.4)`, color: C.danger, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
+  input:      { background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, color: C.ink, padding: "9px 12px", fontSize: 13, width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS, outline: "none" },
   row:        { display: "flex", alignItems: "center", gap: 10 },
-  badge:      { fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, letterSpacing: 0.4 },
+  badge:      { fontSize: 11, padding: "2px 8px", borderRadius: 4, fontWeight: 600 },
   divider:    { border: "none", borderTop: `1px solid ${C.line}`, margin: "16px 0" },
 };
 
 const SECTION_STYLE = {
-  fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
-  textTransform: "uppercase", color: C.muted, margin: "0 0 14px",
+  fontSize: 10, fontWeight: 700, letterSpacing: "0.15em",
+  textTransform: "uppercase", color: C.chevron, margin: "0 0 14px",
   fontFamily: FONT_SANS,
 };
 
@@ -500,11 +506,11 @@ const questionsOf = (exercise)      => (Array.isArray(exercise?.questions) ? exe
 // Inyecta Google Fonts una sola vez al montar la app
 function useInjectFonts() {
   useEffect(() => {
-    if (typeof document === "undefined" || document.querySelector('link[data-gf="fa-v2"]')) return;
+    if (typeof document === "undefined" || document.querySelector('link[data-gf="fa-v3"]')) return;
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.setAttribute("data-gf", "fa-v2");
-    link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,400;9..144,0,600;9..144,0,700;9..144,1,400;9..144,1,600;9..144,1,700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap";
+    link.setAttribute("data-gf", "fa-v3");
+    link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@400;500;600;700&display=swap";
     document.head.appendChild(link);
   }, []);
 }
@@ -647,6 +653,116 @@ const disabledStyle = (canSave) => ({
   cursor:  canSave ? "pointer" : "not-allowed",
 });
 
+// ── Primitivos del sistema editorial V1 ──────────────────────────────────────
+
+function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed = false }) {
+  const deg = open ? 180 : rotate90WhenClosed ? -90 : 0;
+  return (
+    <svg width={size} height={size} viewBox="0 0 13 13" fill="none"
+      style={{ flexShrink: 0, transition: "transform 0.18s ease", transform: `rotate(${deg}deg)` }}>
+      <path d="M2.5 4.5L6.5 8.5L10.5 4.5" stroke={color} strokeWidth="1.4"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusCircle({ done, size = 14 }) {
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? C.ink : C.bg, border: done ? "none" : `1.5px solid ${C.chevron}`, flexShrink: 0 }}>
+      {done && (
+        <svg width={size * 0.5} height={size * 0.43} viewBox="0 0 7 6" fill="none">
+          <path d="M1 2.8L3 4.8L6 1" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function Chip({ children }) {
+  return <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, background: C.chipBg, color: C.chipInk, borderRadius: 4, padding: "2px 8px" }}>{children}</span>;
+}
+
+function CategoryDots({ buttons }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {buttons.map((b) => <span key={b.id} title={b.name} style={{ width: 9, height: 9, borderRadius: "50%", background: b.color, border: "1px solid rgba(0,0,0,0.08)" }} />)}
+    </span>
+  );
+}
+
+function Overline({ children, style }) {
+  return <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", color: C.chevron, textTransform: "uppercase", marginBottom: 6, ...style }}>{children}</div>;
+}
+
+function GhostButton({ children, onClick, full, lg, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ background: C.paper, border: `1px solid ${C.rail}`, borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 14px", fontFamily: F.sans, fontSize: lg ? 14 : 13, fontWeight: 500, color: "#555", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
+  );
+}
+
+function CtaButton({ children, onClick, disabled, full, lg }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 15px", fontFamily: F.sans, fontSize: lg ? 14 : 12, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
+  );
+}
+
+function DangerLink({ children, onClick, style }) {
+  return <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: F.sans, fontSize: 13, color: C.danger, ...style }}>{children}</button>;
+}
+
+function DangerOutlineButton({ children, onClick }) {
+  return <button onClick={onClick} style={{ background: C.paper, border: `1px solid rgba(184,74,58,0.4)`, borderRadius: 7, padding: "5px 12px", fontFamily: F.sans, fontSize: 12, fontWeight: 500, color: C.danger, cursor: "pointer" }}>{children}</button>;
+}
+
+function FieldLabel({ children }) {
+  return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#999", marginBottom: 6 }}>{children}</label>;
+}
+
+function TextInput({ value, onChange, placeholder, type = "text", big }) {
+  const [focus, setFocus] = useState(false);
+  return (
+    <input type={type} value={value} placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
+      style={{ width: "100%", boxSizing: "border-box", fontFamily: big ? F.serif : F.sans, fontSize: big ? 18 : 13, fontWeight: big ? 500 : 400, color: C.ink, background: C.field, border: `1px solid ${focus ? C.fieldFocus : C.border}`, borderRadius: 7, padding: big ? "10px 14px" : "9px 12px", outline: "none", transition: "border-color .15s" }} />
+  );
+}
+
+function RailStep({ num, title, last, children }) {
+  return (
+    <div style={{ display: "flex", marginBottom: last ? 0 : 30 }}>
+      <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{String(num).padStart(2, "0")}</div>
+        {!last && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, paddingTop: 6, paddingBottom: 4 }}>
+        <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", marginBottom: 14 }}>{title}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MetaItem({ label, children }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: F.sans, fontSize: 12, color: "#666" }}>{children}</span>
+    </div>
+  );
+}
+
+// Cabecera editorial para vistas de ejercicio
+function ExerciseViewHeader({ title, onBack }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 16 }}>← Volver</button>
+      <div style={{ paddingBottom: 18, borderBottom: `2px solid ${C.ink}` }}>
+        <h1 style={{ fontFamily: F.serif, fontSize: 32, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.1, margin: 0 }}>{title}</h1>
+      </div>
+    </div>
+  );
+}
+
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
@@ -682,39 +798,39 @@ function SetupView({ onSetup }) {
   };
 
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
-          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 6 }}>Primera configuración</h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Crea tu cuenta de administrador para comenzar</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Primera configuración</Overline>
+          <h1 style={{ ...S.h1 }}>Crear cuenta de administrador</h1>
         </div>
 
-        <label style={S.label}>Tu nombre (visible para los alumnos)</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={displayName} autoFocus
-          onChange={(e) => setDisplayName(e.target.value)} placeholder="Ej: Prof. García" />
-
-        <label style={S.label}>Nombre de usuario (para el login)</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={username} autoComplete="username"
-          onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
-
-        <label style={S.label}>Contraseña (mínimo 6 caracteres)</label>
-        <input type="password" style={{ ...S.input, marginBottom: 14 }} value={pass}
-          onChange={(e) => setPass(e.target.value)} placeholder="••••••" autoComplete="new-password" />
-
-        <label style={S.label}>Confirmar contraseña</label>
-        <input type="password" autoComplete="new-password"
-          style={{ ...S.input, marginBottom: mismatch ? 6 : 22, borderColor: mismatch ? C.danger : undefined }}
-          value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••"
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Tu nombre (visible para los alumnos)</FieldLabel>
+          <TextInput value={displayName} onChange={setDisplayName} placeholder="Ej: Prof. García" />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <TextInput value={username} onChange={(v) => setUsername(v.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Contraseña (mínimo 6 caracteres)</FieldLabel>
+          <TextInput value={pass} onChange={setPass} placeholder="••••••" type="password" />
+        </div>
+        <div style={{ marginBottom: mismatch ? 6 : 24 }}>
+          <FieldLabel>Confirmar contraseña</FieldLabel>
+          <input type="password" autoComplete="new-password"
+            style={{ ...S.input, borderColor: mismatch ? C.danger : undefined }}
+            value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••"
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+        </div>
 
         {mismatch && <ErrorMsg style={{ marginBottom: 16 }}>Las contraseñas no coinciden</ErrorMsg>}
         <ErrorMsg>{error}</ErrorMsg>
 
-        <button onClick={handleSubmit} disabled={!canSave}
-          style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, fontSize: 15, ...disabledStyle(canSave) }}>
+        <CtaButton full lg onClick={handleSubmit} disabled={!canSave}>
           {loading ? "Configurando…" : "Crear cuenta y comenzar →"}
-        </button>
+        </CtaButton>
       </div>
     </div>
   );
@@ -753,45 +869,39 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
   };
 
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ ...S.card, maxWidth: 400, width: "90vw", marginBottom: 0 }}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>← Volver</button>
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 4 }}>Acceso {roleLabel}</h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Introduce tus credenciales</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 28 }}>← Inicio</button>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Acceso · {roleLabel}</Overline>
+          <h1 style={{ ...S.h1 }}>Iniciar sesión</h1>
         </div>
 
-        <label style={S.label}>Nombre de usuario</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={username} autoFocus autoComplete="username"
-          onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="usuario" />
+        <div style={{ marginBottom: 16 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <input style={{ ...S.input }} value={username} autoFocus autoComplete="username"
+            onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="usuario" />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>{credLabel}</FieldLabel>
+          <CredentialInput kind={isPin ? "pin" : "password"} value={credential}
+            onChange={(v) => { setCredential(v); setError(""); }} onSubmit={handleLogin} marginBottom={0} />
+        </div>
 
-        <label style={S.label}>{credLabel}</label>
-        <CredentialInput
-          kind={isPin ? "pin" : "password"}
-          value={credential}
-          onChange={(v) => { setCredential(v); setError(""); }}
-          onSubmit={handleLogin}
-          marginBottom={22}
-        />
-
-        {error && <ErrorMsg style={{ margin: "-14px 0 14px" }}>{error}</ErrorMsg>}
-
-        <button onClick={handleLogin} disabled={!canSubmit}
-          style={{ ...S.btnPrimary, width: "100%", padding: 13, borderRadius: 8, fontSize: 14, ...disabledStyle(canSubmit) }}>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleLogin} disabled={!canSubmit}>
           {loading ? "Verificando…" : "Entrar →"}
-        </button>
+        </CtaButton>
 
         {onGuest && (
           <>
-            <div style={{ ...S.row, margin: "18px 0 14px", gap: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", margin: "22px 0 16px" }}>
               <div style={{ flex: 1, height: 1, background: C.line }} />
-              <span style={{ color: C.muted2, fontSize: 11, padding: "0 10px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>o sin cuenta</span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, padding: "0 12px", whiteSpace: "nowrap" }}>o sin cuenta</span>
               <div style={{ flex: 1, height: 1, background: C.line }} />
             </div>
-            <button onClick={onGuest} style={{ ...S.btn, width: "100%", padding: "11px 20px", borderRadius: 8, fontSize: 13, color: C.muted }}>
-              Entrar como invitado
-            </button>
-            <p style={{ fontSize: 11, color: C.muted2, textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>
+            <GhostButton full lg onClick={onGuest}>Entrar como invitado</GhostButton>
+            <p style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: "center", margin: "10px 0 0", lineHeight: 1.5 }}>
               Modo de prueba · los resultados no se guardan
             </p>
           </>
@@ -804,25 +914,18 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
 // Pantalla inicial: selección de rol
 function HomeView({ onTeacher, onStudent }) {
   return (
-    <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-      <div style={{ textAlign: "center", maxWidth: 360, padding: "2.5rem 1.5rem", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: C.muted, marginBottom: 22 }}>
-          Análisis Musical Auditivo
-        </div>
-
-        <h1 style={{ ...S.h1, fontSize: 38, lineHeight: 1.08, marginBottom: 0, fontStyle: "italic", letterSpacing: -1.5 }}>
-          Funciones<br />Armónicas
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+        <h1 style={{ fontFamily: F.sans, fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1.0, margin: 0 }}>
+          Análisis<br />auditivo
         </h1>
-
-        <div style={{ width: 36, height: 1.5, background: C.line, margin: "22px 0 20px" }} />
-
-        <p style={{ color: C.muted, fontSize: 13, marginBottom: 40, lineHeight: 1.55, maxWidth: 260 }}>
-          Herramienta interactiva de análisis y escucha armónica para el aula
+        <div style={{ width: 40, height: 2, background: C.ink, margin: "26px auto 22px" }} />
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: "#888", lineHeight: 1.6, maxWidth: 270, margin: "0 auto 36px" }}>
+          Herramienta interactiva de análisis y escucha armónica para el aula.
         </p>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-          <button onClick={onStudent} style={{ ...S.btnPrimary, fontSize: 14, padding: "13px 24px", borderRadius: 8, letterSpacing: 0.1 }}>Acceso Alumno</button>
-          <button onClick={onTeacher} style={{ ...S.btn,        fontSize: 14, padding: "13px 24px", borderRadius: 8 }}>Acceso Profesor</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          <CtaButton full lg onClick={onStudent}>Acceso alumno</CtaButton>
+          <GhostButton full lg onClick={onTeacher}>Acceso profesor</GhostButton>
         </div>
       </div>
     </div>
@@ -833,61 +936,42 @@ function HomeView({ onTeacher, onStudent }) {
 function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
   const [hoverId, setHoverId] = useState(null);
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 14 }}>Selección de profesor</div>
-          <h1 style={{ ...S.h1, fontSize: 20, marginBottom: 4 }}>
-            {currentTeacherId ? "Cambiar profesor" : "Elige tu profesor"}
-          </h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Selecciona al profesor cuya clase sigues</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Selección de profesor</Overline>
+          <h1 style={{ ...S.h1 }}>{currentTeacherId ? "Cambiar profesor" : "Elige tu profesor"}</h1>
         </div>
 
         {teachers.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "1rem 0 1.5rem" }}>
-            <p style={{ color: C.muted, fontSize: 13 }}>Aún no hay profesores registrados.</p>
-            <button onClick={onLogout} style={{ ...S.btn, marginTop: 12 }}>Volver al inicio</button>
+          <div style={{ paddingTop: 8 }}>
+            <p style={{ color: C.muted, fontSize: 13, marginBottom: 14 }}>Aún no hay profesores registrados.</p>
+            <GhostButton onClick={onLogout}>Volver al inicio</GhostButton>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
             {teachers.map((t) => {
-              const isSelected = t.id === currentTeacherId;
-              const isHover    = hoverId === t.id;
+              const isSel   = t.id === currentTeacherId;
+              const isHover = hoverId === t.id;
               return (
                 <button key={t.id} onClick={() => onPick(t)}
-                  onMouseEnter={() => setHoverId(t.id)}
-                  onMouseLeave={() => setHoverId(null)}
-                  style={{
-                    background: isSelected ? C.ink : isHover ? C.paper2 : C.paper,
-                    border:     `1px solid ${isSelected ? C.ink : isHover ? C.ink2 : C.line}`,
-                    borderRadius: 10, padding: "14px 18px", cursor: "pointer",
-                    display: "flex", alignItems: "center", gap: 14,
-                    transition: "all .15s", textAlign: "left",
-                  }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: "50%",
-                    background: isSelected ? "rgba(251,250,246,0.18)" : C.line,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 17, fontWeight: 700, color: isSelected ? C.paper : C.ink2,
-                    flexShrink: 0, fontFamily: FONT_MONO,
-                  }}>
+                  onMouseEnter={() => setHoverId(t.id)} onMouseLeave={() => setHoverId(null)}
+                  style={{ background: isSel ? C.ink : isHover ? C.paper2 : C.paper, border: `1px solid ${isSel ? C.ink : isHover ? C.ink2 : C.line}`, borderRadius: 8, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: isSel ? "rgba(255,255,255,0.15)" : C.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: isSel ? "#fff" : C.ink, flexShrink: 0 }}>
                     {t.displayName[0].toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: isSelected ? C.paper : C.ink, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.displayName}</div>
-                    <div style={{ fontSize: 12, color: isSelected ? "rgba(251,250,246,0.6)" : C.muted, fontFamily: FONT_MONO }}>@{t.username}</div>
+                    <div style={{ fontFamily: F.sans, fontWeight: 600, fontSize: 14, color: isSel ? "#fff" : C.ink, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.displayName}</div>
+                    <div style={{ fontFamily: F.sans, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted }}>@{t.username}</div>
                   </div>
-                  {isSelected && <span style={{ fontSize: 16, color: C.paper, flexShrink: 0 }}>✓</span>}
+                  {isSel && <StatusCircle done size={18} />}
                 </button>
               );
             })}
           </div>
         )}
 
-        <button onClick={onLogout}
-          style={{ background: "none", border: "none", color: C.muted2, fontSize: 12, cursor: "pointer", width: "100%", fontFamily: FONT_SANS, padding: "4px 0" }}>
-          Salir
-        </button>
+        <button onClick={onLogout} style={{ background: "none", border: "none", color: C.muted, fontSize: 12, cursor: "pointer", fontFamily: F.sans, padding: 0 }}>Salir</button>
       </div>
     </div>
   );
@@ -895,47 +979,71 @@ function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
 
 // ═══ 7. VISTAS DE ALUMNO ════════════════════════════════════════════════════
 
-// Tarjeta de ejercicio (compartida entre lista global y vista por curso/unidad)
-function StudentExerciseCard({ ex, result, onClick }) {
-  const isQuiz = modelOf(ex) === "cuestionario";
-  const exQs   = questionsOf(ex);
-  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
+// Metadatos por modelo de ejercicio (color de franja + etiqueta)
+const MODEL_META = {
+  interactivo:  { color: "#3F9B5B", label: "Interactivo"  },
+  cuestionario: { color: "#2F6FB8", label: "Cuestionario" },
+  esquema:      { color: "#C77A1A", label: "Esquema"      },
+};
+const modelMeta = (ex) => MODEL_META[modelOf(ex)] || MODEL_META.interactivo;
+
+// Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
+function ExerciseRow({ ex, result, onOpen }) {
+  const [open, setOpen] = useState(false);
+  const meta      = modelMeta(ex);
+  const isQuiz    = modelOf(ex) === "cuestionario";
+  const exQs      = questionsOf(ex);
+  const cats      = categoriesOf(ex);
+  const allBtns   = cats.flatMap((c) => c.buttons || []);
+  const isDone    = result != null;
+  const score     = result?.score ?? null;
 
   return (
-    <div style={{ ...S.card, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <div>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>{ex.title}</div>
-        <div style={{ ...S.row, gap: 8, flexWrap: "wrap" }}>
-          <span style={{ ...S.badge, background: C.line, color: C.muted }}>{fmt(ex.duration)}</span>
-
-          {isQuiz
-            ? <span style={{ ...S.badge, background: "rgba(47,111,184,0.14)", color: C.quiz }}>Cuestionario</span>
-            : total > 1 && <span style={{ ...S.badge, background: C.paper2, color: C.fnI }}>{total} categorías</span>}
-
-          {isQuiz
-            ? (exQs.length === 0
-                ? <span style={{ ...S.badge, background: "rgba(199,122,26,0.16)", color: C.fnD }}>Sin preguntas</span>
-                : <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{exQs.length} {exQs.length === 1 ? "pregunta" : "preguntas"}</span>)
-            : (recorded === 0 && <span style={{ ...S.badge, background: "rgba(199,122,26,0.16)", color: C.fnD }}>Sin clave</span>)}
-
-          {result && (
-            <ScoreBadge score={result.score} suffix="% acierto" emptyLabel="Enviado" />
-          )}
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div onClick={() => setOpen((o) => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {ex.title}
+          </span>
+          <Chevron open={open} />
+          <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
+            style={{ ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
+            {isDone ? "Repetir" : "Iniciar →"}
+          </button>
         </div>
+        {open && (
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+            <MetaItem label="Tipo">
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+              {meta.label}
+            </MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+            {isQuiz
+              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            {isDone && (
+              <MetaItem label="Resultado">
+                <StatusCircle done />
+                {score != null ? `${score}%` : "Entregado"}
+              </MetaItem>
+            )}
+          </div>
+        )}
       </div>
-      <button onClick={onClick} style={S.btnPrimary}>{result ? "Repetir" : "Iniciar"} →</button>
     </div>
   );
 }
 
-// Dashboard del alumno
+// Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
 function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher }) {
-  const [view,        setView]        = useState("all");
-  const [openUnitIds, setOpenUnitIds] = useState(new Set());
+  const [view,          setView]          = useState("all");
+  const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
+  const [openUnitIds,   setOpenUnitIds]   = useState(new Set());
+  const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
+  const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
-  const toggleUnit = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
-
-  // Solo los cursos del profesor elegido (o legacy sin ownerId)
   const teacherCourses = useMemo(() => {
     if (!user.teacherId) return courses;
     return courses.filter((c) => !c.ownerId || c.ownerId === user.teacherId);
@@ -945,118 +1053,107 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
     <div style={S.app}>
       <div style={S.page}>
         {user.isGuest && (
-          <div style={{ background: "rgba(199,122,26,0.10)", border: `1px solid rgba(199,122,26,0.25)`, borderRadius: 8, padding: "8px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 14 }}>👤</span>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.fnD }}>Modo invitado</span>
-              <span style={{ fontSize: 12, color: C.muted, marginLeft: 8 }}>Los resultados no se guardan al salir</span>
-            </div>
+          <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
+            <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>· Los resultados no se guardan al salir</span>
           </div>
         )}
 
-        {/* Cabecera */}
-        <div style={{ paddingBottom: 20, borderBottom: `1.5px solid ${C.line}`, marginBottom: 0 }}>
-          <div style={{ ...S.row, justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 5 }}>Alumno</div>
-              <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 0 }}>{user.displayName}</h1>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {!user.isGuest && onChangeTeacher && (
-                <button onClick={onChangeTeacher} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>🎓 Profesor</button>
-              )}
-              <button onClick={onLogout} style={S.btn}>Salir</button>
-            </div>
+        {/* Cabecera editorial */}
+        <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <Overline>Alumno</Overline>
+            <h1 style={{ ...S.h1 }}>{user.displayName}</h1>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {!user.isGuest && onChangeTeacher && (
+              <GhostButton onClick={onChangeTeacher}>Cambiar profesor</GhostButton>
+            )}
+            <GhostButton onClick={onLogout}>Salir</GhostButton>
           </div>
         </div>
 
         {/* Pestañas */}
         <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22 }}>
-          <TabBar
-            tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]}
-            value={view} onChange={setView}
-          />
+          <TabBar tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]} value={view} onChange={setView} />
         </div>
 
-        {view === "all" && exercises.map((ex) => (
-          <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} />
-        ))}
+        {/* ── Todos los ejercicios ── */}
+        {view === "all" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {exercises.map((ex) => (
+              <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} />
+            ))}
+          </div>
+        )}
 
+        {/* ── Por cursos (riel tipográfico) ── */}
         {view === "courses" && (
           teacherCourses.length === 0
-            ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
-            : teacherCourses.map((course, courseIdx) => {
+            ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
+            : teacherCourses.map((course) => {
                 const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
-                const exCount     = courseUnits.reduce((sum, u) => sum + u.exerciseIds.length, 0);
-                const accent      = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
-
+                const courseOpen  = openCourseIds.has(course.id);
                 return (
-                  <div key={course.id} style={{ marginBottom: 36 }}>
-                    {/* Cabecera del curso — estilo profesor */}
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 0, marginBottom: 10 }}>
-                      <div style={{ width: 3, alignSelf: "stretch", background: accent, borderRadius: 2, flexShrink: 0, marginRight: 14, marginTop: 3 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 18, color: C.ink, letterSpacing: -0.4, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {course.name}
-                        </div>
-                        {course.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{course.description}</div>}
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, background: accent + "18", color: accent }}>
-                            {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
-                          </span>
-                          <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>
-                            {exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}
-                          </span>
+                  <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                    <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0 }}>
+                            <span style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>{course.name}</span>
+                            <Chevron open={courseOpen} rotate90WhenClosed size={14} />
+                          </div>
+                          {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                         </div>
                       </div>
                     </div>
 
-                    {/* Tabla de unidades — estilo profesor */}
-                    {courseUnits.length === 0 ? (
-                      <div style={{ paddingLeft: 17, color: C.muted, fontSize: 13 }}>Este curso no tiene unidades todavía.</div>
-                    ) : (
-                      <div style={{ paddingLeft: 17 }}>
-                        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "6px 12px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-                            {["", "Unidad", "Ejercicios"].map((h, i) => (
-                              <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
-                            ))}
-                          </div>
-
-                          {courseUnits.map((unit, unitIdx) => {
-                            const isUnitOpen = openUnitIds.has(unit.id);
-                            const isLast     = unitIdx === courseUnits.length - 1;
-
-                            return (
-                              <div key={unit.id}>
-                                <div onClick={() => toggleUnit(unit.id)}
-                                  style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "11px 12px", cursor: "pointer", borderBottom: (!isLast || isUnitOpen) ? `1px solid ${C.line}` : "none", transition: "background .1s" }}
-                                  onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-                                  <span style={{ fontSize: 14, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1, textAlign: "center" }}>›</span>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                    {unit.description && <div style={{ fontSize: 12, color: C.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
+                    {courseOpen && (
+                      <div style={{ padding: "20px 0 24px 24px" }}>
+                        {courseUnits.length === 0
+                          ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: 24 }}>Este curso no tiene unidades todavía.</p>
+                          : courseUnits.map((unit, unitIdx) => {
+                              const isOpen     = openUnitIds.has(unit.id);
+                              const isLastUnit = unitIdx === courseUnits.length - 1;
+                              const unitNum    = String(unitIdx + 1).padStart(2, "0");
+                              return (
+                                <div key={unit.id} style={{ display: "flex", marginBottom: isLastUnit ? 0 : 28 }}>
+                                  {/* Riel */}
+                                  <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{unitNum}</div>
+                                    {(!isLastUnit || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
                                   </div>
-                                  <div style={{ fontSize: 12, color: C.muted }}>
-                                    {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
+                                  {/* Contenido */}
+                                  <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
+                                    <div onClick={() => toggleUnit(unit.id)} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: isOpen ? 12 : 0, paddingRight: 20, cursor: "pointer", userSelect: "none" }}>
+                                      <span style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
+                                      <Chevron open={isOpen} rotate90WhenClosed />
+                                      <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2 }}>
+                                        {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
+                                      </span>
+                                    </div>
+                                    {isOpen && (
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                        {unit.exerciseIds.length === 0
+                                          ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
+                                          : unit.exerciseIds.map((eid) => {
+                                              const ex = exercises.find((e) => e.id === eid);
+                                              if (!ex) return null;
+                                              return (
+                                                <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -52 }}>
+                                                  <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                                    <StatusCircle done={results[ex.id] != null} />
+                                                  </div>
+                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                                                </div>
+                                              );
+                                            })}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-
-                                {isUnitOpen && (
-                                  <div style={{ borderBottom: !isLast ? `1px solid ${C.line}` : "none", background: C.bg, padding: "10px 12px 6px" }}>
-                                    {unit.exerciseIds.length === 0
-                                      ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "6px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
-                                      : unit.exerciseIds.map((eid) => {
-                                          const ex = exercises.find((e) => e.id === eid);
-                                          return ex ? <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} /> : null;
-                                        })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
                       </div>
                     )}
                   </div>
@@ -1736,8 +1833,8 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <div style={{ ...S.page, paddingTop: "1.25rem" }}>
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ ...S.btn, padding: "6px 12px", fontSize: 12 }}>← Volver</button>
-          <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1, fontFamily: FONT_SERIF }}>{exercise.title}</div>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0 }}>← Volver</button>
+          <div style={{ fontFamily: F.serif, fontWeight: 600, color: C.ink, fontSize: 18, textAlign: "center", flex: 1 }}>{exercise.title}</div>
           <div style={{ width: 70 }} />
         </div>
 
@@ -1790,17 +1887,17 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div />
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>−5s</CircleButton>
               <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
                 primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
                 {playing ? "❚❚" : "▶"}
               </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(dur, time + 5))}>+5s</CircleButton>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
         </section>
@@ -3286,10 +3383,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     <div style={S.app}>
       {/* Cabecera */}
       <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-        <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }}>{"<-"} Volver</button>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0 }}>← Volver</button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FONT_SERIF, fontSize: 18, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+          <div style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 2 }}>
             Esquema formal{hasRepeats ? ` · ${localReps.length} repetición${localReps.length !== 1 ? "es" : ""}` : ""}
           </div>
         </div>
@@ -3327,22 +3424,18 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           </div>
           {listenOnly ? (
             <div style={{ paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                <CircleButton onClick={togglePlay} primary size={52} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausa" : "Reproducir"}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <CircleButton onClick={() => { seekTo(0); setPlayCount(p => p + 1); }} title="Volver al inicio">⏮</CircleButton>
+                </div>
+                <CircleButton onClick={togglePlay} primary size={48} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausa" : "Reproducir"}>
                   {playing ? "❚❚" : "▶"}
                 </CircleButton>
-                <button onClick={() => { seekTo(0); setPlayCount(p => p + 1); if (!playing) togglePlay(); }}
-                  disabled={hasAudio && !audioReady && !audioError}
-                  style={{ ...S.btn, padding: "9px 18px", fontSize: 13, fontWeight: 600, opacity: (hasAudio && !audioReady && !audioError) ? 0.4 : 1 }}>
-                  Empezar de nuevo
-                </button>
+                <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                  {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
+                </div>
               </div>
-              <div style={{ textAlign: "center", marginTop: 10, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
-                <span style={{ fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                  {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
-                </span>
-                {playCount > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
-              </div>
+              {playCount > 0 && <div style={{ textAlign: "center", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
@@ -3371,14 +3464,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 </div>
               ) : <div />}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
+                <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
                 <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
                   {playing ? "❚❚" : "▶"}
                 </CircleButton>
-                <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
               </div>
-              <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+              <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
               </div>
             </div>
           )}
@@ -4077,8 +4169,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Volver</button>
-          <h2 style={S.h2}>Esquema entregado: {exercise.title}</h2>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
+          <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
             <div style={{ color: C.muted, lineHeight: 1.6 }}>
@@ -4119,7 +4211,7 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
       <div style={S.app}>
         <div style={S.page}>
           <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
-          <h2 style={S.h2}>Corrección: {exercise.title}</h2>
+          <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             {sc == null ? (
@@ -4211,8 +4303,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>{backLabel}</button>
-        <h2 style={S.h2}>Corrección: {exercise.title}</h2>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>{backLabel}</button>
+        <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
         {exCategories.length > 1 && (
           <div style={{ marginBottom: 16, color: C.muted, fontSize: 13 }}>
@@ -4334,7 +4426,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>← Volver</button>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
           <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
             <div>Este ejercicio aún no tiene preguntas configuradas.</div>
@@ -4349,15 +4441,15 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <div style={{ ...S.page, paddingTop: "1.25rem" }}>
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 13 }}>← Volver</button>
-          <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1 }}>{exercise.title}</div>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0 }}>← Volver</button>
+          <div style={{ fontFamily: F.serif, fontWeight: 600, color: C.ink, fontSize: 18, textAlign: "center", flex: 1 }}>{exercise.title}</div>
           <div style={{ width: 70 }} />
         </div>
 
         {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 14px 12px", marginBottom: 16 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
@@ -4371,20 +4463,10 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
               const isLock = lockedQuestion?.id === q.id;
               return (
                 <div key={q.id}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => selectQuestion(q)}
+                  onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
                   title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
-                  style={{
-                    position: "absolute", top: 3, bottom: 3,
-                    left:  `${(q.audioStart / dur) * 100}%`,
-                    width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`,
-                    background: C.quiz, opacity: isLock ? 1 : 0.45,
-                    borderRadius: 3, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none",
-                    boxSizing: "border-box", overflow: "hidden", transition: "opacity .15s",
-                  }}>
-                  <span style={{ fontSize: 7, color: C.paper, fontWeight: 700, fontFamily: FONT_MONO, pointerEvents: "none" }}>P{idx + 1}</span>
+                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: C.quiz, opacity: isLock ? 1 : 0.45, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
+                  <span style={{ fontSize: 7, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>P{idx + 1}</span>
                 </div>
               );
             })}
@@ -4394,25 +4476,21 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           {lockedQuestion ? (
             <div style={{ ...S.row, gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "6px 0 8px", flexWrap: "wrap" }}>
               <span>🔒 Fragmento activo: {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)}</span>
-              <span style={{ color: C.muted2, fontSize: 11 }}>(bucle automático)</span>
-              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11, color: C.muted, borderColor: C.line }}>Liberar</button>
+              <span style={{ color: C.muted, fontSize: 11 }}>(bucle automático)</span>
+              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11 }}>Liberar</button>
             </div>
-          ) : (
-            <div style={{ height: 8 }} />
-          )}
+          ) : <div style={{ height: 8 }} />}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-            <div />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(lockedQuestion ? lockedQuestion.audioStart : 0, time - 5))}>−5s</CircleButton>
-              <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-                primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(lockedQuestion ? lockedQuestion.audioEnd : dur, time + 5))}>+5s</CircleButton>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(lockedQuestion ? lockedQuestion.audioStart : 0)} title="Volver al inicio">⏮</CircleButton>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
         </section>
@@ -4430,36 +4508,30 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           const answered   = answers[q.id] !== undefined && answers[q.id] !== "";
           return (
             <div key={q.id} onMouseDown={(e) => e.stopPropagation()}
-              style={{ ...S.card, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, transition: "border-color .15s" }}>
+              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8, padding: "14px 16px" }}>
               <div style={{ cursor: "pointer" }}
                 onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}>
-                <div style={{ ...S.row, justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ ...S.row, gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, flexShrink: 0 }}>Pregunta {idx + 1}</span>
-                    {answered && <span style={{ ...S.badge, background: "rgba(63,155,91,0.14)", color: C.fnT, flexShrink: 0 }}>✓</span>}
-                    <span style={{ fontSize: 14, color: C.ink, fontWeight: isExpanded ? 600 : 400, lineHeight: 1.4 }}>{q.text}</span>
-                  </div>
-                  <span style={{ color: C.muted2, fontSize: 12, flexShrink: 0 }}>{isExpanded ? "▲" : "▼"}</span>
+                {/* Fila de metadatos — chip + ✓ + chevron */}
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                  <Chip>Pregunta {idx + 1}</Chip>
+                  {answered && <span style={{ background: "rgba(63,155,91,0.14)", color: C.fnT, fontFamily: F.sans, fontSize: 11, fontWeight: 600, borderRadius: 4, padding: "2px 7px" }}>✓</span>}
+                  <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
+                {/* Texto de la pregunta — serif grande */}
+                <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.35, color: C.ink }}>{q.text}</div>
               </div>
 
               {isExpanded && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
                   {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {q.options.map((opt) => {
                         const isSel = answers[q.id] === opt.id;
                         return (
                           <button key={opt.id}
                             onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{
-                              background: isSel ? C.ink : C.paper, color: isSel ? C.paper : C.ink2,
-                              border: `1.5px solid ${isSel ? C.ink : C.line}`,
-                              borderRadius: 10, padding: "10px 14px", cursor: "pointer",
-                              textAlign: "left", fontSize: 14, transition: "all .12s",
-                              display: "flex", alignItems: "center", gap: 10,
-                            }}>
-                            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 13, color: isSel ? C.paper : C.muted, minWidth: 20, flexShrink: 0 }}>{opt.id}</span>
+                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1px solid ${isSel ? C.ink : C.line}`, borderRadius: 7, padding: "9px 12px", cursor: "pointer", textAlign: "left", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 11, color: isSel ? "rgba(255,255,255,0.55)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
                             {opt.text}
                           </button>
                         );
@@ -4467,13 +4539,11 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
                     </div>
                   )}
                   {q.type === "desarrollo" && (
-                    <textarea
-                      style={{ ...S.input, minHeight: 90, resize: "vertical", fontFamily: FONT_SANS, lineHeight: 1.5 }}
+                    <textarea style={{ ...S.input, minHeight: 90, resize: "vertical", lineHeight: 1.5 }}
                       placeholder="Escribe tu respuesta aquí…"
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                      onClick={(e) => e.stopPropagation()} />
                   )}
                 </div>
               )}
@@ -4495,70 +4565,67 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 // ═══ 11. DASHBOARD DEL PROFESOR ═════════════════════════════════════════════
 
 // ── Pestaña: Ejercicios ────────────────────────────────────────────────────
-function ExercisesTab({ exercises, onNew, onSelect }) {
+function TeacherExerciseRow({ ex, onSelect, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const meta    = modelMeta(ex);
+  const isQuiz  = modelOf(ex) === "cuestionario";
+  const isSchema= modelOf(ex) === "esquema";
+  const exQs    = questionsOf(ex);
+  const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
+  const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
+  const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+
+  return (
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div onClick={() => setOpen((o) => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</span>
+          <Chevron open={open} />
+          <div onClick={(e) => e.stopPropagation()}>
+            <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
+          </div>
+        </div>
+        {open && (
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Clave de corrección">
+              <StatusCircle done={keyReady} size={13} />
+              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+            </MetaItem>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExercisesTab({ exercises, onNew, onSelect, askConfirm, onDelete }) {
   return (
     <>
-      <button onClick={onNew} style={{ ...S.btnPrimary, marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> Nuevo ejercicio
-      </button>
-
-      {exercises.length === 0 ? (
-        <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
-      ) : (
-        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 58px 112px 140px 16px", alignItems: "center", padding: "7px 16px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-            {["Nombre", "Dur.", "Tipo", "Estado", ""].map((h, i) => (
-              <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
+      <div style={{ marginBottom: 14 }}>
+        <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
+      </div>
+      {exercises.length === 0
+        ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {exercises.map((ex) => (
+              <TeacherExerciseRow key={ex.id} ex={ex} onSelect={onSelect}
+                onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id))} />
             ))}
-          </div>
-
-          {exercises.map((ex, i) => {
-            const isQuiz   = modelOf(ex) === "cuestionario";
-            const isSchema = modelOf(ex) === "esquema";
-            const exQs   = questionsOf(ex);
-            const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
-            const keyDone    = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
-            const keyPartial = !isQuiz && !isSchema && recorded > 0 && recorded < total;
-            const dotColor   = isSchema ? C.fnD : keyDone ? C.fnT : keyPartial ? C.fnD : C.muted2;
-            const dotLabel   = isQuiz
-              ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}`)
-              : isSchema ? "Sin clave automática"
-              : recorded === 0   ? "Sin clave"
-              : recorded === total ? "Clave completa"
-              : `${recorded}/${total} claves`;
-
-            return (
-              <div key={ex.id} onClick={() => onSelect(ex.id)}
-                style={{
-                  display: "grid", gridTemplateColumns: "1fr 58px 112px 140px 16px",
-                  alignItems: "center", padding: "11px 16px", cursor: "pointer",
-                  borderBottom: i < exercises.length - 1 ? `1px solid ${C.line}` : "none",
-                  transition: "background .1s",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 16 }}>{ex.title}</div>
-                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</div>
-                <div>
-                  <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : isSchema ? `${C.fnD}1C` : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : isSchema ? C.fnD : C.fnT }}>
-                    {isQuiz ? "Cuestionario" : isSchema ? "Esquema" : "Interactivo"}
-                  </span>
-                </div>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: keyDone ? C.fnT : keyPartial ? C.fnD : C.muted }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0, display: "inline-block" }} />
-                  {dotLabel}
-                </div>
-                <div style={{ color: C.muted2, fontSize: 16, fontWeight: 300, lineHeight: 1 }}>›</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+          </div>}
     </>
   );
 }
 
-// ── Pestaña: Cursos (con unidades y ejercicios anidados) ──────────────────
+// ── Pestaña: Cursos ────────────────────────────────────────────────────────
 function CoursesTab({
   courses, units, exercises,
   openUnitIds, setOpenUnitIds,
@@ -4568,144 +4635,117 @@ function CoursesTab({
   onSelectExercise,
   askConfirm,
 }) {
-  const toggleUnit = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
+  const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
+  const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
+  const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
   return (
     <>
-      <button onClick={onCreateCourse} style={{ ...S.btnPrimary, marginBottom: 24, display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> Nuevo curso
-      </button>
+      <div style={{ marginBottom: 20 }}>
+        <CtaButton onClick={onCreateCourse}>+ Nuevo curso</CtaButton>
+      </div>
 
       {courses.length === 0
-        ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay cursos. Crea el primero para organizar tus ejercicios.</p>
-        : courses.map((course, courseIdx) => {
+        ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay cursos. Crea el primero para organizar tus ejercicios.</p>
+        : courses.map((course) => {
             const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
-            const exCount     = courseUnits.reduce((sum, u) => sum + u.exerciseIds.length, 0);
-            const accent      = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
+            const courseOpen  = openCourseIds.has(course.id);
 
             return (
-              <div key={course.id} style={{ marginBottom: 36 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 0, marginBottom: 10 }}>
-                  <div style={{ width: 3, alignSelf: "stretch", background: accent, borderRadius: 2, flexShrink: 0, marginRight: 14, marginTop: 3 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 18, color: C.ink, letterSpacing: -0.4, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</div>
-                    {course.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{course.description}</div>}
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, background: accent + "18", color: accent }}>
-                        {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
-                      </span>
-                      <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}</span>
+              <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                {/* Cabecera del curso */}
+                <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0 }}>
+                        <span style={{ fontFamily: F.serif, fontSize: 28, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>{course.name}</span>
+                        <Chevron open={courseOpen} rotate90WhenClosed size={14} />
+                      </div>
+                      {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                     </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 5, flexShrink: 0, marginLeft: 12 }}>
-                    <button onClick={() => onEditCourse(course)} style={{ ...S.btn, padding: "5px 10px", fontSize: 11 }}>Editar</button>
-                    <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 11 }}>Eliminar</button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
+                      <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))}>Eliminar</DangerOutlineButton>
+                    </div>
                   </div>
                 </div>
 
-                {courseUnits.length === 0 ? (
-                  <div style={{ paddingLeft: 17, color: C.muted, fontSize: 13 }}>Este curso no tiene unidades todavía.</div>
-                ) : (
-                  <div style={{ paddingLeft: 17 }}>
-                    <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px auto", alignItems: "center", padding: "6px 12px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-                        {["", "Unidad", "Ejercicios", ""].map((h, i) => (
-                          <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
-                        ))}
-                      </div>
+                {/* Unidades — riel tipográfico */}
+                {courseOpen && (
+                  <div style={{ padding: "20px 0 24px 24px" }}>
+                    {courseUnits.length === 0
+                      ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: 24 }}>Este curso no tiene unidades todavía.</p>
+                      : courseUnits.map((unit, unitIdx) => {
+                          const isOpen     = openUnitIds.has(unit.id);
+                          const isLast     = unitIdx === courseUnits.length - 1;
+                          const unitNum    = String(unitIdx + 1).padStart(2, "0");
+                          const unitExs    = unit.exerciseIds.map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
 
-                      {courseUnits.map((unit, unitIdx) => {
-                        const isUnitOpen    = openUnitIds.has(unit.id);
-                        const unitExercises = unit.exerciseIds.map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
-                        const isLast        = unitIdx === courseUnits.length - 1;
+                          return (
+                            <div key={unit.id} style={{ display: "flex", marginBottom: isLast ? 0 : 28 }}>
+                              {/* Riel */}
+                              <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{unitNum}</div>
+                                {(!isLast || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
+                              </div>
+                              {/* Contenido */}
+                              <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isOpen ? 12 : 0, paddingRight: 20 }}>
+                                  <div onClick={() => toggleUnit(unit.id)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none", fontFamily: F.serif, fontSize: 22, fontWeight: 600, letterSpacing: "-0.01em" }}>
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
+                                    <Chevron open={isOpen} rotate90WhenClosed />
+                                    <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2 }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}</span>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                    <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
+                                    <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))}>Eliminar</DangerOutlineButton>
+                                  </div>
+                                </div>
 
-                        return (
-                          <div key={unit.id}>
-                            <div onClick={() => toggleUnit(unit.id)}
-                              style={{
-                                display: "grid", gridTemplateColumns: "32px 1fr 88px auto",
-                                alignItems: "center", padding: "9px 12px", cursor: "pointer",
-                                background: isUnitOpen ? C.paper2 : "transparent",
-                                borderBottom: (!isLast || isUnitOpen) ? `1px solid ${C.line}` : "none",
-                                transition: "background .1s",
-                              }}
-                              onMouseEnter={(e) => { if (!isUnitOpen) e.currentTarget.style.background = C.paper2; }}
-                              onMouseLeave={(e) => { if (!isUnitOpen) e.currentTarget.style.background = "transparent"; }}>
-                              <div style={{ width: 22, height: 22, borderRadius: 5, background: accent + "18", color: accent, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO, flexShrink: 0 }}>
-                                U{unitIdx + 1}
-                              </div>
-                              <div style={{ minWidth: 0, paddingRight: 8 }}>
-                                <div style={{ fontWeight: 500, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                {unit.description && <div style={{ fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
-                              </div>
-                              <div style={{ fontSize: 12, color: C.muted }}>
-                                {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
-                              </div>
-                              <div style={{ display: "flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => onEditUnit(unit)} style={{ ...S.btn, padding: "3px 8px", fontSize: 11 }}>Editar</button>
-                                <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} style={{ ...S.btnDanger, padding: "3px 8px", fontSize: 11 }}>Eliminar</button>
-                                <span style={{ color: C.muted2, fontSize: 12, marginLeft: 2, userSelect: "none" }}>{isUnitOpen ? "▲" : "▼"}</span>
+                                {isOpen && (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                    {unitExs.length === 0
+                                      ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>No hay ejercicios en esta unidad.</p>
+                                      : unitExs.map((ex) => {
+                                          const meta = modelMeta(ex);
+                                          const isQuiz = modelOf(ex) === "cuestionario";
+                                          const exQs = questionsOf(ex);
+                                          const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
+                                          const keyReady = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
+                                          return (
+                                            <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -52 }}>
+                                              <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                                <StatusCircle done={keyReady} />
+                                              </div>
+                                              <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                                                <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+                                                <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
+                                                  <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
+                                                    onClick={() => onSelectExercise(ex.id)}>{ex.title}</span>
+                                                  <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
+                                                  <DangerOutlineButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))}>Quitar</DangerOutlineButton>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                    <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+                                      <GhostButton onClick={() => onPickFromBank(unit.id)}>+ Del banco</GhostButton>
+                                      <GhostButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo ejercicio</GhostButton>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
+                          );
+                        })}
 
-                            {isUnitOpen && (
-                              <div style={{ borderBottom: !isLast ? `1px solid ${C.line}` : "none" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 54px 104px auto", alignItems: "center", padding: "5px 12px", background: C.bg, borderBottom: `1px solid ${C.line}` }}>
-                                  {["", "Ejercicio", "Dur.", "Estado", ""].map((h, i) => (
-                                    <span key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted2, textTransform: "uppercase" }}>{h}</span>
-                                  ))}
-                                </div>
-
-                                {unitExercises.length === 0 ? (
-                                  <div style={{ padding: "10px 12px 10px 44px", fontSize: 12, color: C.muted, background: C.bg }}>No hay ejercicios en esta unidad.</div>
-                                ) : unitExercises.map((ex, exIdx) => {
-                                  const isQuiz   = modelOf(ex) === "cuestionario";
-                                  const exQs     = questionsOf(ex);
-                                  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
-                                  const keyDone  = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
-                                  const dotColor = keyDone ? C.fnT : C.muted2;
-                                  const dotLabel = isQuiz ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} preg.`) : (recorded === 0 ? "Sin clave" : "Clave ✓");
-                                  return (
-                                    <div key={ex.id}
-                                      style={{ display: "grid", gridTemplateColumns: "44px 1fr 54px 104px auto", alignItems: "center", padding: "8px 12px", background: C.bg, borderBottom: `1px solid ${C.line}`, transition: "background .1s" }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = C.bg}>
-                                      <span style={{ fontSize: 10, color: C.muted2, fontFamily: FONT_MONO, textAlign: "right", paddingRight: 10 }}>{exIdx + 1}</span>
-                                      <div style={{ fontSize: 13, color: C.ink, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 10 }}
-                                        onClick={() => onSelectExercise(ex.id)}>
-                                        {ex.title}
-                                      </div>
-                                      <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</div>
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: keyDone ? C.fnT : C.muted }}>
-                                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, display: "inline-block", flexShrink: 0 }} />
-                                        {dotLabel}
-                                      </div>
-                                      <div>
-                                        <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} style={{ ...S.btnDanger, fontSize: 10, padding: "2px 7px" }}>Quitar</button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                <div style={{ display: "flex", gap: 6, padding: "8px 12px 10px 44px", background: C.bg }}>
-                                  <button onClick={() => onPickFromBank(unit.id)} style={{ ...S.btn, fontSize: 11, padding: "5px 10px" }}>+ Del banco</button>
-                                  <button onClick={() => onCreateNewExInUnit(unit.id)} style={{ ...S.btnPrimary, fontSize: 11, padding: "5px 10px" }}>+ Nuevo ejercicio</button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                    {/* Nueva unidad — nivel del riel */}
+                    <div style={{ paddingTop: courseUnits.length ? 24 : 0, paddingRight: 24 }}>
+                      <GhostButton onClick={() => onCreateUnit(course.id)}>+ Nueva unidad didáctica</GhostButton>
                     </div>
                   </div>
                 )}
-
-                <div style={{ paddingLeft: 17, marginTop: 8 }}>
-                  <button onClick={() => onCreateUnit(course.id)}
-                    style={{ ...S.btn, fontSize: 12, padding: "6px 14px", borderStyle: "dashed", color: C.muted }}>
-                    + Nueva unidad didáctica
-                  </button>
-                </div>
               </div>
             );
           })}
@@ -4724,7 +4764,7 @@ function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, 
 
       {students.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>👨‍🎓</div>
+          
           <div>Aún no hay alumnos.</div>
           <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
         </div>
@@ -4826,7 +4866,7 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
 
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
+          
           <div>El almacén está vacío.</div>
           {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio con el botón de arriba.</div>}
         </div>
@@ -5061,16 +5101,13 @@ function TeacherDash({
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <div style={{ paddingBottom: 20, borderBottom: `1.5px solid ${C.line}`, marginBottom: 0 }}>
-          <div style={{ ...S.row, justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 5 }}>
-                {isAdmin ? "Administrador" : "Profesor"}
-              </div>
-              <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 0 }}>{currentUser?.displayName}</h1>
-            </div>
-            <button onClick={onLogout} style={{ ...S.btn, fontSize: 12 }}>Salir</button>
+        {/* Cabecera editorial */}
+        <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <Overline>{isAdmin ? "Administrador" : "Profesor"}</Overline>
+            <h1 style={{ ...S.h1 }}>{currentUser?.displayName}</h1>
           </div>
+          <GhostButton onClick={onLogout}>Salir</GhostButton>
         </div>
 
         <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
@@ -5082,7 +5119,9 @@ function TeacherDash({
         {tab === "exercises" && (
           <ExercisesTab exercises={exercises}
             onNew={() => setSelectedExerciseId("new")}
-            onSelect={setSelectedExerciseId} />
+            onSelect={setSelectedExerciseId}
+            onDelete={(id) => { onDeleteExercise(id); setSelectedExerciseId(null); }}
+            askConfirm={askConfirm} />
         )}
 
         {tab === "courses" && (
@@ -5402,14 +5441,16 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 28 }}>
-          <button onClick={onBack} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>← Ejercicios</button>
-          {(isCreating || isDirty) && (
-            <button onClick={handleSave} disabled={!canSave}
-              style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-              {isCreating ? "Crear ejercicio" : "Guardar cambios"}
-            </button>
-          )}
+        <div style={{ marginBottom: 24 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 16 }}>← Ejercicios</button>
+          <div style={{ paddingBottom: 18, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <h1 style={{ ...S.h1 }}>{isCreating ? "Nuevo ejercicio" : title || "Sin título"}</h1>
+            {(isCreating || isDirty) && (
+              <CtaButton onClick={handleSave} disabled={!canSave}>
+                {isCreating ? "Crear ejercicio" : "Guardar cambios"}
+              </CtaButton>
+            )}
+          </div>
         </div>
 
         <p style={SECTION_STYLE}>Información</p>
@@ -6363,7 +6404,7 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
 
       {library.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem 1rem", color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>🎵</div>
+          
           <div>El almacén está vacío.</div>
           <div style={{ fontSize: 12 }}>Pide al administrador que añada audios.</div>
         </div>
@@ -6613,6 +6654,9 @@ function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onC
 export default function App() {
   useInjectFonts();
 
+  // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
+  const supabaseRef = useRef(null);
+
   // Estado global
   const [exercises,    setExercises]    = useState(INIT_EXERCISES);
   const [users,        setUsers]        = useState([]);
@@ -6635,22 +6679,36 @@ export default function App() {
   const [guestResults, setGuestResults]   = useState({});
   const [pickingTeacher, setPickingTeacher] = useState(false);
 
-  // ─── Carga inicial desde Supabase ────────────────────────────────────────
+  // ─── Carga inicial desde Supabase (import dinámico) ─────────────────────
+  // En la web, el import resuelve y carga datos reales.
+  // En el visor de artefactos de Claude, el import falla silenciosamente y
+  // la app arranca en modo "en memoria" con los datos semilla (INIT_EXERCISES).
   useEffect(() => {
     (async () => {
       try {
+        // Intentar cargar el cliente de Supabase dinámicamente
+        try {
+          const mod = await import("./supabase.js");
+          supabaseRef.current = mod.supabase;
+        } catch {
+          // Entorno de previsualización: sin backend — modo en memoria
+          setDbReady(true);
+          return;
+        }
+
+        const sb = supabaseRef.current;
         const [
           exRes, userRes, catRes, courseRes, unitRes,
           resultRes, settingsRes, audioRes,
         ] = await Promise.all([
-          supabase.from("fa_exercises").select("*"),
-          supabase.from("fa_users").select("*"),
-          supabase.from("fa_categories").select("*"),
-          supabase.from("fa_courses").select("*"),
-          supabase.from("fa_units").select("*"),
-          supabase.from("fa_results").select("*"),
-          supabase.from("fa_settings").select("*"),
-          supabase.from("fa_audio_library").select("*"),
+          sb.from("fa_exercises").select("*"),
+          sb.from("fa_users").select("*"),
+          sb.from("fa_categories").select("*"),
+          sb.from("fa_courses").select("*"),
+          sb.from("fa_units").select("*"),
+          sb.from("fa_results").select("*"),
+          sb.from("fa_settings").select("*"),
+          sb.from("fa_audio_library").select("*"),
         ]);
 
         if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
@@ -6687,36 +6745,40 @@ export default function App() {
   }, []);
 
   // ─── Helpers de upsert ───────────────────────────────────────────────────
+  // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
+  // simplemente retornan sin hacer nada: el estado React ya se actualizó.
   const dbUpsertExercise = async (ex) => {
+    const sb = supabaseRef.current; if (!sb) return;
     // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
     // eslint-disable-next-line no-unused-vars
     const { waveformData, ...rest } = ex;
-    await supabase.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
   };
-  const dbDeleteExercise = async (id) => { await supabase.from("fa_exercises").delete().eq("id", id); };
+  const dbDeleteExercise = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
 
-  const dbUpsertUser   = async (u)  => { await supabase.from("fa_users").upsert({ id: u.id, data: u }); };
-  const dbDeleteUser   = async (id) => { await supabase.from("fa_users").delete().eq("id", id); };
+  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").upsert({ id: u.id, data: u }); };
+  const dbDeleteUser   = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
 
-  const dbUpsertCategory = async (c)  => { await supabase.from("fa_categories").upsert({ id: c.id, data: c }); };
-  const dbDeleteCategory = async (id) => { await supabase.from("fa_categories").delete().eq("id", id); };
+  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").upsert({ id: c.id, data: c }); };
+  const dbDeleteCategory = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
 
-  const dbUpsertCourse = async (c)  => { await supabase.from("fa_courses").upsert({ id: c.id, data: c }); };
-  const dbDeleteCourse = async (id) => { await supabase.from("fa_courses").delete().eq("id", id); };
+  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").upsert({ id: c.id, data: c }); };
+  const dbDeleteCourse = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
 
-  const dbUpsertUnit = async (u)  => { await supabase.from("fa_units").upsert({ id: u.id, data: u }); };
-  const dbDeleteUnit = async (id) => { await supabase.from("fa_units").delete().eq("id", id); };
+  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").upsert({ id: u.id, data: u }); };
+  const dbDeleteUnit = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
 
   const dbUpsertResult = async (userId, exerciseId, data) => {
-    await supabase.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
+    const sb = supabaseRef.current; if (!sb) return;
+    await sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
   };
-  const dbDeleteResultsForUser     = async (userId)     => { await supabase.from("fa_results").delete().eq("user_id", userId); };
-  const dbDeleteResultsForExercise = async (exerciseId) => { await supabase.from("fa_results").delete().eq("exercise_id", exerciseId); };
+  const dbDeleteResultsForUser     = async (userId)     => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("user_id", userId); };
+  const dbDeleteResultsForExercise = async (exerciseId) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("exercise_id", exerciseId); };
 
-  const dbUpsertSetting = async (key, value) => { await supabase.from("fa_settings").upsert({ key, value }); };
+  const dbUpsertSetting = async (key, value) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_settings").upsert({ key, value }); };
 
-  const dbUpsertAudio = async (a)  => { await supabase.from("fa_audio_library").upsert({ id: a.id, data: a }); };
-  const dbDeleteAudio = async (id) => { await supabase.from("fa_audio_library").delete().eq("id", id); };
+  const dbUpsertAudio = async (a)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").upsert({ id: a.id, data: a }); };
+  const dbDeleteAudio = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").delete().eq("id", id); };
 
   // ─── Users ───────────────────────────────────────────────────────────────
   const addUser = (newUser) => {
