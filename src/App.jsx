@@ -196,10 +196,10 @@ const DEFAULT_MODEL_ID = "interactivo";
 
 // Constantes del modelo Esquema
 const SCHEMA_LEVELS = [
-  { id: 1, sub: "Partes",  color: "#C77A1A", bg: "rgba(199,122,26,0.10)" },
-  { id: 2, sub: "Frases",  color: "#2F6FB8", bg: "rgba(47,111,184,0.08)" },
-  { id: 3, sub: "Armonía", color: "#3F9B5B", bg: "rgba(63,155,91,0.08)"  },
-  { id: 4, sub: "Texto",   color: "#7A7460", bg: "rgba(122,116,96,0.09)" },
+  { id: 1, sub: "Partes",  color: "#B87850", bg: "rgba(184,120,80,0.10)" },
+  { id: 2, sub: "Frases",  color: "#5282AA", bg: "rgba(82,130,170,0.08)" },
+  { id: 3, sub: "Armonía", color: "#4A9068", bg: "rgba(74,144,104,0.08)" },
+  { id: 4, sub: "Texto",   color: "#8A8478", bg: "rgba(138,132,120,0.09)" },
 ];
 const SCHEMA_DEFAULT_LABELS = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
@@ -303,6 +303,41 @@ function harmonyBlockColors(label, fallbackColor) {
   return { bg, textColor: L > 0.35 ? "#1C1A14" : "#FFFFFF" };
 }
 
+// ─── Utilidades de color para Partes y Frases ────────────────────────────────
+function _hexToHsl(hex) {
+  const r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b),l=(max+min)/2;
+  let h=0,s=0;
+  if(max!==min){const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;case b:h=((r-g)/d+4)/6;break;}}
+  return [h*360,s*100,l*100];
+}
+function _hslToHex(h,s,l) {
+  h/=360;s/=100;l/=100;
+  const hr=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+  let r,g,b;
+  if(s===0){r=g=b=l;}else{const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;r=hr(p,q,h+1/3);g=hr(p,q,h);b=hr(p,q,h-1/3);}
+  return '#'+[r,g,b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+}
+function lightenColor(hex,lAdd=18,sAdd=-8){const[h,s,l]=_hexToHsl(hex);return _hslToHex(h,Math.max(0,Math.min(100,s+sAdd)),Math.max(0,Math.min(100,l+lAdd)));}
+
+// Color de bloque para el nivel de Partes según la etiqueta
+function partBlockColor(label) {
+  const s=(label??'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if(/^reex|^recap/.test(s))          return '#C4A55E'; // casi igual a Exposición
+  if(/^expo/.test(s))                  return '#C4985A'; // ámbar cálido
+  if(/^desa/.test(s))                  return '#5C78A8'; // azul medio
+  if(/^intro/.test(s))                 return '#A88A80'; // neutral cálido ≈ A desaturado
+  if(/^coda/.test(s))                  return '#9898A8'; // neutral frío suave
+  if(/^puente|^trans|^brid/.test(s))   return '#8E9EAA'; // neutral
+  if(/^a[''`´'']?[\d''`´'']*$/.test(s)) return '#C47A72'; // rosa terracota
+  if(/^b[''`´'']?[\d''`´'']*$/.test(s)) return '#5E8FA8'; // azul pizarra
+  if(/^c[''`´'']?[\d''`´'']*$/.test(s)) return '#C05888'; // rosa-magenta (≈330°)
+  if(/^d[''`´'']?[\d''`´'']*$/.test(s)) return '#90B050'; // verde oliva (≈82°)
+  if(/^e[''`´'']?[\d''`´'']*$/.test(s)) return '#A87060'; // terracota oscuro
+  return '#9090A4'; // fallback neutro
+}
+
 const INIT_EXERCISES = [
   {
     id: 2, title: "Minueto – Mozart", duration: 24,
@@ -347,6 +382,90 @@ const INIT_EXERCISES = [
         options: [], correctOptionId: null,
       },
     ],
+  },
+];
+
+// ─── Biblioteca de audios inicial (datos de demostración) ───────────────────
+const INIT_AUDIO_LIBRARY = [
+  {
+    id: "audio-demo-01",
+    title: "Sinfonía nº 40 en sol menor – I. Molto allegro",
+    composer: "Wolfgang Amadeus Mozart",
+    description: "K. 550. Exposición con dos grupos temáticos contrastantes.",
+    tags: ["Forma sonata", "Clasicismo", "Modo menor", "Sinfonía"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_mozart_40.mp3",
+    duration: 186,
+    createdAt: 1700000001000,
+  },
+  {
+    id: "audio-demo-02",
+    title: "Sinfonía nº 5 en do menor – I. Allegro con brio",
+    composer: "Ludwig van Beethoven",
+    description: "Op. 67. Motivo de cuatro notas. Desarrollo con modulación a Mi♭ Mayor.",
+    tags: ["Forma sonata", "Clasicismo tardío", "Modo menor", "Sinfonía", "Modulación"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_beethoven_5.mp3",
+    duration: 220,
+    createdAt: 1700000002000,
+  },
+  {
+    id: "audio-demo-03",
+    title: "Preludio op. 28 nº 4 en mi menor",
+    composer: "Frédéric Chopin",
+    description: "Textura homofónica. Cromatismo descendente en el bajo.",
+    tags: ["Romanticismo", "Cromatismo", "Modo menor", "Piano"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_prelude4.mp3",
+    duration: 148,
+    createdAt: 1700000003000,
+  },
+  {
+    id: "audio-demo-04",
+    title: "Coral BWV 227 – Jesu, meine Freude",
+    composer: "Johann Sebastian Bach",
+    description: "Mi menor. Cuatro voces mixtas. Contrapunto imitativo.",
+    tags: ["Barroco", "Coral", "Contrapunto", "Modo menor"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_bach_bwv227.mp3",
+    duration: 134,
+    createdAt: 1700000004000,
+  },
+  {
+    id: "audio-demo-05",
+    title: "Cuarteto de cuerdas op. 76 nº 3 – II. Poco adagio",
+    composer: "Joseph Haydn",
+    description: "Do Mayor. Tema con variaciones. Conocido como «El Emperador».",
+    tags: ["Clasicismo", "Tema y variaciones", "Modo mayor", "Música de cámara"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_haydn_emperor.mp3",
+    duration: 272,
+    createdAt: 1700000005000,
+  },
+  {
+    id: "audio-demo-06",
+    title: "Nocturno op. 9 nº 2 en Mi♭ Mayor",
+    composer: "Frédéric Chopin",
+    description: "Melodía ornamentada sobre acompañamiento de vals. Cadencia libre.",
+    tags: ["Romanticismo", "Modo mayor", "Piano", "Ornamentación"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_nocturne.mp3",
+    duration: 244,
+    createdAt: 1700000006000,
+  },
+  {
+    id: "audio-demo-07",
+    title: "Tocata y Fuga en re menor BWV 565",
+    composer: "Johann Sebastian Bach",
+    description: "Re menor. Estructura libre en la tocata; fuga a cuatro voces.",
+    tags: ["Barroco", "Fuga", "Modo menor", "Órgano"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_bach_toccata.mp3",
+    duration: 198,
+    createdAt: 1700000007000,
+  },
+  {
+    id: "audio-demo-08",
+    title: "Sinfonía nº 9 en re menor – IV. Finale",
+    composer: "Ludwig van Beethoven",
+    description: "Op. 125. Estructura de variaciones. Coro y solistas vocales.",
+    tags: ["Clasicismo tardío", "Modo menor", "Sinfonía", "Modulación", "Vocal"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_beethoven_9.mp3",
+    duration: 310,
+    createdAt: 1700000008000,
   },
 ];
 
@@ -799,6 +918,299 @@ function CategoryDots({ buttons }) {
   );
 }
 
+// ─── SuggestInput — campo de texto con desplegable de sugerencias ────────────
+function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocus, style }) {
+  const [show, setShow] = useState(false);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => s.toLowerCase().includes(value.toLowerCase()) && s !== value
+  );
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        ref={inputRef}
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(e) => { onChange(e.target.value); setShow(true); }}
+        onFocus={() => setShow(true)}
+        onBlur={() => setTimeout(() => setShow(false), 140)}
+        placeholder={placeholder}
+        style={style}
+      />
+      {show && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+          {filtered.map((s) => (
+            <div key={s} onMouseDown={() => { onChange(s); setShow(false); }}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, fontFamily: FONT_SANS, color: C.ink }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TagInput — editor de etiquetas con sugerencias de reutilización ─────────
+function TagInput({ tags = [], onChange, suggestions = [] }) {
+  const [input, setInput] = useState("");
+  const [showSug, setShowSug] = useState(false);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => s.toLowerCase().includes(input.toLowerCase()) && !tags.includes(s)
+  );
+
+  const addTag = (tag) => {
+    const t = tag.trim();
+    if (!t || tags.includes(t)) return;
+    onChange([...tags, t]);
+    setInput("");
+    setShowSug(false);
+    inputRef.current?.focus();
+  };
+
+  const removeTag = (t) => onChange(tags.filter((x) => x !== t));
+
+  const handleKey = (e) => {
+    if ((e.key === "Enter" || e.key === ",") && input.trim()) {
+      e.preventDefault();
+      addTag(input);
+    } else if (e.key === "Backspace" && !input && tags.length > 0) {
+      removeTag(tags[tags.length - 1]);
+    }
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onClick={() => inputRef.current?.focus()}
+        style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center", background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, padding: "6px 10px", minHeight: 40, cursor: "text" }}
+      >
+        {tags.map((t) => (
+          <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.ink, color: "#fff", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: FONT_SANS, fontWeight: 500 }}>
+            {t}
+            <span onClick={() => removeTag(t)} style={{ cursor: "pointer", opacity: 0.7, fontSize: 13, lineHeight: 1, marginLeft: 1 }}>×</span>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setShowSug(true); }}
+          onKeyDown={handleKey}
+          onFocus={() => setShowSug(true)}
+          onBlur={() => setTimeout(() => setShowSug(false), 140)}
+          placeholder={tags.length === 0 ? "Añadir etiqueta…" : ""}
+          style={{ border: "none", outline: "none", background: "transparent", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, minWidth: 90, flex: 1 }}
+        />
+      </div>
+      {showSug && (input.trim() || filtered.length > 0) && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+          {input.trim() && !tags.includes(input.trim()) && (
+            <div onMouseDown={() => addTag(input)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, display: "flex", alignItems: "center", gap: 8, borderBottom: filtered.length ? `1px solid ${C.line}` : "none" }}>
+              <span style={{ color: C.muted, fontSize: 11 }}>Crear:</span>
+              <strong>{input.trim()}</strong>
+            </div>
+          )}
+          {filtered.map((s) => (
+            <div key={s} onMouseDown={() => addTag(s)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── EyeIcon / EyeButton — visibilidad de ejercicios, cursos, unidades ────────
+function EyeIcon({ open = true, size = 15 }) {
+  return open ? (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="10" cy="10" rx="8" ry="5" />
+      <circle cx="10" cy="10" r="2.2" fill="currentColor" stroke="none" />
+    </svg>
+  ) : (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3l14 14" />
+      <path d="M6.5 6.5C4.5 7.6 3 9 3 10c0 2.8 3.1 5 7 5a9 9 0 0 0 3.5-.7" />
+      <path d="M10 5c3.9 0 7 2.2 7 5a6.3 6.3 0 0 1-1.5 2.5" />
+    </svg>
+  );
+}
+
+function EyeButton({ visible, onClick, title }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title || (visible ? "Ocultar para alumnos" : "Mostrar a alumnos")}
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: `1px solid ${visible ? C.line : "rgba(184,74,58,0.35)"}`, background: "transparent", cursor: "pointer", color: visible ? C.muted : C.danger, flexShrink: 0, transition: "all .15s" }}
+    >
+      <EyeIcon open={visible} size={14} />
+    </button>
+  );
+}
+
+// ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
+function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const count = selected.length;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 20, border: `1.5px solid ${count > 0 ? accent : C.line}`, background: count > 0 ? accent : C.paper, color: count > 0 ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: count > 0 ? 600 : 400, transition: "all .15s", whiteSpace: "nowrap" }}
+      >
+        {label}
+        {count > 0 && (
+          <span style={{ background: "rgba(255,255,255,0.28)", borderRadius: 10, padding: "0px 6px", fontSize: 11, fontWeight: 700 }}>{count}</span>
+        )}
+        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ marginLeft: 1, opacity: 0.7, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .18s" }}>
+          <polyline points="2,3.5 5,6.5 8,3.5" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
+          {options.length === 0 ? (
+            <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
+          ) : (
+            <>
+              {options.map((opt) => {
+                const on = selected.includes(opt);
+                return (
+                  <div key={opt} onMouseDown={() => onToggle(opt)}
+                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", cursor: "pointer", background: on ? `${accent}10` : "transparent", transition: "background .1s" }}>
+                    <span style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${on ? accent : C.chevron}`, background: on ? accent : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {on && <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polyline points="1.5,5 4,7.5 8.5,2.5"/></svg>}
+                    </span>
+                    <span style={{ fontSize: 13, fontFamily: FONT_SANS, color: C.ink, lineHeight: 1.3 }}>{opt}</span>
+                  </div>
+                );
+              })}
+              {count > 0 && (
+                <div style={{ borderTop: `1px solid ${C.line}`, margin: "4px 0 0" }}>
+                  <div onMouseDown={onClear} style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: C.danger, fontFamily: FONT_SANS, fontWeight: 500 }}>✕ Limpiar selección</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pill select estilizado ────────────────────────────────────────────────────
+function PillSelect({ value, onChange, options, accent = C.ink }) {
+  const active = value !== options[0]?.id;
+  return (
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ appearance: "none", WebkitAppearance: "none", padding: "5px 28px 5px 12px", borderRadius: 20, border: `1.5px solid ${active ? accent : C.line}`, background: active ? accent : C.paper, color: active ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: active ? 600 : 400, outline: "none", transition: "all .15s" }}
+      >
+        {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke={active ? "#fff" : C.ink2} strokeWidth="1.8" strokeLinecap="round"
+        style={{ position: "absolute", right: 10, pointerEvents: "none", opacity: 0.7 }}>
+        <polyline points="2,3.5 5,6.5 8,3.5" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
+const MODEL_OPTIONS = [
+  { id: "all",          label: "Todos los modelos" },
+  { id: "interactivo",  label: "Interactivo" },
+  { id: "cuestionario", label: "Cuestionario" },
+  { id: "esquema",      label: "Esquema" },
+];
+
+function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags }) {
+  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
+
+  return (
+    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+
+      <FilterDropdown
+        label="Compositor"
+        options={allComposers}
+        selected={filterComposers}
+        onToggle={toggleComposer}
+        onClear={() => setFilterComposers([])}
+        accent="#2F6FB8"
+      />
+
+      <FilterDropdown
+        label="Etiquetas"
+        options={allTags}
+        selected={filterTags}
+        onToggle={toggleTag}
+        onClear={() => setFilterTags([])}
+        accent={C.fnI}
+      />
+
+      {active && (
+        <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); }}
+          style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
+          ✕ Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
+function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }) {
+  const active = filterModel !== "all" || filterDone !== "all";
+  const DONE_OPTIONS = [
+    { id: "all",     label: "Todos",     accent: C.ink  },
+    { id: "notdone", label: "Sin hacer", accent: C.fnD  },
+    { id: "done",    label: "Hechos",    accent: C.fnT  },
+  ];
+  return (
+    <div style={{ marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+
+      <div style={{ display: "flex", gap: 5, background: C.paper2, borderRadius: 20, padding: "3px 4px" }}>
+        {DONE_OPTIONS.map((opt) => {
+          const on = filterDone === opt.id;
+          return (
+            <button key={opt.id} onClick={() => setFilterDone(opt.id)}
+              style={{ padding: "4px 12px", borderRadius: 16, border: "none", background: on ? (opt.id === "all" ? C.ink : opt.accent) : "transparent", color: on ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {active && (
+        <button onClick={() => { setFilterModel("all"); setFilterDone("all"); }}
+          style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
+          ✕ Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Overline({ children, style }) {
   return <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", color: C.chevron, textTransform: "uppercase", marginBottom: 6, ...style }}>{children}</div>;
 }
@@ -1113,12 +1525,21 @@ function ExerciseRow({ ex, result, onOpen }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
-          <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {ex.title}
-          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+              {ex.title}
+            </span>
+            {ex.composerName && ex.showComposer !== false && (
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, display: "block", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {ex.composerName}
+              </span>
+            )}
+          </div>
           <Chevron open={open} />
           <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
-            style={{ ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
+            style={isDone
+              ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
+              : { ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
             {isDone ? "Repetir" : "Iniciar →"}
           </button>
         </div>
@@ -1151,13 +1572,25 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
   const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
   const [openUnitIds,   setOpenUnitIds]   = useState(new Set());
+  const [filterModel,   setFilterModel]   = useState("all");
+  const [filterDone,    setFilterDone]    = useState("all");
   const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
   const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
   const teacherCourses = useMemo(() => {
-    if (!user.teacherId) return courses;
-    return courses.filter((c) => !c.ownerId || c.ownerId === user.teacherId);
+    if (!user.teacherId) return courses.filter((c) => !c.hidden);
+    return courses.filter((c) => (!c.ownerId || c.ownerId === user.teacherId) && !c.hidden);
   }, [courses, user.teacherId]);
+
+  const filteredExercises = useMemo(() => {
+    return exercises.filter((ex) => {
+      if (ex.hidden) return false;
+      if (filterModel !== "all" && modelOf(ex) !== filterModel) return false;
+      if (filterDone === "done"    && !results[ex.id]) return false;
+      if (filterDone === "notdone" &&  results[ex.id]) return false;
+      return true;
+    });
+  }, [exercises, filterModel, filterDone, results]);
 
   return (
     <div style={S.app}>
@@ -1190,11 +1623,24 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 
         {/* ── Todos los ejercicios ── */}
         {view === "all" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {exercises.map((ex) => (
-              <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} />
-            ))}
-          </div>
+          <>
+            <StudentFilterBar
+              filterModel={filterModel} setFilterModel={setFilterModel}
+              filterDone={filterDone}   setFilterDone={setFilterDone}
+            />
+            {filteredExercises.length === 0
+              ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
+                  {exercises.length === 0
+                    ? "Tu profesor aún no ha publicado ejercicios."
+                    : "Ningún ejercicio coincide con los filtros."}
+                </p>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {filteredExercises.map((ex) => (
+                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                  ))}
+                </div>
+            }
+          </>
         )}
 
         {/* ── Por cursos (riel tipográfico) ── */}
@@ -1202,7 +1648,7 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
           teacherCourses.length === 0
             ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
             : teacherCourses.map((course) => {
-                const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
+                const courseUnits = units.filter((u) => course.unitIds.includes(u.id) && !u.hidden);
                 const courseOpen  = openCourseIds.has(course.id);
                 return (
                   <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
@@ -1248,7 +1694,7 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
                                           ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
                                           : unit.exerciseIds.map((eid) => {
                                               const ex = exercises.find((e) => e.id === eid);
-                                              if (!ex) return null;
+                                              if (!ex || ex.hidden) return null;
                                               return (
                                                 <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -52 }}>
                                                   <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
@@ -1283,93 +1729,19 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
   const dur      = exercise.duration;
-  const audioUrl = exercise.audioUrl;
-  const hasAudio = !!audioUrl;
+  const hasAudio = false;  // Preview: siempre modo sin audio
 
   const [time,          setTime]          = useState(0);
   const [playing,       setPlaying]       = useState(false);
-  const [audioReady,    setAudioReady]    = useState(false);
-  const [audioError,    setAudioError]    = useState(null);
-  const [audioDuration, setAudioDuration] = useState(exercise.duration);
+  const audioDuration                     = dur;
 
-  const ctxRef          = useRef(null);
-  const bufferRef       = useRef(null);
-  const sourceRef       = useRef(null);
-  const startCtxTimeRef = useRef(0);
-  const playOffsetRef   = useRef(0);
-  const playingRef      = useRef(false);
-  const timeRef         = useRef(0);
-  const scrubbingRef    = useRef(false);
-  // Cada fuente recibe un ID único; onended solo actúa si sigue siendo la fuente activa
-  const sourceIdRef     = useRef(0);
-  // Evita que togglePlay sea llamado concurrentemente mientras ctx.resume() está pendiente
-  const pendingToggleRef = useRef(false);
-  playingRef.current    = playing;
-  timeRef.current       = time;
+  const timeRef        = useRef(0);
+  const playingRef     = useRef(false);
+  const scrubbingRef   = useRef(false);
+  playingRef.current   = playing;
+  timeRef.current      = time;
 
-  const stopSource = () => {
-    if (sourceRef.current) {
-      sourceIdRef.current += 1;           // invalida el onended de la fuente anterior
-      try { sourceRef.current.stop(); } catch {}
-      sourceRef.current = null;
-    }
-  };
-
-  const startSource = (offset) => {
-    const ctx = ctxRef.current;
-    if (!ctx || !bufferRef.current) return;
-    const myId = ++sourceIdRef.current;   // captura el ID de ESTA fuente
-    const src = ctx.createBufferSource();
-    src.buffer = bufferRef.current;
-    src.connect(ctx.destination);
-    src.onended = () => {
-      if (sourceIdRef.current !== myId) return;  // ya hay otra fuente activa → ignorar
-      const lq = loopRegionRef?.current;
-      if (!lq && playingRef.current) {
-        // Asegurar que el tiempo llega exactamente al final del audio antes de parar
-        const endT = bufferRef.current?.duration ?? dur;
-        timeRef.current = endT;
-        playOffsetRef.current = endT;
-        setTime(endT);
-        setPlaying(false);
-      }
-    };
-    src.start(0, Math.min(offset, bufferRef.current.duration));
-    sourceRef.current     = src;
-    startCtxTimeRef.current = ctx.currentTime;
-  };
-
-  // Carga + decodificación cuando cambia el ejercicio
-  useEffect(() => {
-    setTime(0); setPlaying(false); setAudioReady(false); setAudioError(null);
-    setAudioDuration(exercise.duration);
-    playOffsetRef.current = 0;
-    bufferRef.current     = null;
-    if (!hasAudio) return;
-
-    let cancelled = false;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) { setAudioError("Tu navegador no soporta Web Audio API"); return; }
-    const ctx = new AudioCtx();
-    ctxRef.current = ctx;
-
-    (async () => {
-      try {
-        const buf = await fetchAudioBuffer(audioUrl);
-        const decoded = await ctx.decodeAudioData(buf);
-        if (cancelled) return;
-        bufferRef.current = decoded;
-        setAudioDuration(decoded.duration);
-        setAudioReady(true);
-        onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
-      } catch { if (!cancelled) setAudioError("Error al decodificar el audio"); }
-    })();
-
-    return () => { cancelled = true; stopSource(); ctx.close(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exercise.id]);
-
-  // Timer simulado cuando no hay audio real
+  // Timer simulado (idéntico a la rama sin-audio de AppV2)
   const timerRef = useRef(null);
   useEffect(() => {
     if (playing && !hasAudio) {
@@ -1394,97 +1766,28 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     }
     return () => clearInterval(timerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, dur, hasAudio]);
+  }, [playing, dur]);
 
-  // RAF tick para audio real
-  useEffect(() => {
-    if (!playing || !hasAudio) return;
-    let raf;
-    const tick = () => {
-      const ctx = ctxRef.current;
-      if (ctx && !scrubbingRef.current) {
-        const rawT = playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current);
-        const lq   = loopRegionRef?.current;
-        if (lq && rawT >= lq.audioEnd) {
-          stopSource();
-          playOffsetRef.current = lq.audioStart;
-          setTime(lq.audioStart);
-          startSource(lq.audioStart);
-        } else {
-          const effectiveDur = bufferRef.current?.duration ?? dur;
-          const t = Math.min(effectiveDur, rawT);
-          timeRef.current = t;
-          setTime(t);
-          if (!lq && rawT >= effectiveDur) {
-            timeRef.current = effectiveDur;
-            setTime(effectiveDur);
-            setPlaying(false);
-            return;
-          }
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, dur, hasAudio]);
-
-  const togglePlay = () => {
-    if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
-    if (pendingToggleRef.current) return;          // evita doble llamada mientras resume() está pendiente
-    const ctx = ctxRef.current;
-    const wasPlaying = playingRef.current;         // captura síncrona antes del await
-    pendingToggleRef.current = true;
-    ctx.resume().then(() => {
-      pendingToggleRef.current = false;
-      if (wasPlaying) {
-        stopSource();
-        playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
-        setPlaying(false);
-      } else {
-        stopSource();                              // safety: matar cualquier fuente huérfana
-        startSource(playOffsetRef.current);
-        setPlaying(true);
-      }
-    });
-  };
-
-  const seekTo = (t) => {
+  const togglePlay = () => setPlaying((p) => !p);
+  const seekTo     = (t) => {
     const c = Math.max(0, Math.min(dur, t));
-    playOffsetRef.current = c; setTime(c);
-    if (playingRef.current && bufferRef.current && ctxRef.current) { stopSource(); startSource(c); }
+    timeRef.current = c; setTime(c);
   };
-
-  // Saltar e iniciar reproducción (usado por QuestionnaireView)
-  const playFrom = (t) => {
-    const c = Math.max(0, Math.min(dur, t));
-    playOffsetRef.current = c; setTime(c);
-    if (hasAudio && bufferRef.current && ctxRef.current) {
-      stopSource();
-      ctxRef.current.resume().then(() => { startSource(c); setPlaying(true); });
-    } else {
-      setPlaying(true);
-    }
-  };
-
-  const scrubBegin = () => { scrubbingRef.current = true; stopSource(); };
-  const scrubTo    = (t) => { const c = Math.max(0, Math.min(dur, t)); playOffsetRef.current = c; setTime(c); };
-  const scrubEnd   = () => {
-    if (!scrubbingRef.current) return;
-    scrubbingRef.current = false;
-    if (playingRef.current && bufferRef.current && ctxRef.current) startSource(playOffsetRef.current);
-  };
+  const playFrom   = (t) => { seekTo(t); setPlaying(true); };
+  const scrubBegin = () => { scrubbingRef.current = true; };
+  const scrubTo    = (t) => { const c = Math.max(0, Math.min(dur, t)); timeRef.current = c; setTime(c); };
+  const scrubEnd   = () => { scrubbingRef.current = false; };
 
   return {
     time, setTime, playing, setPlaying,
-    audioReady, audioError, hasAudio,
-    timeRef, playOffsetRef,
+    audioReady: false, audioError: null, hasAudio,
+    timeRef, playOffsetRef: { current: time },
     audioDuration,
     togglePlay, seekTo, playFrom,
     scrubBegin, scrubTo, scrubEnd,
   };
 }
+
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
@@ -2364,6 +2667,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const [blocks,       setBlocks]       = useState(exercise.blocks || []);
   const [history,      setHistory]      = useState([]);
   const [selected,     setSelected]     = useState(null);
+  const [selectedRepId, setSelectedRepId] = useState(null); // rep seleccionada en la banda
   const [editId,       setEditId]       = useState(null);
   const [editVal,      setEditVal]      = useState("");
   const [guides,       setGuides]       = useState([]);
@@ -2667,16 +2971,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     window.addEventListener("touchend",  up);
   };
 
-  // Añadir repetición programáticamente tras la última existente
+  // Añadir repetición programáticamente: usa el siguiente bloque de nivel 1 si existe,
+  // o un tamaño por defecto si no hay ninguna parte delimitada todavía.
   const handleAddNextRep = e => {
     e.stopPropagation();
     const sorted  = [...localRepsRef.current].sort((a, b) => a.second.end - b.second.end);
     const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
-    const avail   = duration - lastEnd;
-    if (avail < SCHEMA_MIN_DUR * 2) return;
-    const d  = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
-    const fs = lastEnd, fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
-    const se = Math.min(duration, fe + d);
+    // Intentar anclar a la siguiente Parte disponible
+    const nextParte = blocksRef.current
+      .filter(b => b.level === 1 && !b.isPreview && b.start >= lastEnd - 0.5)
+      .sort((a, b) => a.start - b.start)[0];
+    let fs, fe;
+    if (nextParte) {
+      fs = nextParte.start; fe = nextParte.end;
+    } else {
+      // Sin partes: tamaño por defecto
+      const avail = duration - lastEnd;
+      if (avail < SCHEMA_MIN_DUR * 2) return;
+      const d = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
+      fs = lastEnd; fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
+    }
+    const se = Math.min(duration, fe + (fe - fs));
     handleSaveRepetitions([
       ...localRepsRef.current,
       { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
@@ -2804,6 +3119,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [!!repDraw]);
+
+  // Delete / Backspace — borrar bloque o repetición seleccionada
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (selected) {
+        setHistory(prev => [...prev, blocksRef.current]);
+        setBlocks(prev => prev.filter(b => b.id !== selected));
+        setSelected(null);
+        e.preventDefault();
+      } else if (selectedRepId) {
+        deleteRepeat(selectedRepId);
+        setSelectedRepId(null);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, selectedRepId]);
 
   // ── Resize de barras de repetición arrastrando en la regla ─────────────
   const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
@@ -2944,6 +3280,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   // se pueda mover de forma continua a través de todos los segmentos sin pararse
   // en los bordes de cada uno.
   const handleSegRulerDown = (e, seg, pass) => {
+    if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (listenOnly) return;
     e.preventDefault();
     const containerEl = rulerContainerRef.current; if (!containerEl) return;
@@ -2951,8 +3288,24 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       const r = containerEl.getBoundingClientRect();
       return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
     };
-    seekTo(containerXToRecForPass(getFrac(e), pass));
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(containerXToRecForPass(getFrac(ev), pass)); };
+    // Al entrar en la zona de repetición (vista resumida), determinar la fila
+    // por la posición vertical del puntero, no por el pass inicial.
+    const resolvePass = (xFrac, ev) => {
+      for (const sg of segmentsRef.current) {
+        if (sg.type === "repeat" && xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
+          const r = containerEl.getBoundingClientRect();
+          const y = ev.touches?.[0]?.clientY ?? ev.changedTouches?.[0]?.clientY ?? ev.clientY;
+          return (y - r.top) > r.height / 2 ? "second" : "first";
+        }
+      }
+      return pass;
+    };
+    seekTo(containerXToRecForPass(getFrac(e), resolvePass(getFrac(e), e)));
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      const f = getFrac(ev);
+      seekTo(containerXToRecForPass(f, resolvePass(f, ev)));
+    };
     const up = () => {
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
@@ -3020,6 +3373,18 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     };
 
     const onMove = e => {
+      // Si el usuario junta un segundo dedo (pinch) durante el drag, abortar
+      if (e.touches && e.touches.length > 1) {
+        const d = dragRef.current;
+        if (d) {
+          if (d.type === "create") {
+            setHistory(prev => prev.slice(0, -1));
+            setBlocks(prev => prev.filter(b => b.id !== d.pid));
+          }
+          setGuides([]); dragRef.current = null;
+        }
+        return;
+      }
       const d = dragRef.current; if (!d) return;
       const t   = pixToTime(e);
       const all = blocksRef.current;
@@ -3038,6 +3403,30 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         let best = v, bd = SCHEMA_SNAP_THR + 0.01;
         for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
         return best;
+      };
+      // Para resize y shared-edge: snap a puntos estructurales + otros niveles fijos (imantación vertical)
+      // Se excluyen: mismo nivel (evita cuadrícula) y bloques en cascada (se mueven junto al drag)
+      const snapBounds = v => {
+        const cascadedIds = new Set((d.cascadeIds ?? []).map(c => c.id));
+        const pts = [d.segMin, d.segMax,
+          ...repBounds.filter(p => p >= d.segMin - 0.1 && p <= d.segMax + 0.1),
+          ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
+          ...ctx.filter(b => b.level !== d.level && !cascadedIds.has(b.id))
+                .flatMap(b => [b.start, b.end]),
+          ph,
+        ];
+        let best = v, bd = SCHEMA_SNAP_THR + 0.01;
+        for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
+        return best;
+      };
+      // Cascada vertical: aplica los bloques pre-identificados al inicio del drag
+      const cascadeBoundary = (arr, newT) => {
+        if (!d.cascadeIds?.length) return arr;
+        return arr.map(b => {
+          const ci = d.cascadeIds.find(c => c.id === b.id);
+          if (!ci) return b;
+          return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
+        });
       };
       const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -3078,27 +3467,33 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
         const minNs  = leftNb ? leftNb.end : d.segMin;
-        const ns = cl(snap(t), minNs, d.oe - SCHEMA_MIN_DUR);
+        const ns = cl(snapBounds(t), minNs, d.oe - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, start: ns } : b),
+          ns));
         return;
       }
 
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
         const maxNe   = rightNb ? rightNb.start : d.segMax;
-        const ne = cl(snap(t), d.os + SCHEMA_MIN_DUR, maxNe);
+        const ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
         setGuides([ne]);
-        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, end: ne } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, end: ne } : b),
+          ne));
         return;
       }
 
       if (d.type === "shared-edge") {
-        const ns = cl(snap(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
+        const ns = cl(snapBounds(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b =>
-          b.id === d.leftId  ? { ...b, end:   ns } :
-          b.id === d.rightId ? { ...b, start: ns } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b =>
+            b.id === d.leftId  ? { ...b, end:   ns } :
+            b.id === d.rightId ? { ...b, start: ns } : b),
+          ns));
       }
     };
 
@@ -3187,6 +3582,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
   const handleTrackSegDown = (e, lvId, seg, pass) => {
+    if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (editId) commitEdit();
     if (e.target.closest("[data-block]")) return;
     const sk = `${lvId}_${seg.index}_${pass}`;
@@ -3246,10 +3642,26 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       const ln = ctx.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
       extra = { leftId: ln?.id, leftStart: ln?.start };
     }
+    const cascadeLvs = block.level === 1 ? [2, 3] : block.level === 2 ? [3] : [];
+    let cascadeIds = [];
+    if (cascadeLvs.length > 0 && (type === "resize-r" || type === "resize-l")) {
+      const boundaryT = type === "resize-r" ? block.end : block.start;
+      const EPS = 0.05;
+      cascadeIds = blocksRef.current
+        .filter(b => cascadeLvs.includes(b.level) && !b.isPreview &&
+          (b.repeatId ?? null) === (block.repeatId ?? null) &&
+          (b.pass    ?? null) === (block.pass    ?? null))
+        .flatMap(b => {
+          const hits = [];
+          if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
+          if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
+          return hits;
+        });
+    }
     dragRef.current = {
       type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end,
       segKey: sk, segMin: bounds.min, segMax: bounds.max,
-      repeatId: block.repeatId, pass: block.pass, ...extra,
+      repeatId: block.repeatId, pass: block.pass, cascadeIds, ...extra,
     };
     e.preventDefault();
   };
@@ -3272,6 +3684,22 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const r = el.getBoundingClientRect();
     const bounds = getSegBounds(seg, pass);
     const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
+    const cascadeLvs2 = leftBlock.level === 1 ? [2, 3] : leftBlock.level === 2 ? [3] : [];
+    let cascadeIds2 = [];
+    if (cascadeLvs2.length > 0) {
+      const boundaryT = leftBlock.end;
+      const EPS = 0.05;
+      cascadeIds2 = blocksRef.current
+        .filter(b => cascadeLvs2.includes(b.level) && !b.isPreview &&
+          (b.repeatId ?? null) === (leftBlock.repeatId ?? null) &&
+          (b.pass    ?? null) === (leftBlock.pass    ?? null))
+        .flatMap(b => {
+          const hits = [];
+          if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
+          if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
+          return hits;
+        });
+    }
     dragRef.current = {
       type: "shared-edge", level: leftBlock.level,
       leftId: leftBlock.id, rightId: rightBlock.id,
@@ -3279,6 +3707,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       anchor: t, os: leftBlock.end,
       segKey: sk, segMin: bounds.min, segMax: bounds.max,
       repeatId: leftBlock.repeatId, pass: leftBlock.pass,
+      cascadeIds: cascadeIds2,
     };
     e.preventDefault();
   };
@@ -3310,7 +3739,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
     const segBlocks = blocks.filter(b => {
       if (b.level !== lvId) return false;
-      if (seg.type === "normal") return !b.repeatId && b.start >= bounds.min - 0.01 && b.start < bounds.max + 0.01;
+      if (seg.type === "normal") return !b.repeatId && b.end > bounds.min - 0.01 && b.start < bounds.max + 0.01;
       if (seg.type === "repeat-first")  return b.repeatId === seg.rep.id && b.pass === "first";
       if (seg.type === "repeat-second") return b.repeatId === seg.rep.id && b.pass === "second";
       return b.repeatId === seg.rep.id && b.pass === pass;
@@ -3335,14 +3764,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         phPct = ((time - seg.rep.second.start) / (seg.rep.second.end - seg.rep.second.start)) * 100;
     }
 
-    const hStyle = { position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
+    const _blockH    = lvId >= 3 ? 32 : 50;
+    const _hndH      = Math.round(_blockH * 2 / 3);
+    const _hndTop    = 6 + Math.round((_blockH - _hndH) / 2);
+    const hStyle = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
     const vis    = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
 
     return (<>
-      {/* Cuadrícula de fondo */}
-      {Array.from({ length: 13 }, (_, i) => i / 12).map((f, i) => (
-        <div key={i} style={{ position: "absolute", top: 0, left: `${f * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
-      ))}
+      {/* Cuadrícula de fondo — paso fijo global para que la densidad
+          sea la misma en todos los segmentos independientemente de su duración */}
+      {(() => {
+        const GRID_STEPS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300];
+        const gridTarget = duration / 10; // ~10 divisiones en toda la pieza
+        const step = GRID_STEPS.find(s => s >= gridTarget) ?? GRID_STEPS[GRID_STEPS.length - 1];
+        const lines = [];
+        const t0 = Math.ceil(bounds.min / step) * step;
+        for (let t = t0; t < bounds.max - step * 0.05; t += step)
+          lines.push((t - bounds.min) / segDur);
+        return lines.map((f, i) => (
+          <div key={i} style={{ position: "absolute", top: 0, left: `${f * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
+        ));
+      })()}
       {/* Marcas listen-only */}
       {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, i) => (
         <div key={i} style={{ position: "absolute", top: 0, left: `${((mt - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(184,74,58,0.28)", pointerEvents: "none", zIndex: 7 }} />
@@ -3376,7 +3818,92 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           ? { bg: lv.color, textColor: "#FFFFFF" }
           : block.customColor ? harmonyBlockColors(null, block.customColor)
           : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
+          : lv.id === 1 ? harmonyBlockColors(null, partBlockColor(block.label))
+          : lv.id === 2 ? (() => {
+              const partB = blocks.find(b => b.level === 1 && !b.isPreview &&
+                b.start <= block.start + 0.01 && b.end > block.start + 0.01 &&
+                (block.repeatId ? b.repeatId === block.repeatId && b.pass === block.pass : !b.repeatId));
+              return harmonyBlockColors(null, lightenColor(partB ? partBlockColor(partB.label) : lv.color, 18, -8));
+            })()
           : { bg: lv.color, textColor: "#FFFFFF" };
+
+        // ── Nivel 3 (Armonía): píldora de color + línea horizontal ─────────
+        if (lvId === 3) {
+          const pillBg = block.isPreview ? `${bBg}60` : bBg;
+          return (
+            <div key={block.id} data-block="true" style={{
+              position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+              background: "transparent",
+              borderRadius: 999,
+              boxShadow: "none",
+              display: "flex", alignItems: "center",
+              overflow: "hidden",
+              cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+              zIndex: isSel ? 7 : isActive ? 4 : 3,
+              boxSizing: "border-box",
+            }}
+              onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              {/* Píldora izquierda */}
+              {editId === block.id ? (
+                <div style={{ alignSelf: "center", background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", padding: "5px 8px", flexShrink: 0 }}>
+                  <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: 60, background: "transparent", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.8)", color: bTx, fontSize: 11, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 2px", fontFamily: FONT_SANS, borderRadius: 2 }} />
+                </div>
+              ) : (
+                <div style={{ alignSelf: "center", background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "5px 11px", flexShrink: 0, boxSizing: "border-box" }}>
+                  {wPct >= 2 && (
+                    <span style={{ fontSize: wPct < 5 ? 9 : 11, fontWeight: 700, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>
+                      {block.label}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Línea horizontal hasta el borde derecho */}
+              {wPct >= 3 && (
+                <div style={{ flex: 1, minWidth: 0, height: 2.5, background: pillBg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5, flexShrink: 1 }} />
+              )}
+            </div>
+          );
+        }
+
+        // ── Nivel 4 (Texto): píldora de ancho completo, sin línea ───────────
+        if (lvId === 4) {
+          const pillBg = block.isPreview ? `${bBg}60` : bBg;
+          return (
+            <div key={block.id} data-block="true" style={{
+              position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+              display: "flex", alignItems: "stretch",
+              overflow: "hidden",
+              cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+              zIndex: isSel ? 7 : isActive ? 4 : 3,
+              boxSizing: "border-box",
+            }}
+              onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              {editId === block.id ? (
+                <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 11px", overflow: "hidden" }}>
+                  <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: "82%", background: "transparent", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.8)", color: bTx, fontSize: 11, fontWeight: 500, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SANS, borderRadius: 2 }} />
+                </div>
+              ) : (
+                <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "5px 11px", overflow: "hidden" }}>
+                  <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 11, fontWeight: 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
+                    {block.label}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // ── Resto de niveles: rectángulo relleno (estilo original) ──────────
         return (
           <div key={block.id} data-block="true" style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
@@ -3394,9 +3921,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                 onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
                 onClick={e => e.stopPropagation()}
-                style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
+                style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: lvId === 1 ? 700 : 500, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SANS, borderRadius: 2 }} />
             ) : (
-              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: 700, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: lvId === 1 ? 700 : 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
                 {block.label}
               </span>
             )}
@@ -3433,7 +3960,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         const pct = ((left.end - bounds.min) / segDur) * 100;
         return (
           <div key={`sh-${left.id}-${right.id}`} data-block="true"
-            style={{ position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
             onMouseDown={e => handleSharedHandleDown(e, left, right)}
             onTouchStart={e => handleSharedHandleDown(e, left, right)}>
             <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
@@ -3492,21 +4019,21 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   return (
     <div style={S.app}>
       {/* Cabecera */}
-      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0 }}>← Volver</button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
-          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 2 }}>
-            Esquema formal{hasRepeats ? ` · ${localReps.length} repetición${localReps.length !== 1 ? "es" : ""}` : ""}
-          </div>
-        </div>
-        <span style={{ ...S.badge, background: `${C.fnD}1C`, color: C.fnD, border: `1px solid ${C.fnD}45`, padding: "4px 12px", fontSize: 11, fontWeight: 700, letterSpacing: 0.9, flexShrink: 0 }}>ESQUEMA</span>
-        {hasRepeats && (
-          <button onClick={() => setShowRepModal(true)}
-            style={{ ...S.btn, fontSize: 11, padding: "5px 10px", color: C.muted, flexShrink: 0 }}>
-            Ajustar tiempos
+      {/* ── Cabecera principal ─────────────────────────────────────────────── */}
+      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
+            <span>Volver</span>
           </button>
-        )}
+          {/* Separador vertical */}
+          <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{exercise.title}</div>
+            <div style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 2, letterSpacing: 0.2 }}>Esquema formal</div>
+          </div>
+          <span style={{ background: `${C.fnD}18`, color: C.fnD, border: `1px solid ${C.fnD}50`, borderRadius: 5, padding: "3px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, fontFamily: FONT_SANS, flexShrink: 0 }}>ESQUEMA</span>
+        </div>
       </div>
 
       {showRepModal && (
@@ -3518,8 +4045,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       )}
 
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
-        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}
-        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}>
+        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
+        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -3553,23 +4080,26 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               {hasRepeats ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
                   <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
-                  <div role="tablist"
-                    style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
-                    {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
-                      <button key={v} type="button" role="tab" aria-selected={viewMode === v}
-                        onClick={() => setViewMode(v)}
-                        title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
-                        style={{
-                          flex: "1 1 0", border: "none", borderRadius: 999,
-                          background: viewMode === v ? C.ink : "transparent",
-                          color: viewMode === v ? C.paper : C.muted,
-                          padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
-                          cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
-                          whiteSpace: "nowrap",
-                        }}>
-                        {label}
-                      </button>
-                    ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div role="tablist"
+                      style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
+                      {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
+                        <button key={v} type="button" role="tab" aria-selected={viewMode === v}
+                          onClick={() => setViewMode(v)}
+                          title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
+                          style={{
+                            flex: "1 1 0", border: "none", borderRadius: 999,
+                            background: viewMode === v ? C.ink : "transparent",
+                            color: viewMode === v ? C.paper : C.muted,
+                            padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
+                            cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
+                            whiteSpace: "nowrap",
+                          }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
                   </div>
                 </div>
               ) : <div />}
@@ -3605,10 +4135,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           {/* ── BANDA DE REPETICIÓN — dentro del wrapper de zoom para que
                las marcas estén siempre alineadas con la regla y las pistas ── */}
           {viewMode === "completa" && (
-            <div style={{ borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
+            <div style={{ borderTop: `1px solid rgba(47,111,184,0.18)`, borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
               <div
                 ref={bandRef}
-                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: C.paper2 }}
+                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: "rgba(47,111,184,0.055)" }}
                 onMouseDown={handleBandCreateDown}
                 onTouchStart={handleBandCreateDown}>
 
@@ -3621,13 +4151,19 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   const sW  = sE - fE;
                   return (
                     <React.Fragment key={rep.id}>
-                      {/* Zona "original" */}
-                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: `${C.fnS}28`, borderRadius: 4, border: `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>original</span>
+                      {/* Zona "original" — clicable para seleccionar la repetición */}
+                      <div
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: selectedRepId === rep.id ? `${C.fnS}45` : `${C.fnS}28`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnS}` : `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>original</span>
                       </div>
-                      {/* Zona "repetición" */}
-                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: `${C.fnT}22`, borderRadius: 4, border: `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>repetición</span>
+                      {/* Zona "repetición" — clicable para seleccionar la repetición */}
+                      <div
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: selectedRepId === rep.id ? `${C.fnT}38` : `${C.fnT}22`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnT}` : `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>repetición</span>
                       </div>
                       {/* Asa: inicio del original */}
                       <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
@@ -3669,21 +4205,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   ) : null;
                 })()}
 
-                {/* Botón añadir repetición siguiente */}
-                {localReps.length > 0 && (
-                  <button data-band-handle="true"
-                    onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-                    onClick={handleAddNextRep}
-                    title="Añadir otra repetición a continuación"
-                    style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.88)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 7px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1.6, fontWeight: 700 }}>
-                    +
-                  </button>
-                )}
-
                 {/* Hint cuando no hay repetición */}
                 {localReps.length === 0 && !bandDrag && (
                   <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para marcar el original →</span>
+                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para crear una repetición</span>
                   </div>
                 )}
               </div>
@@ -3703,27 +4228,31 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             {!listenOnly && (() => {
               // Determinar posición horizontal y vertical de la bola
               let xPct = recToVisX(time) * 100;
-              let yPct = 50; // centro por defecto (sección de altura uniforme)
+              // En resumida: bola en fila superior (y=25%) durante la 1ª vez,
+              // y en fila inferior (y=75%) durante la 2ª vez y en secciones normales.
+              // La x se calcula dentro del rango insetado por REPEAT_BARLINE_W en
+              // ambos extremos, igual que la línea vertical del esquema.
+              let yPct = viewMode === "resumida" && hasRepeats ? 75 : 50;
               for (const sg of segments) {
-                if (sg.type === "repeat") {
-                  const fp = sg.rep.first, sp = sg.rep.second;
-                  const fd = (fp.end - fp.start) || 1;
-                  const sd = (sp.end - sp.start) || 1;
-                  if (time >= fp.start && time < fp.end) {
-                    xPct = (sg.vStart + (time - fp.start) / fd * (sg.vEnd - sg.vStart)) * 100;
-                    yPct = 25; // fila superior (1ª vez)
-                  } else if (time >= sp.start && time < sp.end) {
-                    xPct = (sg.vStart + (time - sp.start) / sd * (sg.vEnd - sg.vStart)) * 100;
-                    yPct = 75; // fila inferior (2ª vez)
-                  }
-                  break;
+                if (sg.type !== "repeat") continue;
+                const fp = sg.rep.first, sp = sg.rep.second;
+                if (time < fp.start || time >= sp.end) continue; // este segmento no contiene el tiempo actual
+                const fd = (fp.end - fp.start) || 1;
+                const sd = (sp.end - sp.start) || 1;
+                const barFrac = rulerW > 0 ? REPEAT_BARLINE_W / rulerW : 0;
+                const segVW   = sg.vEnd - sg.vStart;
+                const innerVW = segVW - 2 * barFrac;
+                if (time >= fp.start && time < fp.end) {
+                  xPct = (sg.vStart + barFrac + (time - fp.start) / fd * innerVW) * 100;
+                  yPct = 25; // centro de la fila 1ª (14 px de 57 px = 24.6 %)
+                } else if (time >= sp.start && time < sp.end) {
+                  xPct = (sg.vStart + barFrac + (time - sp.start) / sd * innerVW) * 100;
+                  yPct = 75; // centro de la fila 2ª
                 }
+                break; // segmento encontrado
               }
               return (
-                <>
-                  <div style={{ position: "absolute", top: 0, bottom: 0, left: `${xPct}%`, width: 1.5, background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 30 }} />
-                  <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
-                </>
+                <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
               );
             })()}
 
@@ -3743,17 +4272,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 return (
                   <div key={si}
                     ref={el => trackSegRefs.current[`ruler_${si}_normal`] = el}
-                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
+                    style={{ flex: seg.canonDur, position: "relative", height: viewMode === "resumida" && hasRepeats ? 57 : 28, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? { onMouseDown: e => handleSegRulerDown(e, seg, "normal"), onTouchStart: e => handleSegRulerDown(e, seg, "normal") } : {})}>
-                    {/* Relleno de progreso */}
-                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
-                    {/* Marcas de tiempo */}
-                    {ticks.map(({ t, frac }, i) => (
-                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
-                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
-                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                      </div>
-                    ))}
+                    {/* Pista horizontal — en resumida alineada con el centro de la 2ª vez */}
+                    <div style={{ position: "absolute", top: viewMode === "resumida" && hasRepeats ? "75%" : "50%", left: 0, right: 0, height: 2.5, background: `${C.muted}55`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3 }} />
                     {/* Marcas listen-only */}
                     {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, mi) => {
                       const pct = ((mt - bounds.min) / segDur) * 100;
@@ -3768,10 +4290,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         </div>
                       );
                     })}
-                    {/* Cursor de reproducción — solo línea de fondo; la bola se pinta en el overlay global */}
-                    {phPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                     {/* Ayuda listen-only (en el último segmento normal) */}
                     {listenOnly && si === segments.length - 1 && (
                       <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 6, pointerEvents: "none", zIndex: 12 }}>
@@ -3793,26 +4311,17 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 const isActive = time >= bounds.min && time < bounds.max;
                 const phPct   = isActive ? ((time - bounds.min) / segDur) * 100 : null;
                 // Tinte muy sutil para info visual: azul claro en 1ª vez, verde claro en 2ª vez
-                const zoneBg  = isFirst ? C.paper2 : `${C.fnT}0A`;
+                const zoneBg  = C.paper2;
                 return (
                   <div key={si}
                     ref={el => trackSegRefs.current[`ruler_${si}_${pass}`] = el}
-                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flex: seg.canonDur, position: "relative", height: 28, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? {
                       onMouseDown:  e => handleSegRulerDown(e, seg, pass),
                       onTouchStart: e => handleSegRulerDown(e, seg, pass),
                     } : {})}>
-                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
-                    {ticks.map(({ t, frac }, i) => (
-                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
-                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
-                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                      </div>
-                    ))}
-                    {/* Línea de fondo (bola en overlay global) */}
-                    {phPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
+                    {/* Pista horizontal continua */}
+                    <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2.5, background: isActive ? `${isFirst ? C.fnS : C.fnT}55` : `${C.muted}40`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3, transition: "background .15s" }} />
                   </div>
                 );
               }
@@ -3831,7 +4340,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               const repLabel = rep.label ? ` — ${rep.label}` : "";
 
               return (
-                <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column", minHeight: 72 }}>
+                <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column" }}>
                   {/* Sin barras SVG aquí: el overlay del card exterior las pinta de forma continua */}
 
                   {/* Overlay de navegación continua (resumida): cubre ambas filas,
@@ -3842,83 +4351,103 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                       onTouchStart={e => handleDoubleRowRulerDown(e, seg, e.currentTarget.parentElement)} />
                   )}
 
-                  {/* Fila 1ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  {/* ── Fila 1ª vez ── */}
                   <div ref={el => trackSegRefs.current[`ruler_${si}_first`] = el}
-                    style={{ flexShrink: 0, height: 36, position: "relative", background: isFA ? `${C.fnS}1A` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flexShrink: 0, height: 28, position: "relative", background: isFA ? `${C.fnS}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
                     onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_first`])) : undefined}
                     onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_first`]; if (el) el.style.cursor = ""; }) : undefined}>
-                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnS, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
-                      1ª vez{repLabel}
+                    {/* Franja + etiqueta + línea en flex */}
+                    <div style={{ display: "flex", alignItems: "center", position: "absolute", inset: 0, pointerEvents: "none", zIndex: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, fontFamily: FONT_SANS, color: isFA ? C.fnS : `${C.fnS}80`, paddingLeft: 8, paddingRight: 3, flexShrink: 0, letterSpacing: -0.3, lineHeight: 1, transition: "color .15s" }}>1ª</span>
+                      <div style={{ flex: 1, height: 2.5, marginRight: 18, background: isFA ? `${C.fnS}55` : `${C.muted}40`, transition: "background .15s" }} />
                     </div>
-                    {fPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${fPct}%`, background: `${C.fnS}12`, pointerEvents: "none" }} />}
+                    {/* Barra de repetición de cierre — alineada con la de las pistas */}
                     {(() => {
-                      const segW = rulerW * (seg.vEnd - seg.vStart);
-                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
-                      return fTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
-                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
-                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
-                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                      const THICK = 3.5, THIN = 1.3, GAP = 2.5, DOT_R = 1.3;
+                      const col = isFA ? C.fnS : `${C.fnS}88`;
+                      return (
+                        <div style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: REPEAT_BARLINE_W, pointerEvents: "none", zIndex: 6 }}>
+                          {/* Dots */}
+                          <div style={{ position: "absolute", top: "33%", left: 1.5, width: DOT_R * 2, height: DOT_R * 2, borderRadius: "50%", background: col, transform: "translateY(-50%)", transition: "background .15s" }} />
+                          <div style={{ position: "absolute", top: "67%", left: 1.5, width: DOT_R * 2, height: DOT_R * 2, borderRadius: "50%", background: col, transform: "translateY(-50%)", transition: "background .15s" }} />
+                          {/* Barra fina */}
+                          <div style={{ position: "absolute", top: 0, bottom: 0, right: THICK + GAP + 0.5, width: THIN, background: col, opacity: 0.55, transition: "background .15s" }} />
+                          {/* Barra gruesa */}
+                          <div style={{ position: "absolute", top: 0, bottom: 0, right: 0.5, width: THICK, background: col, opacity: 0.9, transition: "background .15s" }} />
                         </div>
-                      ));
+                      );
                     })()}
-                    {/* Línea de fondo — bola gestionada por overlay global */}
-                    {fPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${fPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                   </div>
 
-                  {/* Separador entre filas: no cruza las barras de repetición */}
-                  <div style={{ position: "absolute", left: REPEAT_BARLINE_W + 1, right: REPEAT_BARLINE_W + 1, top: 36, height: 1, background: `${C.muted2}55`, borderTop: `1px dashed ${C.muted2}55`, pointerEvents: "none", zIndex: 5 }} />
+                  {/* ── Separador entre filas ─────────────────────────────────── */}
+                  <div style={{ flexShrink: 0, height: 1, background: C.line, marginLeft: 8, pointerEvents: "none", zIndex: 6 }} />
 
-                  {/* Fila 2ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  {/* ── Fila 2ª vez ── */}
                   <div ref={el => trackSegRefs.current[`ruler_${si}_second`] = el}
-                    style={{ flexShrink: 0, height: 36, position: "relative", background: isSA ? `${C.fnT}1A` : `${C.paper2}`, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flexShrink: 0, height: 28, position: "relative", background: isSA ? `${C.fnT}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
                     onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_second`])) : undefined}
                     onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_second`]; if (el) el.style.cursor = ""; }) : undefined}>
-                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnT, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
-                      2ª vez{repLabel}
+                    {/* Franja + etiqueta + línea en flex */}
+                    <div style={{ display: "flex", alignItems: "center", position: "absolute", inset: 0, pointerEvents: "none", zIndex: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, fontFamily: FONT_SANS, color: isSA ? C.fnT : `${C.fnT}80`, paddingLeft: 8, paddingRight: 3, flexShrink: 0, letterSpacing: -0.3, lineHeight: 1, transition: "color .15s" }}>2ª</span>
+                      <div style={{ flex: 1, height: 2.5, background: isSA ? `${C.fnT}55` : `${C.muted}40`, transition: "background .15s" }} />
                     </div>
-                    {sPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${sPct}%`, background: `${C.fnT}12`, pointerEvents: "none" }} />}
-                    {(() => {
-                      const segW = rulerW * (seg.vEnd - seg.vStart);
-                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
-                      return sTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
-                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
-                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
-                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                        </div>
-                      ));
-                    })()}
-                    {/* Línea de fondo — bola gestionada por overlay global */}
-                    {sPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${sPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* ── PISTAS POR NIVEL con barras de repetición únicas y continuas ── */}
+          {/* ── Separador visual entre regla de navegación y pistas del esquema ── */}
+          <div style={{ height: 6, background: C.bg, flexShrink: 0 }} />
+
+          {/* ── Fila de timestamps — solo en vista completa ── */}
+          {viewMode !== "resumida" && (
+            <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, background: C.paper, height: 18, flexShrink: 0, overflow: "hidden", userSelect: "none", pointerEvents: "none" }}>
+              {segments.map((seg, si) => {
+                const pass = seg.type === "repeat-second" ? "second" : "normal";
+                const bounds = seg.type === "repeat-first" ? { min: seg.rep.first.start, max: seg.rep.first.end }
+                             : seg.type === "repeat-second" ? { min: seg.rep.second.start, max: seg.rep.second.end }
+                             : { min: 0, max: duration };
+                const segDur = (bounds.max - bounds.min) || 1;
+                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
+                const ticks = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
+                return (
+                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: "100%", borderRight: si < segments.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    {ticks.map(({ t, frac }) => (
+                      <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_MONO, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1 }}>{fmt(t)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── PISTAS POR NIVEL con barras de repetición por nivel ── */}
           <div style={{ position: "relative" }}>
           {activeLevels.map((lv, li) => (
-            <div key={lv.id} style={{ display: "flex", position: "relative", borderLeft: `3px solid ${lv.color}`, borderBottom: li < activeLevels.length - 1 ? `1px solid ${C.line}` : "none" }}>
+            <div key={lv.id} style={{ display: "flex", position: "relative", borderBottom: li < activeLevels.length - 1 ? `2px solid ${C.line}` : "none" }}>
+              {/* Franja de color del nivel — posición absoluta para no afectar al layout flex */}
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 3, background: lv.color, zIndex: 2, pointerEvents: "none" }} />
               {segments.map((seg, si) => {
                 if (seg.type === "normal") {
                   return (
                     <div key={si}
                       ref={el => trackSegRefs.current[`${lv.id}_${si}_normal`] = el}
-                      style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
+                      style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
                       onMouseDown={e => handleTrackSegDown(e, lv.id, seg, "normal")}
                       onTouchStart={e => handleTrackSegDown(e, lv.id, seg, "normal")}>
                       {/* Etiqueta del nivel (solo en el primer segmento) */}
                       {si === 0 && (
-                        <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        <div style={{ position: "absolute", top: 4, left: 6, zIndex: 1, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                         </div>
                       )}
                       {renderSegBlocks(seg, "normal", lv.id)}
@@ -3936,15 +4465,15 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   // Fondo: 2ª vez levemente diferente para info visual (sin barras de repetición)
                   const zoneBg = isFirst ? lv.bg : `${lv.bg.replace(")", ", 0.6)").replace("rgba(", "rgba(").replace("0.08)", "0.12)").replace("0.10)", "0.15)").replace("0.09)", "0.13)")}`;
                   return (
-                    <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                    <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
                       <div
                         ref={el => trackSegRefs.current[`${lv.id}_${si}_${pass}`] = el}
                         style={{ position: "absolute", inset: 0 }}
                         onMouseDown={e => handleTrackSegDown(e, lv.id, seg, pass)}
                         onTouchStart={e => handleTrackSegDown(e, lv.id, seg, pass)}>
                         {si === 0 && (
-                          <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                          <div style={{ position: "absolute", top: 4, left: 6, zIndex: 1, pointerEvents: "none" }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                           </div>
                         )}
                         {/* Indicador visual sutil de zona de repetición en 2ª vez */}
@@ -3964,24 +4493,25 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 // Qué vez mostrar: la que suena, o la seleccionada manualmente
                 const displayPass = isFA ? "first" : isSA ? "second" : (selectedPass[rep.id] || "first");
                 const isActiveInThis = isFA || isSA;
+                // Barlines en todos los niveles del esquema
+                const barInset = REPEAT_BARLINE_W;
 
                 return (
-                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
-                    {/* Zona de interacción — insetada REPEAT_BARLINE_W px para que
-                        los bloques nunca solapen con las barras de repetición del overlay */}
+                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                    {/* Zona de interacción — insetada barInset px para los niveles que llevan barras */}
                     <div
                       ref={el => {
                         trackSegRefs.current[`${lv.id}_${si}_first`]  = el;
                         trackSegRefs.current[`${lv.id}_${si}_second`] = el;
                       }}
-                      style={{ position: "absolute", top: 0, bottom: 0, left: REPEAT_BARLINE_W, right: REPEAT_BARLINE_W }}
+                      style={{ position: "absolute", top: 0, bottom: 0, left: barInset, right: barInset }}
                       {...(viewMode !== "resumida" ? {
                         onMouseDown:  e => handleTrackSegDown(e, lv.id, seg, displayPass),
                         onTouchStart: e => handleTrackSegDown(e, lv.id, seg, displayPass),
                       } : {})}>
                       {si === 0 && (
-                        <div style={{ position: "absolute", top: 4, left: 4, zIndex: 5, pointerEvents: "none" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        <div style={{ position: "absolute", top: 4, left: 4, zIndex: 1, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                         </div>
                       )}
                       {renderSegBlocks(seg, displayPass, lv.id)}
@@ -3991,37 +4521,37 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               })}
             </div>
           ))}
-          </div>
 
-          {/* ── Barras de repetición continuas (solo vista resumida) ─────────
-               position:absolute top:0/bottom:0 relativo al contenedor de escala
-               (que tiene position:relative), por lo que abarcan REGLA + NIVELES.  ── */}
+          {/* ── Barras de repetición — solo niveles 1 y 2, condicionadas por tamaño ──
+               position:absolute relativo al contenedor PISTAS (position:relative).
+               Si la sección repetida coincide con un bloque de nivel 1 (Parte),
+               la barra abarca niveles 1+2. Si solo coincide con frases, solo nivel 2. ── */}
           {viewMode === "resumida" && (() => {
-            const zones = segments
-              .filter(s => s.type === "repeat")
-              .map(s => ({ startV: s.vStart, endV: s.vEnd }));
-            // Geometría:
-            //  Barra simple inicio:  [THICK outer][GAP][THIN inner][SPACE][·dots·]
-            //  Barra simple fin:     [·dots·][SPACE][THIN inner][GAP][THICK outer]
-            //  Barra acoplada:       [·dots·][SPACE][THIN][GAP][THICK][GAP][THIN][SPACE][·dots·]
-            const THICK=4, THIN=1.5, GAP=2, SPACE=3, DOT_R=2.3, DOT_GAP=8;
+            const THICK=3, THIN=1, GAP=2, SPACE=3, DOT_R=2.3, DOT_GAP=8;
             const DW = DOT_R*2;
             const BW_S = THICK + GAP + THIN + SPACE + DW + 1;
             const BW_C = DW + SPACE + THIN + GAP + THICK + GAP + THIN + SPACE + DW;
-            // Mapa posición→{isStart,isEnd} para detectar barras acopladas
-            const ev = new Map();
-            const kv = v => v.toFixed(5);
-            zones.forEach(({ startV, endV }) => {
-              const ks=kv(startV); if(!ev.has(ks)) ev.set(ks,{v:startV,isStart:false,isEnd:false}); ev.get(ks).isStart=true;
-              const ke=kv(endV);   if(!ev.has(ke)) ev.set(ke,{v:endV,  isStart:false,isEnd:false}); ev.get(ke).isEnd=true;
-            });
             const dt1=`calc(50% - ${DOT_GAP+DOT_R}px)`, dt2=`calc(50% + ${DOT_GAP-DOT_R}px)`;
             const D=(extra)=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
-            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.65)",...extra});
-            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.40)",...extra});
+            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.72)",...extra});
+            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.28)",...extra});
+            const LH = 62; // altura de cada nivel
+
+            // Todas las repeticiones cubren todos los niveles activos.
+            // top=0, bottom=0 → span completo del contenedor PISTAS.
+            const ev = new Map();
+            const kv = v => v.toFixed(5);
+            segments.filter(s => s.type === "repeat").forEach(seg => {
+              const ks = kv(seg.vStart);
+              if (!ev.has(ks)) ev.set(ks, { v: seg.vStart, isStart: false, isEnd: false });
+              ev.get(ks).isStart = true;
+              const ke = kv(seg.vEnd);
+              if (!ev.has(ke)) ev.set(ke, { v: seg.vEnd, isStart: false, isEnd: false });
+              ev.get(ke).isEnd = true;
+            });
+
             return [...ev.values()].map(({ v, isStart, isEnd }, bi) => {
               if (isStart && isEnd) {
-                // ── Barra acoplada: ·thin║thin· ──────────────────────────
                 const cx = BW_C/2;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_C, transform:"translateX(-50%)", pointerEvents:"none", zIndex:18 }}>
@@ -4033,7 +4563,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </div>
                 );
               } else if (isStart) {
-                // ── Barra inicio: THICK | thin | dots ────────────────────
                 const dL = THICK+GAP+THIN+SPACE;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, pointerEvents:"none", zIndex:18 }}>
@@ -4043,7 +4572,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </div>
                 );
               } else {
-                // ── Barra fin: dots | thin | THICK ───────────────────────
                 const dR = THICK+GAP+THIN+SPACE;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, transform:"translateX(-100%)", pointerEvents:"none", zIndex:18 }}>
@@ -4055,6 +4583,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               }
             });
           })()}
+          </div>
           </div>{/* /contenedor de escala */}
         </div>
 
@@ -4085,10 +4614,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   ×{schemaZoom.toFixed(1)}
                 </div>
               </div>
-              {/* Ayuda */}
-              <div style={{ fontSize: 10, color: C.muted2, marginTop: 4, textAlign: "center", fontFamily: FONT_SANS, letterSpacing: 0.2 }}>
-                Arrastra para desplazar · Rueda del ratón para hacer zoom · Pellizca en móvil
-              </div>
+
             </div>
           );
         })()}
@@ -4138,7 +4664,28 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }}
                 style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
-          ) : (
+          ) : selectedRepId ? (() => {
+            const rep = localReps.find(r => r.id === selectedRepId);
+            if (!rep) return null;
+            return (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "4px 0" }}
+                onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>Repetición</span>
+                  <span style={{ fontSize: 11, color: C.muted }}>
+                    {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: C.muted2, flex: 1 }}>Supr o ⌫ para borrar</span>
+                <button
+                  onClick={() => { deleteRepeat(selectedRepId); setSelectedRepId(null); }}
+                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>
+                  Eliminar
+                </button>
+              </div>
+            );
+          })() : (
             <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
               {blocks.filter(b => !b.isPreview).length === 0
                 ? "Arrastra en cualquier pista para crear un bloque. Doble clic para renombrar."
@@ -4187,29 +4734,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           )}
         </div>
 
-        {/* Leyenda */}
-        <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
-          {activeLevels.map(lv => (
-            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
-              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}{lv.id === 4 ? " (selecciona el bloque para ver/editar texto)" : ""}</span>
-            </div>
-          ))}
-          {hasRepeats ? (
-            <span style={{ fontSize: 11, color: C.fnS, marginLeft: 4 }}>
-              ♩ La pista muestra la vez que suena · si no hay reproducción, usa los botones <b>1ª / 2ª</b> para cambiar · ✕ en la regla para borrar
-            </span>
-          ) : (
-            <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>
-              ♩ Repeticiones — pulsa "Añadir repetición" en la cabecera y arrastra en la regla para marcarlas
-            </span>
-          )}
-          <span style={{ fontSize: 11, color: C.muted2 }}>
-            {listenOnly
-              ? "Modo escucha · Clic en la barra = añadir marca · Arrastra = mover · Clic en marca = borrar · Los bloques se imanan a las marcas"
-              : "Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques"}
-          </span>
-        </div>
+
       </div>
     </div>
   );
@@ -4675,7 +5200,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 // ═══ 11. DASHBOARD DEL PROFESOR ═════════════════════════════════════════════
 
 // ── Pestaña: Ejercicios ────────────────────────────────────────────────────
-function TeacherExerciseRow({ ex, onSelect, onDelete }) {
+function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
   const isQuiz  = modelOf(ex) === "cuestionario";
@@ -4684,16 +5209,24 @@ function TeacherExerciseRow({ ex, onSelect, onDelete }) {
   const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
   const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
   const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+  const isHidden = !!ex.hidden;
 
   return (
-    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
       <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
-          <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: isHidden ? C.muted : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
+            {composerName && (
+              <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
+            )}
+          </div>
+          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
           <Chevron open={open} />
-          <div onClick={(e) => e.stopPropagation()}>
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
             <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
           </div>
         </div>
@@ -4707,6 +5240,9 @@ function TeacherExerciseRow({ ex, onSelect, onDelete }) {
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
             </MetaItem>
+            <MetaItem label="Visible para alumnos">
+              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+            </MetaItem>
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
               <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
             </div>
@@ -4717,20 +5253,75 @@ function TeacherExerciseRow({ ex, onSelect, onDelete }) {
   );
 }
 
-function ExercisesTab({ exercises, onNew, onSelect, askConfirm, onDelete }) {
+function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }) {
+  const [filterModel,     setFilterModel]     = useState("all");
+  const [filterComposers, setFilterComposers] = useState([]);
+  const [filterTags,      setFilterTags]      = useState([]);
+
+  // Derivar compositores y etiquetas únicas de la biblioteca de audios
+  const allComposers = useMemo(
+    () => [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  const allTags = useMemo(
+    () => [...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  // Mapa rápido URL → audio
+  const audioByUrl = useMemo(() => {
+    const m = {};
+    audioLibrary.forEach((a) => { if (a.url) m[a.url] = a; });
+    return m;
+  }, [audioLibrary]);
+
+  const filtered = useMemo(() => {
+    return exercises.filter((ex) => {
+      if (filterModel !== "all" && modelOf(ex) !== filterModel) return false;
+      if (filterComposers.length > 0 || filterTags.length > 0) {
+        const audio = ex.audioUrl ? audioByUrl[ex.audioUrl] : null;
+        if (filterComposers.length > 0 && (!audio || !filterComposers.includes(audio.composer))) return false;
+        if (filterTags.length > 0) {
+          const audioTags = audio?.tags || [];
+          if (!filterTags.every((t) => audioTags.includes(t))) return false;
+        }
+      }
+      return true;
+    });
+  }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
+
+  const hasFilters = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
+  const showFilterBar = exercises.length > 0 && (allComposers.length > 0 || allTags.length > 0 || true);
+
   return (
     <>
       <div style={{ marginBottom: 14 }}>
         <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
       </div>
+      {showFilterBar && (
+        <TeacherFilterBar
+          filterModel={filterModel}       setFilterModel={setFilterModel}
+          allComposers={allComposers}     filterComposers={filterComposers} setFilterComposers={setFilterComposers}
+          allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
+        />
+      )}
       {exercises.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {exercises.map((ex) => (
-              <TeacherExerciseRow key={ex.id} ex={ex} onSelect={onSelect}
-                onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id))} />
-            ))}
-          </div>}
+        : filtered.length === 0
+          ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem" }}>
+              Ningún ejercicio coincide con los filtros.{" "}
+              <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); }}
+                style={{ background: "none", border: "none", color: C.fnS, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: 0 }}>
+                Limpiar filtros
+              </button>
+            </p>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {filtered.map((ex) => (
+                <TeacherExerciseRow key={ex.id} ex={ex} onSelect={onSelect}
+                  composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl]?.composer || null) : null}
+                  onToggleVisibility={onToggleVisibility}
+                  onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id))} />
+              ))}
+            </div>}
     </>
   );
 }
@@ -4739,8 +5330,8 @@ function ExercisesTab({ exercises, onNew, onSelect, askConfirm, onDelete }) {
 function CoursesTab({
   courses, units, exercises,
   openUnitIds, setOpenUnitIds,
-  onCreateCourse, onEditCourse, onDeleteCourse,
-  onCreateUnit, onEditUnit, onDeleteUnit,
+  onCreateCourse, onEditCourse, onDeleteCourse, onUpdateCourse,
+  onCreateUnit, onEditUnit, onDeleteUnit, onUpdateUnit,
   onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit,
   onSelectExercise,
   askConfirm,
@@ -4774,6 +5365,7 @@ function CoursesTab({
                       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
                       <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
                       <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))}>Eliminar</DangerOutlineButton>
                     </div>
@@ -4807,6 +5399,7 @@ function CoursesTab({
                                     <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2 }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}</span>
                                   </div>
                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                    <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
                                     <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
                                     <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))}>Eliminar</DangerOutlineButton>
                                   </div>
@@ -4964,6 +5557,7 @@ function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
 
 // ── Pestaña: Audios (almacén) ─────────────────────────────────────────────
 function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }) {
+  const [openId,    setOpenId]    = useState(null);
   const [previewId, setPreviewId] = useState(null);
   return (
     <>
@@ -4976,43 +5570,70 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
 
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
-          
           <div>El almacén está vacío.</div>
           {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio con el botón de arriba.</div>}
         </div>
       )}
 
-      {audioLibrary.map((audio) => {
-        const isPrev = previewId === audio.id;
-        return (
-          <div key={audio.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 15, color: C.ink, marginBottom: audio.description ? 4 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
-                {audio.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>{audio.description}</div>}
-                <div style={{ ...S.row, gap: 6 }}>
-                  <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {audioLibrary.map((audio) => {
+          const isOpen = openId === audio.id;
+          const isPrev = previewId === audio.id;
+          return (
+            <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+              {/* ── Cabecera siempre visible ── */}
+              <div
+                onClick={() => setOpenId(isOpen ? null : audio.id)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {audio.title}
+                  </div>
+                  {audio.composer && (
+                    <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {audio.composer}
+                    </div>
+                  )}
+                </div>
+                <Chevron open={isOpen} />
+                <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button onClick={() => { setPreviewId(isPrev ? null : audio.id); if (!isOpen) setOpenId(audio.id); }}
+                    style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
+                    {isPrev ? "⏹" : "▶"}
+                  </button>
+                  {isAdmin && (
+                    <>
+                      <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                      <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                        style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+                    </>
+                  )}
                 </div>
               </div>
-              <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                <button onClick={() => setPreviewId(isPrev ? null : audio.id)} style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
-                  {isPrev ? "⏹ Cerrar" : "▶ Escuchar"}
-                </button>
-                {isAdmin && (
-                  <>
-                    <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                    <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-                  </>
-                )}
-              </div>
+
+              {/* ── Detalle expandido ── */}
+              {isOpen && (
+                <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 14px", background: C.bg }}>
+                  {audio.description && (
+                    <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
+                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+                    {(audio.tags || []).map((tag) => (
+                      <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
+                    ))}
+                  </div>
+                  {isPrev && (
+                    <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 10, height: 36 }} />
+                  )}
+                </div>
+              )}
             </div>
-            {isPrev && (
-              <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 12, height: 36 }} />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -5230,9 +5851,10 @@ function TeacherDash({
         </div>
 
         {tab === "exercises" && (
-          <ExercisesTab exercises={exercises}
+          <ExercisesTab exercises={exercises} audioLibrary={audioLibrary}
             onNew={() => setSelectedExerciseId("new")}
             onSelect={setSelectedExerciseId}
+            onToggleVisibility={(ex) => onUpdateExercise(ex.id, { hidden: !ex.hidden })}
             onDelete={(id) => { onDeleteExercise(id); setSelectedExerciseId(null); }}
             askConfirm={askConfirm} />
         )}
@@ -5244,9 +5866,11 @@ function TeacherDash({
             onCreateCourse={() => setEditingCourse("new")}
             onEditCourse={(c) => setEditingCourse(c)}
             onDeleteCourse={onDeleteCourse}
+            onUpdateCourse={onUpdateCourse}
             onCreateUnit={(courseId) => { setEditingUnit(null); setUnitFormCourseId(courseId); }}
             onEditUnit={(u) => setEditingUnit(u)}
             onDeleteUnit={onDeleteUnit}
+            onUpdateUnit={onUpdateUnit}
             onPickFromBank={(unitId) => setExPickerUnitId(unitId)}
             onCreateNewExInUnit={(unitId) => { setNewExInUnit(unitId); setSelectedExerciseId("new"); }}
             onRemoveExFromUnit={onRemoveExerciseFromUnit}
@@ -5339,6 +5963,8 @@ function TeacherDash({
         {editingAudio !== null && (
           <AudioLibraryFormModal
             initial={editingAudio === "new" ? null : editingAudio}
+            allTags={[...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort()}
+            allComposers={[...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort()}
             onSave={(a) => { if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a); setEditingAudio(null); }}
             onClose={() => setEditingAudio(null)} />
         )}
@@ -5391,6 +6017,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
   const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [showComposer,      setShowComposer]      = useState(isCreating ? true  : (exercise.showComposer ?? true));
   const [schemaLevels,      setSchemaLevels]      = useState(
     () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
   );
@@ -5461,6 +6088,12 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     ? (audioDuration || (!isCreating ? exercise.duration : 0))
     : (parseInt(manualDuration) || 0);
 
+  // Compositor del audio actualmente seleccionado (para el toggle)
+  const activeComposer = useMemo(() => {
+    if (!audioUrl) return null;
+    return audioLibrary.find((a) => a.url === audioUrl)?.composer || null;
+  }, [audioUrl, audioLibrary]);
+
   // Detección de cambios (solo en edición)
   const isDirty = useMemo(() => {
     if (isCreating) return false;
@@ -5469,6 +6102,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
     if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if ((exercise.showComposer ?? true) !== showComposer) return true;
     if (model === "esquema") {
       const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
@@ -5492,7 +6126,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       if (manual !== exercise.duration) return true;
     }
     return false;
-  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, schemaLevels]);
+  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
 
@@ -5521,6 +6155,8 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         answers:    {},
         ...(model === "cuestionario" ? { questions: [] } : {}),
         ...(model === "esquema" ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
+        showComposer,
+        composerName: activeComposer || null,
       });
       return;
     }
@@ -5540,6 +6176,8 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     patch.audioName    = audioName    || null;
     patch.waveformData = waveformData || null;
     if (model === "esquema") { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
+    patch.showComposer = showComposer;
+    patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
     }
@@ -5875,6 +6513,38 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                 <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar guía de tiempo</div>
                 <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
                   Muestra los bloques de función como barras apagadas — una pista sin revelar la solución.
+                </div>
+              </div>
+            </label>
+            {activeComposer && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none", marginTop: 14 }}>
+                <input type="checkbox" checked={showComposer}
+                  onChange={(e) => setShowComposer(e.target.checked)}
+                  style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar nombre del compositor</div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+                    Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título del ejercicio en la vista del alumno.
+                  </div>
+                </div>
+              </label>
+            )}
+          </>
+        )}
+
+        {/* Toggle compositor para modelos no interactivos o en creación */}
+        {activeComposer && (isCreating || model !== "interactivo") && (
+          <>
+            <hr style={{ ...S.divider, margin: "28px 0" }} />
+            <p style={SECTION_STYLE}>Opciones para el alumno</p>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+              <input type="checkbox" checked={showComposer}
+                onChange={(e) => setShowComposer(e.target.checked)}
+                style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar nombre del compositor</div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+                  Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título del ejercicio en la vista del alumno.
                 </div>
               </div>
             </label>
@@ -6529,7 +7199,8 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
               <div key={audio.id} style={{ padding: "8px 10px", borderRadius: 6, marginBottom: 4, background: isPrev ? "rgba(26,25,21,0.04)" : "transparent", transition: "background .1s" }}>
                 <div style={{ ...S.row, gap: 10, justifyContent: "space-between" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.description ? 2 : 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                    {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
                     <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
                   </div>
@@ -6557,9 +7228,11 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
 }
 
 // Crear/editar un audio en el almacén
-function AudioLibraryFormModal({ initial, onSave, onClose }) {
+function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSave, onClose }) {
   const [title,       setTitle]       = useState(initial?.title || "");
+  const [composer,    setComposer]    = useState(initial?.composer || "");
   const [description, setDescription] = useState(initial?.description || "");
+  const [tags,        setTags]        = useState(initial?.tags || []);
   const [url,         setUrl]         = useState(initial?.url || "");
   const [duration,    setDuration]    = useState(initial?.duration || null);
   const [detecting,   setDetecting]   = useState(false);
@@ -6601,7 +7274,9 @@ function AudioLibraryFormModal({ initial, onSave, onClose }) {
     onSave({
       id:          initial?.id || uid("audio"),
       title:       title.trim(),
+      composer:    composer.trim(),
       description: description.trim(),
+      tags,
       url:         url.trim(),
       duration,
       createdAt:   initial?.createdAt || Date.now(),
@@ -6616,9 +7291,24 @@ function AudioLibraryFormModal({ initial, onSave, onClose }) {
       <input style={{ ...S.input, marginBottom: 14 }} value={title} autoFocus
         onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 — Bach (BWV 28)" />
 
+      <label style={S.label}>Compositor</label>
+      <SuggestInput
+        value={composer}
+        onChange={setComposer}
+        suggestions={allComposers}
+        placeholder="Ej: Johann Sebastian Bach"
+        style={{ ...S.input, marginBottom: 14 }}
+      />
+
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 14, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
-        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tonalidad, compositor, contexto…" />
+        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tonalidad, contexto histórico…" />
+
+      <label style={{ ...S.label, marginBottom: 4 }}>Etiquetas internas <span style={{ fontWeight: 400, color: C.muted }}>(solo visibles para el profesor)</span></label>
+      <div style={{ marginBottom: 14 }}>
+        <TagInput tags={tags} onChange={setTags} suggestions={allTags} />
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Pulsa Intro o coma para añadir · Ej: "Forma sonata", "Modulación cromática"</div>
+      </div>
 
       <label style={S.label}>URL del audio</label>
       <input type="url" style={{ ...S.input, marginBottom: 6 }}
@@ -6778,7 +7468,7 @@ export default function App() {
   const [categories,   setCategories]   = useState([DEFAULT_CATEGORY]);
   const [courses,      setCourses]      = useState([]);
   const [units,        setUnits]        = useState([]);
-  const [audioLibrary, setAudioLibrary] = useState([]);
+  const [audioLibrary, setAudioLibrary] = useState(INIT_AUDIO_LIBRARY);
 
   const [dbReady, setDbReady] = useState(false);
   const [user,    setUser]    = useState(null);
