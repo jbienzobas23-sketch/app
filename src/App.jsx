@@ -1452,7 +1452,7 @@ function SetupView({ onSetup }) {
 }
 
 // Pantalla de login (alumno/profesor/admin)
-function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
+function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onForgotPin }) {
   const [username,   setUsername]   = useState("");
   const [credential, setCredential] = useState("");
   const [loading,    setLoading]    = useState(false);
@@ -1508,6 +1508,17 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
           {loading ? "Verificando…" : "Entrar →"}
         </CtaButton>
 
+        {onForgotPin && (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button
+              onClick={onForgotPin}
+              style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 12, color: C.muted, textDecoration: "underline", padding: 0 }}
+            >
+              He olvidado mi PIN
+            </button>
+          </div>
+        )}
+
         {onGuest && (
           <>
             <div style={{ display: "flex", alignItems: "center", margin: "22px 0 16px" }}>
@@ -1542,6 +1553,164 @@ function HomeView({ onTeacher, onStudent }) {
           <CtaButton full lg onClick={onStudent}>Acceso alumno</CtaButton>
           <GhostButton full lg onClick={onTeacher}>Acceso profesor</GhostButton>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Vista para solicitar enlace de recuperación de PIN por correo
+function ForgotPinView({ users, supabaseRef, onBack }) {
+  const [username, setUsername] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [sent,     setSent]     = useState(false);
+  const [error,    setError]    = useState("");
+
+  const handleSend = async () => {
+    if (!username.trim() || loading) return;
+    setLoading(true); setError("");
+    try {
+      const found = (users || []).find(
+        (u) => u.role === "student" && u.username === username.trim().toLowerCase()
+      );
+      if (!found) { setError("Usuario no encontrado."); return; }
+      if (!found.recoveryEmail) {
+        setError("Este usuario no tiene correo de recuperación. Pide ayuda a tu profesor.");
+        return;
+      }
+      const sb = supabaseRef.current;
+      if (!sb) { setError("Sin conexión al servidor. Inténtalo más tarde."); return; }
+      const { error: sbErr } = await sb.auth.signInWithOtp({
+        email: found.recoveryEmail,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: window.location.origin + (window.location.pathname || "/"),
+        },
+      });
+      if (sbErr) throw sbErr;
+      setSent(true);
+    } catch { setError("No se pudo enviar el correo. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  if (sent) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 20 }}>✉</div>
+          <h1 style={{ ...S.h1, textAlign: "center" }}>Correo enviado</h1>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 28 }}>
+            Hemos enviado un enlace de acceso a tu correo de recuperación. Haz clic en él para configurar un nuevo PIN.
+          </p>
+          <GhostButton full lg onClick={onBack}>← Volver al inicio</GhostButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 28 }}>← Volver</button>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Recuperar acceso · Alumno</Overline>
+          <h1 style={{ ...S.h1 }}>He olvidado mi PIN</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
+          Introduce tu nombre de usuario. Te enviaremos un enlace a tu correo de recuperación.
+        </p>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <input
+            style={{ ...S.input }}
+            value={username}
+            autoFocus
+            autoComplete="username"
+            onChange={(e) => { setUsername(e.target.value); setError(""); }}
+            placeholder="usuario"
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleSend} disabled={!username.trim() || loading}>
+          {loading ? "Enviando…" : "Enviar enlace →"}
+        </CtaButton>
+      </div>
+    </div>
+  );
+}
+
+// Vista para configurar nuevo PIN tras llegar desde el enlace de correo
+function ResetPinView({ users, supabaseSession, onReset, onBack }) {
+  const [pin,     setPin]     = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+  const [done,    setDone]    = useState(false);
+
+  const email      = supabaseSession?.user?.email;
+  const targetUser = (users || []).find(
+    (u) => u.recoveryEmail?.toLowerCase() === email?.toLowerCase()
+  );
+
+  const canSave = pin.length >= 4 && !loading;
+
+  const handleReset = async () => {
+    if (!canSave || !targetUser) return;
+    setLoading(true); setError("");
+    try {
+      const salt = generateSalt();
+      const hash = await hashCredential(pin, salt);
+      await onReset({ ...targetUser, credType: "pin", passwordHash: hash, salt });
+      setDone(true);
+    } catch { setError("Error al actualizar el PIN. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  if (done) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 20 }}>✓</div>
+          <h1 style={{ ...S.h1, textAlign: "center" }}>PIN actualizado</h1>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 28 }}>
+            Tu PIN ha sido actualizado correctamente. Ya puedes iniciar sesión con tu nuevo PIN.
+          </p>
+          <CtaButton full lg onClick={onBack}>Ir al inicio →</CtaButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (!targetUser) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 24 }}>
+            No se encontró ningún usuario asociado a este correo. Pide ayuda a tu profesor.
+          </p>
+          <GhostButton full lg onClick={onBack}>← Volver al inicio</GhostButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Recuperar acceso · {targetUser.displayName}</Overline>
+          <h1 style={{ ...S.h1 }}>Nuevo PIN de acceso</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
+          Elige un nuevo PIN de 4 a 6 dígitos.
+        </p>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>Nuevo PIN</FieldLabel>
+          <CredentialInput kind="pin" value={pin} onChange={setPin} onSubmit={handleReset} marginBottom={0} />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleReset} disabled={!canSave}>
+          {loading ? "Guardando…" : "Guardar nuevo PIN →"}
+        </CtaButton>
       </div>
     </div>
   );
@@ -6154,7 +6323,7 @@ function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, 
 }
 
 // ── Pestaña: Categorías ───────────────────────────────────────────────────
-function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
+function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }) {
   return (
     <>
       <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Crear categoría</button>
@@ -6162,39 +6331,96 @@ function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
         Las categorías definen los botones del modelo Interactivo. Editar o eliminar una categoría no afecta a los ejercicios ya creados.
       </p>
 
-      {categories.map((m) => (
-        <div key={m.id} style={S.card}>
-          <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-              <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 600 }}>{m.name}</span>
-                {m.builtIn && <span style={{ ...S.badge, background: C.line, color: C.muted }}>Predeterminada</span>}
+      {categories.map((m) => {
+        const isGlobal = m.builtIn || m.global;
+        const canEdit  = isAdmin || !isGlobal;
+        const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
+        return (
+          <div key={m.id} style={S.card}>
+            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{m.name}</span>
+                  {isGlobal && (
+                    <span style={{ ...S.badge, background: "#e8f0fe", color: "#1a56db", border: "1px solid #bfcfef" }}>
+                      ⭐ Predeterminada
+                    </span>
+                  )}
+                </div>
+                <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+                  {m.buttons.map((b) => (
+                    <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
+                      {b.id} · {b.name} [{b.key.toUpperCase()}]
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                {m.buttons.map((b) => (
-                  <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
-                    {b.id} · {b.name} [{b.key.toUpperCase()}]
-                  </span>
-                ))}
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {isAdmin && !m.builtIn && (
+                  <button
+                    onClick={() => onToggleGlobal(m.id)}
+                    title={m.global ? "Quitar de predeterminadas" : "Establecer como predeterminada para todos los profesores"}
+                    style={{ ...S.btn, fontSize: 12, color: m.global ? "#1a56db" : C.muted }}
+                  >
+                    {m.global ? "⭐ Predeterminada" : "☆ Predeterminar"}
+                  </button>
+                )}
+                {canEdit && (
+                  <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
+                )}
+                {canDel && (
+                  <button
+                    onClick={() => askConfirm(
+                      `¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`,
+                      () => onDelete(m.id)
+                    )}
+                    style={S.btnDanger}
+                  >Eliminar</button>
+                )}
               </div>
             </div>
-            {!m.builtIn && (
-              <div style={{ ...S.row, gap: 6 }}>
-                <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
-                <button onClick={() => askConfirm(`¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`, () => onDelete(m.id))} style={S.btnDanger}>Eliminar</button>
-              </div>
-            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }
 
 // ── Pestaña: Audios (almacén) ─────────────────────────────────────────────
 function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }) {
-  const [openId,    setOpenId]    = useState(null);
-  const [previewId, setPreviewId] = useState(null);
+  const [openId,          setOpenId]          = useState(null);
+  const [previewId,       setPreviewId]       = useState(null);
+  const [filterComposers, setFilterComposers] = useState([]);
+  const [filterTags,      setFilterTags]      = useState([]);
+
+  // Opciones únicas para los dropdowns
+  const allComposers = useMemo(() =>
+    [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  const allTags = useMemo(() =>
+    [...new Set(audioLibrary.flatMap((a) => a.tags || []))].sort(),
+    [audioLibrary]
+  );
+
+  // Lista filtrada
+  const filtered = useMemo(() => {
+    if (filterComposers.length === 0 && filterTags.length === 0) return audioLibrary;
+    return audioLibrary.filter((a) => {
+      if (filterComposers.length > 0 && !filterComposers.includes(a.composer)) return false;
+      if (filterTags.length > 0) {
+        const aTags = a.tags || [];
+        if (!filterTags.every((t) => aTags.includes(t))) return false;
+      }
+      return true;
+    });
+  }, [audioLibrary, filterComposers, filterTags]);
+
+  const hasFilters = filterComposers.length > 0 || filterTags.length > 0;
+
+  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+
   return (
     <>
       {isAdmin && (
@@ -6204,6 +6430,34 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
         <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios del almacén.</p>
       )}
 
+      {/* ── Barra de filtros ── */}
+      {audioLibrary.length > 0 && (
+        <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <FilterDropdown
+            label="Compositor"
+            options={allComposers}
+            selected={filterComposers}
+            onToggle={toggleComposer}
+            onClear={() => setFilterComposers([])}
+            accent="#2F6FB8"
+          />
+          <FilterDropdown
+            label="Etiquetas"
+            options={allTags}
+            selected={filterTags}
+            onToggle={toggleTag}
+            onClear={() => setFilterTags([])}
+            accent={C.fnI}
+          />
+          {hasFilters && (
+            <button
+              onClick={() => { setFilterComposers([]); setFilterTags([]); }}
+              style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}
+            >✕ Limpiar</button>
+          )}
+        </div>
+      )}
+
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
           <div>El almacén está vacío.</div>
@@ -6211,8 +6465,14 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
         </div>
       )}
 
+      {audioLibrary.length > 0 && filtered.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem" }}>
+          No hay audios que coincidan con los filtros seleccionados.
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {audioLibrary.map((audio) => {
+        {filtered.map((audio) => {
           const isOpen = openId === audio.id;
           const isPrev = previewId === audio.id;
           return (
@@ -6343,7 +6603,7 @@ function TeacherDash({
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
   onRecord, onPreview, onManageQuestions, onAdd, onLogout,
-  categories, onAddCategory, onUpdateCategory, onDeleteCategory,
+  categories, onAddCategory, onUpdateCategory, onDeleteCategory, onToggleGlobalCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
   onAddUnit, onUpdateUnit, onDeleteUnit,
@@ -6526,9 +6786,11 @@ function TeacherDash({
 
         {tab === "categories" && (
           <CategoriesTab categories={categories}
+            isAdmin={isAdmin}
             onAdd={() => setEditingCategory("new")}
             onEdit={(m) => setEditingCategory(m)}
             onDelete={onDeleteCategory}
+            onToggleGlobal={onToggleGlobalCategory}
             askConfirm={askConfirm} />
         )}
 
@@ -7559,9 +7821,10 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:   initialCategory?.id || uid("cat"),
-      name: name.trim(),
-      builtIn: false,
+      id:      initialCategory?.id || uid("cat"),
+      name:    name.trim(),
+      builtIn: initialCategory?.builtIn ?? false,
+      global:  initialCategory?.global  ?? false,
       buttons: buttons.map((b) => ({ ...b, id: b.id.trim().toUpperCase(), name: b.name.trim(), key: b.key.trim().toLowerCase() })),
     });
   };
@@ -7886,6 +8149,56 @@ function ResetCredentialModal({ targetUser, onSave, onClose }) {
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+// Modal para configurar el correo de recuperación en el primer login
+function RecoveryEmailModal({ onSave, onSkip }) {
+  const [email,   setEmail]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const handleSave = async () => {
+    if (!valid || loading) return;
+    setLoading(true); setError("");
+    try { await onSave(email.trim().toLowerCase()); }
+    catch { setError("Error al guardar el correo. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Primer acceso</Overline>
+          <h1 style={{ ...S.h1 }}>Correo de recuperación</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 24 }}>
+          Añade un correo para poder recuperar tu acceso si olvidas tu PIN. Puedes saltarte este paso, pero no podrás recuperar tu cuenta sin ayuda del profesor.
+        </p>
+        <div style={{ marginBottom: 8 }}>
+          <FieldLabel>Correo electrónico</FieldLabel>
+          <input
+            type="email"
+            style={{ ...S.input }}
+            value={email}
+            autoFocus
+            onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            placeholder="correo@ejemplo.com"
+            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+          />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 12 }}>{error}</ErrorMsg>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 24 }}>
+          <CtaButton full lg onClick={handleSave} disabled={!valid || loading}>
+            {loading ? "Guardando…" : "Guardar y continuar →"}
+          </CtaButton>
+          <GhostButton full lg onClick={onSkip}>Ahora no</GhostButton>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -8260,6 +8573,10 @@ export default function App() {
   const [pickingTeacher, setPickingTeacher] = useState(false);
   const redirectAfterLogin = useRef(null);   // enlace profundo a recuperar tras login
 
+  const [pendingLoginUser, setPendingLoginUser] = useState(null); // alumno esperando configurar correo de recuperación
+  const [showForgotPin,    setShowForgotPin]    = useState(false);
+  const [resetSession,     setResetSession]     = useState(null);  // sesión Supabase Auth desde magic link
+
   // Ejercicio referenciado por la URL (reconstruido desde el id)
   const routeExercise = useMemo(() => {
     const exId = route.params?.exId;
@@ -8284,6 +8601,12 @@ export default function App() {
         try {
           const mod = await import("./supabase.js");
           supabaseRef.current = mod.supabase;
+          // Detectar sesión desde magic link de recuperación de PIN
+          const { data: { session: magicSession } } = await mod.supabase.auth.getSession();
+          if (magicSession) {
+            setResetSession(magicSession);
+            window.history.replaceState(null, "", "#/");
+          }
         } catch {
           // Entorno de previsualización: sin backend — modo en memoria
           setDbReady(true);
@@ -8451,6 +8774,14 @@ export default function App() {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     dbDeleteCategory(id);
   };
+  const toggleGlobalCategory = (id) => {
+    setCategories((prev) => {
+      const updated = prev.map((c) => c.id === id ? { ...c, global: !c.global } : c);
+      const cat = updated.find((c) => c.id === id);
+      if (cat) dbUpsertCategory(cat);
+      return updated;
+    });
+  };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
   const addCourse = (newCourse) => {
@@ -8557,6 +8888,20 @@ export default function App() {
   };
 
   const openQM = (ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
+
+  // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
+  const completeLogin = (u) => {
+    setUser(u);
+    const dest = redirectAfterLogin.current;
+    redirectAfterLogin.current = null;
+    if (u.role === "student") {
+      const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
+      if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
+      navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
+    } else {
+      navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
+    }
+  };
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
   const submitAnswer = (payload) => {
@@ -8685,17 +9030,65 @@ export default function App() {
 
   // Login flow
   if (!user) {
+    // 1. Recuperar acceso desde magic link enviado por correo
+    if (resetSession) {
+      return (
+        <ResetPinView
+          users={users}
+          supabaseSession={resetSession}
+          onReset={async (updatedUser) => {
+            updateUser(updatedUser);
+            const sb = supabaseRef.current;
+            if (sb) await sb.auth.signOut();
+            setResetSession(null);
+            navigate("/");
+          }}
+          onBack={async () => {
+            const sb = supabaseRef.current;
+            if (sb) await sb.auth.signOut();
+            setResetSession(null);
+            navigate("/");
+          }}
+        />
+      );
+    }
+
+    // 2. Primer login de alumno sin correo de recuperación configurado
+    if (pendingLoginUser) {
+      return (
+        <RecoveryEmailModal
+          onSave={async (email) => {
+            const updated = { ...pendingLoginUser, recoveryEmail: email };
+            setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
+            await dbUpsertUser(updated);
+            setPendingLoginUser(null);
+            completeLogin(updated);
+          }}
+          onSkip={() => {
+            setPendingLoginUser(null);
+            completeLogin(pendingLoginUser);
+          }}
+        />
+      );
+    }
+
+    // 3. Vista "He olvidado mi PIN"
+    if (showForgotPin) {
+      return (
+        <ForgotPinView
+          users={users}
+          supabaseRef={supabaseRef}
+          onBack={() => setShowForgotPin(false)}
+        />
+      );
+    }
+
     const finishLogin = (u) => {
-      setUser(u);
-      const dest = redirectAfterLogin.current;
-      redirectAfterLogin.current = null;
-      if (u.role === "student") {
-        const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
-        if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
-        navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
-      } else {
-        navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
+      if (u.role === "student" && !u.recoveryEmail) {
+        setPendingLoginUser(u);
+        return;
       }
+      completeLogin(u);
     };
 
     if (loginRole) {
@@ -8707,6 +9100,7 @@ export default function App() {
           users={users}
           onLogin={finishLogin}
           onBack={() => navigate("/")}
+          onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : null}
           onGuest={loginRole === "student" ? () => {
             const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
             setUser(guest); navigate("/alumno");
@@ -8838,6 +9232,7 @@ export default function App() {
       onAddCategory={addCategory}
       onUpdateCategory={updateCategory}
       onDeleteCategory={deleteCategory}
+      onToggleGlobalCategory={toggleGlobalCategory}
       courses={courses} units={units}
       onAddCourse={addCourse} onUpdateCourse={updateCourse} onDeleteCourse={deleteCourse}
       onAddUnit={addUnit} onUpdateUnit={updateUnit} onDeleteUnit={deleteUnit}
