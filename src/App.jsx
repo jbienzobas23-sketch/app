@@ -2312,7 +2312,7 @@ function IntervalStrip({
   );
 }
 
-function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null }) {
+function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const dur          = exercise.duration;
   const exCategories = categoriesOf(exercise);
   const initialCategoryId = useMemo(() => {
@@ -2335,14 +2335,19 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   const [intervalsByCategory, setIntervalsByCategory] = useState({});
   const [pressing,     setPressing]     = useState(null);
   const [selected,     setSelected]     = useState(null);
-  const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
-  // Reproductor compartido
-  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
+  // Cuando hay reproductor compartido, se omite la carga propia de audio
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform });
+  } = sharedAudioPlayer || localPlayer;
 
   const intervals    = intervalsByCategory[currentCategoryId] || [];
   const setIntervals = (updater) => setIntervalsByCategory((prev) => {
@@ -2907,15 +2912,21 @@ function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
 
 // ═══ 9b. SCHEMA EXERCISE VIEW (modelo Esquema) ══════════════════════════════
 
-function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null }) {
+function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const duration = exercise.duration;
-  const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
-  const onWaveform = exercise.waveformData ? null : wd => setWaveformData(wd);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
+
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? wd => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd,
     timeRef: audioTimeRef, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform });
+  } = sharedAudioPlayer || localPlayer;
 
   const timeRef = useRef(0);
   timeRef.current = time;
@@ -5275,24 +5286,31 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
 }
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null }) {
+function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null }) {
   const dur       = exercise.duration;
   const questions = questionsOf(exercise);
 
   const [answers,        setAnswers]        = useState({});
   const [expandedId,     setExpandedId]     = useState(null);
   const [lockedQuestion, setLockedQuestion] = useState(null);
-  const [waveformData,   setWaveformData]   = useState(exercise.waveformData || null);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
-  // Sincronizado cada render para que RAF/timer conozcan el bucle activo
-  const loopRegionRef = useRef(null);
-  loopRegionRef.current = lockedQuestion;
+  // Ref de bucle: usa el externo (del padre) si está disponible, para que el
+  // reproductor compartido vea los cambios de fragmento bloqueado
+  const ownLoopRegionRef = useRef(null);
+  const loopRegionRef    = externalLoopRef || ownLoopRegionRef;
+  loopRegionRef.current  = lockedQuestion;   // sincronizado cada render
 
-  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : loopRegionRef }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
+  } = sharedAudioPlayer || localPlayer;
 
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
@@ -7779,18 +7797,30 @@ function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onC
 // ═══ 14b. MULTI-MODEL SESSION VIEW ══════════════════════════════════════════
 // Wrapper para ejercicios con dos modelos: gestiona el estado de alternancia
 // y pasa la barra de toggle a cada vista como prop.
+// El audio se decodifica UNA SOLA VEZ aquí y se comparte con todas las vistas
+// para que cambiar de modelo no recargue ni re-decodifique el audio.
 function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
   const models = modelsOf(exercise);
   const [activeIdx, setActiveIdx] = useState(0);
   const activeModel = models[activeIdx] || models[0];
 
+  // Audio compartido: decodificado una vez, persiste entre cambios de modelo
+  const [sharedWaveformData, setSharedWaveformData] = useState(exercise.waveformData || null);
+  const loopRegionRef = useRef(null);   // QuestionnaireView lo actualiza con su lockedQuestion
+  const onWaveform    = sharedWaveformData ? null : (wd) => setSharedWaveformData(wd);
+  const rawPlayer     = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
+  const sharedAudioPlayer = { ...rawPlayer, waveformData: sharedWaveformData };
+
+  // Al cambiar de modelo, cancelar cualquier bucle de fragmento activo
+  useEffect(() => { loopRegionRef.current = null; }, [activeModel]);
+
   const toggleNode = models.length > 1 ? (
     <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
   ) : null;
 
-  // Cada vista tiene su propio estado interno; al cambiar de modelo se desmonta
-  // y vuelve a montar (React detecta el cambio de key). Esto garantiza que el
-  // estado de un modelo no "se filtra" al otro.
+  // Cada vista tiene su propio estado de UI; al cambiar de modelo se desmonta
+  // y vuelve a montar (React detecta el cambio de key). El audio, sin embargo,
+  // vive aquí y se pasa como sharedAudioPlayer para no re-decodificar.
   if (activeModel === "esquema") {
     return (
       <SchemaExerciseView
@@ -7800,6 +7830,7 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
         onSubmit={onSubmit}
         onBack={onBack}
         modelToggleNode={toggleNode}
+        sharedAudioPlayer={sharedAudioPlayer}
       />
     );
   }
@@ -7811,6 +7842,8 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
         onSubmit={onSubmit}
         onBack={onBack}
         modelToggleNode={toggleNode}
+        sharedAudioPlayer={sharedAudioPlayer}
+        loopRegionRef={loopRegionRef}
       />
     );
   }
@@ -7822,6 +7855,7 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
       onSubmit={onSubmit}
       onBack={onBack}
       modelToggleNode={toggleNode}
+      sharedAudioPlayer={sharedAudioPlayer}
     />
   );
 }
