@@ -226,6 +226,18 @@ const SCHEMA_DEFAULT_LABELS = {
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
   4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
+// Calcula { bg, textColor } para cualquier bloque de esquema, replicando el sistema de colores del ejercicio real
+function schemaBlockColor(b, allBlocks) {
+  if (b.customColor) return harmonyBlockColors(null, b.customColor);
+  if (b.level === 3)  return harmonyBlockColors(b.label, SCHEMA_LEVELS[2].color);
+  if (b.level === 1)  return harmonyBlockColors(null, partBlockColor(b.label));
+  if (b.level === 2) {
+    const parent = allBlocks.find(p => p.level === 1 && p.start <= b.start + 0.01 && p.end > b.start + 0.01);
+    return harmonyBlockColors(null, lightenColor(parent ? (parent.customColor || partBlockColor(parent.label)) : SCHEMA_LEVELS[1].color, 18, -8));
+  }
+  return { bg: SCHEMA_LEVELS.find(l => l.id === b.level)?.color ?? "#999", textColor: "#fff" };
+}
+
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
 const SCHEMA_CLICK_MS       = 320;
@@ -5587,38 +5599,60 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
       !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
     );
 
-    const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
+    const SchemaStrip = ({ title: stripTitle, bks }) => (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
         {activeLevels.map((lv) => {
-          const lvBlocks = bks.filter((b) => b.level === lv.id);
+          const lvBlocks = bks.filter((b) => b.level === lv.id).sort((a, b) => a.start - b.start);
           if (lvBlocks.length === 0) return null;
           return (
             <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: lv.id === 4 ? 8 : 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                {lv.id !== 4 && (
-                  <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
-                    {lvBlocks.map((b, i) => (
-                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${(b.start / exercise.duration) * 100}%`, width: `${Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5)}%`, background: accent ?? lv.color, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 4px" }}>{b.label}</span>
+                <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
+                  {lvBlocks.map((b, i) => {
+                    const lPct = (b.start / exercise.duration) * 100;
+                    const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                    const { bg, textColor } = schemaBlockColor(b, bks);
+                    if (lv.id === 3) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                          <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>{b.label}</span>
+                          </div>
+                          {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
+                        </div>
+                      );
+                    }
+                    if (lv.id === 4) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", pointerEvents: "none" }}>{b.label}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px", pointerEvents: "none" }}>{b.label}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
-              {lv.id === 4 && (
-                <div style={{ paddingLeft: 66, display: "flex", flexDirection: "column", gap: 8 }}>
-                  {lvBlocks.map((b, i) => (
-                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
-                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 14, color: lv.color }}>{b.label}</span>
-                        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+              {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
+                <div style={{ paddingLeft: 66, marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {lvBlocks.filter(b => b.bodyText).map((b, i) => {
+                    const { bg } = schemaBlockColor(b, bks);
+                    return (
+                      <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 13, color: bg }}>{b.label}</span>
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
                       </div>
-                      {b.bodyText && <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>}
-                      {!b.bodyText && <div style={{ fontSize: 12, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -7869,16 +7903,38 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                     </span>
                   </div>
                   {hasKey && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {byLevel.map(({ lv, blocks }) => (
                         <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                          <div style={{ flex: 1, position: "relative", height: 20, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
-                            {blocks.map((b, i) => (
-                              <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                                <span style={{ fontSize: 8, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
-                              </div>
-                            ))}
+                          <div style={{ flex: 1, position: "relative", height: 28, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                            {blocks.map((b, i) => {
+                              const lPct = (b.start / exercise.duration) * 100;
+                              const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                              const { bg, textColor } = schemaBlockColor(b, key);
+                              if (lv.id === 3) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                                    <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", padding: "2px 7px", flexShrink: 0 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
+                                    </div>
+                                    {wPct >= 4 && <div style={{ flex: 1, height: 2, background: bg, opacity: 0.5, marginLeft: 3, borderRadius: 1 }} />}
+                                  </div>
+                                );
+                              }
+                              if (lv.id === 4) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                    <span style={{ fontSize: 9, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 4px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 3, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                  <span style={{ fontSize: 9, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
