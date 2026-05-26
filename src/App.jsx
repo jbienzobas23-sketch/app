@@ -1840,7 +1840,7 @@ function ModelToggleBar({ models, activeIdx, onSwitch }) {
 }
 
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
-function ExerciseRow({ ex, result, onOpen }) {
+function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const [open, setOpen] = useState(false);
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
@@ -1850,6 +1850,8 @@ function ExerciseRow({ ex, result, onOpen }) {
   const allBtns   = cats.flatMap((c) => c.buttons || []);
   const isDone    = result != null;
   const score     = result?.score ?? null;
+  const isCorrected = result?.teacherCorrection?.corrected;
+  const hasManualModel = exModels.includes("esquema") || (exModels.includes("cuestionario") && exQs.some((q) => q.type === "desarrollo"));
 
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
@@ -1875,6 +1877,12 @@ function ExerciseRow({ ex, result, onOpen }) {
             )}
           </div>
           <Chevron open={open} />
+          {isDone && onViewCorrection && (
+            <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }}
+              style={{ ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+              {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+            </button>
+          )}
           <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
             style={isDone
               ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
@@ -1906,7 +1914,7 @@ function ExerciseRow({ ex, result, onOpen }) {
 }
 
 // Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onLogout, onChangeTeacher, tab = "all", onTab }) {
+function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, tab = "all", onTab }) {
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
@@ -1983,7 +1991,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                 </p>
               : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                   {filteredExercises.map((ex) => (
-                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                   ))}
                 </div>
             }
@@ -2047,7 +2055,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                                                   <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
                                                     <StatusCircle done={results[ex.id] != null} />
                                                   </div>
-                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                                                 </div>
                                               );
                                             })}
@@ -5581,34 +5589,34 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
 
     const SchemaStrip = ({ title: stripTitle, bks, accent }) => (
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
         {activeLevels.map((lv) => {
           const lvBlocks = bks.filter((b) => b.level === lv.id);
           if (lvBlocks.length === 0) return null;
           return (
-            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 10 : 5 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: lv.id === 4 ? 6 : 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: lv.id === 4 ? 8 : 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
                 {lv.id !== 4 && (
-                  <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
+                  <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
                     {lvBlocks.map((b, i) => (
-                      <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${(b.start / exercise.duration) * 100}%`, width: `${Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5)}%`, background: accent ?? lv.color, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 4px" }}>{b.label}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
               {lv.id === 4 && (
-                <div style={{ paddingLeft: 56, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ paddingLeft: 66, display: "flex", flexDirection: "column", gap: 8 }}>
                   {lvBlocks.map((b, i) => (
-                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
-                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 13, color: lv.color }}>{b.label}</span>
-                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 14, color: lv.color }}>{b.label}</span>
+                        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
                       </div>
-                      {b.bodyText && <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>}
-                      {!b.bodyText && <div style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>}
+                      {b.bodyText && <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>}
+                      {!b.bodyText && <div style={{ fontSize: 12, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>}
                     </div>
                   ))}
                 </div>
@@ -9425,6 +9433,13 @@ export default function App() {
     }
   }, [user, route]);
 
+  const openCorrection = (ex) => {
+    const stored = userResults[ex.id];
+    if (!stored) return;
+    setLastResult(stored);
+    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
+  };
+
   const openEx = (ex, mode = "student") => {
     if (mode === "record") {
       // El cuestionario puro se "graba" desde el gestor de preguntas.
@@ -9747,6 +9762,7 @@ export default function App() {
         tab={route.name === "student" ? route.params.tab : "all"}
         onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
         onExercise={(ex) => openEx(ex, "student")}
+        onViewCorrection={openCorrection}
         onLogout={onLogout}
         onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
       />
