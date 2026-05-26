@@ -7845,15 +7845,12 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
     <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
   ) : null;
 
-  // Fade-in al montar cada vista para ocultar el frame en blanco del canvas
-  const fadeStyle = { animation: "faModelIn 130ms ease both" };
-
   // Cada vista tiene su propio estado de UI; al cambiar de modelo se desmonta
   // y vuelve a montar (React detecta el cambio de key). El audio, sin embargo,
   // vive aquí y se pasa como sharedAudioPlayer para no re-decodificar.
   if (activeModel === "esquema") {
     return (
-      <div key={`schema-${exercise.id}`} style={fadeStyle}>
+      <div key={`schema-${exercise.id}`}>
         <SchemaExerciseView
           exercise={exercise}
           mode={mode}
@@ -7867,7 +7864,7 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
   }
   if (activeModel === "cuestionario") {
     return (
-      <div key={`quiz-${exercise.id}`} style={fadeStyle}>
+      <div key={`quiz-${exercise.id}`}>
         <QuestionnaireView
           exercise={exercise}
           onSubmit={onSubmit}
@@ -7880,7 +7877,7 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
     );
   }
   return (
-    <div key={`interactive-${exercise.id}`} style={fadeStyle}>
+    <div key={`interactive-${exercise.id}`}>
       <ExerciseView
         exercise={exercise}
         mode={mode}
