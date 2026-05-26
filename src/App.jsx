@@ -668,6 +668,15 @@ function buildWaveformFromPCM(channelData, duration) {
   return sm.map((v) => 0.08 + (v / mx) * 0.92);
 }
 
+function buildFragmentWaveform(channelData, totalDuration, fragStart, fragEnd) {
+  const s = fragStart ?? 0;
+  const e = fragEnd   ?? totalDuration;
+  if (s <= 0 && e >= totalDuration) return buildWaveformFromPCM(channelData, totalDuration);
+  const startIdx = Math.max(0, Math.floor((s / totalDuration) * channelData.length));
+  const endIdx   = Math.min(channelData.length, Math.ceil((e  / totalDuration) * channelData.length));
+  return buildWaveformFromPCM(channelData.slice(startIdx, endIdx), e - s);
+}
+
 function generateWaveform(seed, numSamples) {
   let s = (seed * 1664525 + 1013904223) >>> 0;
   const raw = new Array(numSamples);
@@ -1862,9 +1871,11 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //   loopRegionRef:   ref con { audioStart, audioEnd } | null para bucle en
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
-  const dur      = exercise.duration;
-  const audioUrl = exercise.audioUrl;
-  const hasAudio = !!audioUrl;
+  const dur           = exercise.duration;
+  const audioUrl      = exercise.audioUrl;
+  const hasAudio      = !!audioUrl;
+  const fragmentStart = exercise.audioFragmentStart ?? 0;
+  const fragmentEnd   = exercise.audioFragmentEnd   ?? null;
 
   const [time,          setTime]          = useState(0);
   const [playing,       setPlaying]       = useState(false);
@@ -1909,14 +1920,15 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       if (sourceIdRef.current !== myId) return;   // ya hay otra fuente activa → ignorar
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
-        const endT = bufferRef.current?.duration ?? dur;
-        timeRef.current = endT;
-        playOffsetRef.current = endT;
-        setTime(endT);
+        timeRef.current       = dur;
+        playOffsetRef.current = dur;
+        setTime(dur);
         setPlaying(false);
       }
     };
-    src.start(0, Math.min(offset, bufferRef.current.duration));
+    const absOffset = Math.min(bufferRef.current.duration, offset + fragmentStart);
+    const clipDur   = fragmentEnd != null ? Math.max(0, (fragmentEnd - fragmentStart) - offset) : undefined;
+    src.start(0, absOffset, clipDur);
     sourceRef.current        = src;
     startCtxTimeRef.current  = ctx.currentTime;
   };
@@ -1943,7 +1955,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         bufferRef.current = decoded;
         setAudioDuration(decoded.duration);
         setAudioReady(true);
-        onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
+        onWaveform?.(buildFragmentWaveform(decoded.getChannelData(0), decoded.duration, fragmentStart, fragmentEnd));
       } catch (_) { if (!cancelled) setAudioError("Error al decodificar el audio"); }
     })();
 
@@ -1996,7 +2008,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           lastSetTimeRef.current = performance.now();
           startSource(lq.audioStart);
         } else {
-          const effectiveDur = bufferRef.current?.duration ?? dur;
+          const effectiveDur = Math.min(bufferRef.current?.duration ?? dur, dur);
           const t = Math.min(effectiveDur, rawT);
           timeRef.current = t;             // siempre actualizar ref (canvas lo lee directo)
           const now = performance.now();
@@ -2075,6 +2087,104 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   };
 }
 
+
+// Selector visual de fragmento (barra de rango con handles arrastrables)
+function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear }) {
+  const barRef = useRef(null);
+  const startPct = (start / totalDuration) * 100;
+  const endPct   = (end   / totalDuration) * 100;
+
+  const getT = (clientX) => {
+    const r = barRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return 0;
+    return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
+  };
+
+  const beginDrag = (e, which) => {
+    e.preventDefault();
+    const onMove = (ev) => {
+      const raw = Math.round(getT(ev.clientX) * 10) / 10;
+      if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)),   end });
+      else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+  };
+
+  const HANDLE_W = 12;
+  const handleStyle = (pct) => ({
+    position: "absolute", top: 0, bottom: 0,
+    left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
+    background: C.quiz, borderRadius: 3, cursor: "ew-resize",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+  });
+
+  return (
+    <div>
+      {/* Barra de rango */}
+      <div style={{ position: "relative", paddingTop: 20, marginBottom: 10, userSelect: "none" }}>
+        {/* Etiquetas de tiempo sobre los handles */}
+        <div style={{ position: "absolute", top: 0, left: `calc(${startPct}% - 22px)`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+          {fmt(start)}
+        </div>
+        <div style={{ position: "absolute", top: 0, left: `calc(${endPct}% - 22px)`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+          {fmt(end)}
+        </div>
+        {/* La barra */}
+        <div ref={barRef} style={{ position: "relative", height: 28, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6 }}>
+          {/* Región seleccionada */}
+          <div style={{
+            position: "absolute", top: 3, bottom: 3,
+            left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%`,
+            background: "rgba(47,111,184,0.18)", border: "1px solid rgba(47,111,184,0.4)", borderRadius: 3,
+          }} />
+          {/* Handle izquierdo */}
+          <div onMouseDown={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
+            <span style={{ width: 2, height: 12, background: "rgba(255,255,255,0.65)", borderRadius: 1, display: "block" }} />
+          </div>
+          {/* Handle derecho */}
+          <div onMouseDown={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
+            <span style={{ width: 2, height: 12, background: "rgba(255,255,255,0.65)", borderRadius: 1, display: "block" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Inputs numéricos */}
+      <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
+          <input type="number" min={0} max={end - 0.5} step={0.1} style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+            value={start}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (!isNaN(v)) onChange({ start: Math.max(0, Math.min(v, end - 0.5)), end });
+            }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
+          <input type="number" min={start + 0.5} max={totalDuration} step={0.1} style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+            value={end}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (!isNaN(v)) onChange({ start, end: Math.max(start + 0.5, Math.min(v, totalDuration)) });
+            }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
+          <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
+            {fmt(Math.max(0, end - start))}
+          </div>
+        </div>
+      </div>
+
+      <button type="button" onClick={onClear}
+        style={{ ...S.btn, width: "100%", fontSize: 12, color: C.muted, padding: "6px 10px" }}>
+        Usar audio completo
+      </button>
+    </div>
+  );
+}
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
@@ -6325,8 +6435,17 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
 
   const [audioUrl,       setAudioUrl]       = useState(isCreating ? null : (exercise.audioUrl || null));
   const [audioName,      setAudioName]      = useState(isCreating ? null : (exercise.audioName || null));
-  const [audioDuration,  setAudioDuration]  = useState(null);
+  const [audioDuration,  setAudioDuration]  = useState(() => {
+    if (isCreating) return null;
+    const lib = (exercise.audioUrl || null)
+      ? audioLibrary.find(a => a.url === exercise.audioUrl)
+      : null;
+    return lib?.duration || exercise.audioTotalDuration || null;
+  });
   const [waveformData,   setWaveformData]   = useState(isCreating ? null : (exercise.waveformData || null));
+  // Fragmento de audio: inicio y fin en el audio completo (segundos), o null = sin fragmento
+  const [fragStart,      setFragStart]      = useState(isCreating ? null : (exercise.audioFragmentStart ?? null));
+  const [fragEnd,        setFragEnd]        = useState(isCreating ? null : (exercise.audioFragmentEnd   ?? null));
   const [manualDuration, setManualDuration] = useState(
     !isCreating && !exercise.audioName && exercise.duration ? String(exercise.duration) : ""
   );
@@ -6366,6 +6485,8 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     setAudioName(url ? url.split("/").pop().split("?")[0] || "audio" : null);
     setAudioDuration(null);
     setWaveformData(null);
+    setFragStart(null);
+    setFragEnd(null);
     if (!url) return;
 
     const reqId    = ++urlReqRef.current;
@@ -6386,6 +6507,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
   const clearAudio = () => {
     setAudioUrl(null); setAudioName(null);
     setAudioDuration(null); setWaveformData(null);
+    setFragStart(null); setFragEnd(null);
     urlReqRef.current++;
   };
 
@@ -6396,12 +6518,22 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     setAudioDuration(audio.duration);
     setWaveformData(null);                      // se recalcula al reproducir
     setManualDuration(String(audio.duration));
+    setFragStart(null);                         // reset fragmento al cambiar audio
+    setFragEnd(null);
     setShowLibraryPicker(false);
   };
 
   const hasExistingAudio = !!audioName;
+  // Duración total del audio del almacén (sin recortar), para la barra de fragmento
+  const totalAudioDuration = audioDuration
+    || (!audioUrl ? null : audioLibrary.find(a => a.url === audioUrl)?.duration)
+    || (!isCreating && !exercise.audioFragmentStart ? exercise.duration : null)
+    || null;
+  // Duración efectiva del ejercicio (del fragmento si está definido, del audio completo si no)
   const effDuration = hasExistingAudio
-    ? (audioDuration || (!isCreating ? exercise.duration : 0))
+    ? (fragStart != null && fragEnd != null
+        ? Math.round((fragEnd - fragStart) * 10) / 10
+        : (audioDuration || (!isCreating ? exercise.duration : 0)))
     : (parseInt(manualDuration) || 0);
 
   // Compositor del audio actualmente seleccionado (para el toggle)
@@ -6443,8 +6575,10 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       const manual = parseInt(manualDuration) || 0;
       if (manual !== exercise.duration) return true;
     }
+    if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
+    if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels, fragStart, fragEnd]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
 
@@ -6469,9 +6603,12 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
         duration: effDuration,
         model,                     // modelo primario (backward compat)
         models: selectedModels,    // array completo de modelos
-        audioUrl:     audioUrl     || null,
-        audioName:    audioName    || null,
-        waveformData: waveformData || null,
+        audioUrl:            audioUrl     || null,
+        audioName:           audioName    || null,
+        waveformData:        waveformData || null,
+        audioFragmentStart:  fragStart    ?? null,
+        audioFragmentEnd:    fragEnd      ?? null,
+        audioTotalDuration:  totalAudioDuration || null,
         showHint: false,
         categories: hasInteractivo ? safe : [],
         answers:    {},
@@ -6494,14 +6631,18 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       patch.categories = [];
       patch.answers    = {};
     }
-    patch.audioUrl     = audioUrl     || null;
-    patch.audioName    = audioName    || null;
-    patch.waveformData = waveformData || null;
+    patch.audioUrl            = audioUrl     || null;
+    patch.audioName           = audioName    || null;
+    patch.waveformData        = waveformData || null;
+    patch.audioFragmentStart  = fragStart    ?? null;
+    patch.audioFragmentEnd    = fragEnd      ?? null;
+    patch.audioTotalDuration  = totalAudioDuration || null;
     if (hasEsquema) { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
     patch.showComposer = showComposer;
     patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
+      patch.audioFragmentStart = null; patch.audioFragmentEnd = null;
     }
     onUpdate(patch);
   };
@@ -6569,6 +6710,42 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
           </div>
         )}
         <div style={{ marginBottom: 18 }} />
+
+        {/* ── Selector de fragmento ───────────────────────────────────────── */}
+        {hasExistingAudio && totalAudioDuration && (
+          selectedModels.includes("cuestionario") || selectedModels.includes("interactivo")
+        ) && (
+          <div style={{ marginBottom: 22 }}>
+            <label style={S.label}>Fragmento del ejercicio</label>
+            {fragStart === null ? (
+              <button type="button"
+                onClick={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
+                style={{ ...S.btn, width: "100%", fontSize: 13, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>Definir fragmento <span style={{ color: C.muted, fontWeight: 400 }}>(usar solo una parte del audio)</span></span>
+                <span style={{ color: C.muted2, fontSize: 18, fontWeight: 300, lineHeight: 1 }}>+</span>
+              </button>
+            ) : (
+              <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 14px 10px" }}>
+                <p style={{ fontSize: 11, color: C.muted, margin: "0 0 12px", lineHeight: 1.5 }}>
+                  Arrastra los bordes para ajustar el fragmento o edita los valores directamente.
+                  El ejercicio solo reproducirá este tramo del audio.
+                </p>
+                <FragmentRangeSelector
+                  totalDuration={totalAudioDuration}
+                  start={fragStart}
+                  end={fragEnd}
+                  onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
+                  onClear={() => { setFragStart(null); setFragEnd(null); }}
+                />
+              </div>
+            )}
+            {fragStart !== null && (
+              <p style={{ fontSize: 11, color: C.quiz, margin: "6px 0 0" }}>
+                Fragmento activo: {fmt(fragStart)} – {fmt(fragEnd)} · duración {fmt(fragEnd - fragStart)}
+              </p>
+            )}
+          </div>
+        )}
 
         <label style={S.label}>Modelo de ejercicio</label>
         {/* Fila 1: modelos individuales */}
