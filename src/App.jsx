@@ -1893,7 +1893,7 @@ function ExerciseRow({ ex, result, onOpen }) {
 }
 
 // Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher, tab = "all", onTab }) {
+function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onLogout, onChangeTeacher, tab = "all", onTab }) {
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
@@ -1904,9 +1904,14 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
   const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
   const teacherCourses = useMemo(() => {
+    const studentGroups = groups.filter((g) => g.studentIds?.includes(user.id));
+    if (studentGroups.length > 0) {
+      const allowed = new Set(studentGroups.flatMap((g) => g.allowedCourseIds || []));
+      return courses.filter((c) => !c.hidden && allowed.has(c.id));
+    }
     if (!user.teacherId) return courses.filter((c) => !c.hidden);
     return courses.filter((c) => (!c.ownerId || c.ownerId === user.teacherId) && !c.hidden);
-  }, [courses, user.teacherId]);
+  }, [courses, groups, user.id, user.teacherId]);
 
   const filteredExercises = useMemo(() => {
     return exercises.filter((ex) => {
@@ -6262,41 +6267,45 @@ function CoursesTab({
 }
 
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
-function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer }) {
-  return (
-    <>
-      <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>{students.length} {students.length === 1 ? "alumno" : "alumnos"}</p>
-        <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear cuenta de alumno</button>
-      </div>
+function StudentsTab({ students, exercises, results, groups, courses, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
+  const [expandedStudents, setExpandedStudents] = useState(new Set());
+  const toggleExpand = (id) =>
+    setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-      {students.length === 0 && (
-        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
-          
-          <div>Aún no hay alumnos.</div>
-          <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
-        </div>
-      )}
-
-      {students.map((s) => {
-        const sRes = results[s.id] || {};
-        return (
-          <div key={s.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
-                <div style={{ ...S.row, gap: 6 }}>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
-                  <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
-                    {s.credType === "pin" ? "PIN" : "Contraseña"}
-                  </span>
-                </div>
-              </div>
-              <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear acceso</button>
-                <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
-              </div>
+  const renderStudentCard = (s) => {
+    const sRes      = results[s.id] || {};
+    const isOpen    = expandedStudents.has(s.id);
+    const doneCount = exercises.filter((ex) => sRes[ex.id]).length;
+    return (
+      <div key={s.id} style={S.card}>
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
+            <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+              <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
+                {s.credType === "pin" ? "PIN" : "Contraseña"}
+              </span>
+              {exercises.length > 0 && (
+                <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
+                  {doneCount}/{exercises.length} ejs.
+                </span>
+              )}
             </div>
+          </div>
+          <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+            {exercises.length > 0 && (
+              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>
+                {isOpen ? "▲ Ocultar" : "▼ Ejercicios"}
+              </button>
+            )}
+            <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear</button>
+            <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
+          </div>
+        </div>
+
+        {isOpen && exercises.length > 0 && (
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
             {exercises.map((ex) => {
               const r = sRes[ex.id];
               return (
@@ -6305,19 +6314,76 @@ function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, 
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
                     {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
                     {r && (
-                      <button
-                        onClick={() => onViewAnswer(s, ex, r)}
-                        style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>
-                        Ver
-                      </button>
+                      <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
+        )}
+      </div>
+    );
+  };
+
+  const assignedStudentIds = new Set(groups.flatMap((g) => g.studentIds || []));
+  const ungrouped = students.filter((s) => !assignedStudentIds.has(s.id));
+
+  return (
+    <>
+      <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
+          {students.length} {students.length === 1 ? "alumno" : "alumnos"} · {groups.length} {groups.length === 1 ? "grupo" : "grupos"}
+        </p>
+        <div style={{ ...S.row, gap: 8 }}>
+          <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
+          <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
+        </div>
+      </div>
+
+      {students.length === 0 && groups.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
+          <div>Aún no hay alumnos.</div>
+          <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
+        </div>
+      )}
+
+      {groups.map((group) => {
+        const groupStudents  = students.filter((s) => (group.studentIds || []).includes(s.id));
+        const allowedNames   = (group.allowedCourseIds || []).map((id) => courses.find((c) => c.id === id)?.name).filter(Boolean);
+        return (
+          <div key={group.id} style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
+              <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
+              {allowedNames.length > 0 && (
+                <div style={{ ...S.row, gap: 4, flexWrap: "wrap" }}>
+                  {allowedNames.map((n) => (
+                    <span key={n} style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, fontSize: 10 }}>{n}</span>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
+              <button onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))} style={{ ...S.btnDanger, fontSize: 12, padding: "4px 10px" }}>Eliminar</button>
+            </div>
+            {groupStudents.length === 0
+              ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
+              : groupStudents.map(renderStudentCard)
+            }
+          </div>
         );
       })}
+
+      {ungrouped.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          {groups.length > 0 && (
+            <div style={{ paddingBottom: 10, marginBottom: 12, borderBottom: `2px solid ${C.line}` }}>
+              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, color: C.muted }}>Sin grupo</span>
+            </div>
+          )}
+          {ungrouped.map(renderStudentCard)}
+        </div>
+      )}
     </>
   );
 }
@@ -6608,6 +6674,7 @@ function TeacherDash({
   onAddCourse, onUpdateCourse, onDeleteCourse,
   onAddUnit, onUpdateUnit, onDeleteUnit,
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
+  groups = [], onAddGroup, onUpdateGroup, onDeleteGroup,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
   tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }) {
@@ -6617,7 +6684,11 @@ function TeacherDash({
     (users || []).filter((u) => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
     [users, currentUser, isAdmin]
   );
-  const teachers = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
+  const teachers      = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
+  const teacherGroups = useMemo(() =>
+    (groups || []).filter((g) => isAdmin || g.teacherId === currentUser?.id),
+    [groups, currentUser, isAdmin]
+  );
 
   const setTab = onTab || (() => {});
   // Detalle de ejercicio controlado por la URL ("new" para creación)
@@ -6634,6 +6705,7 @@ function TeacherDash({
   const [addingUserRole,  setAddingUserRole]  = useState("student");
   const [showResetCred,   setShowResetCred]   = useState(false);
   const [resetCredTarget, setResetCredTarget] = useState(null);
+  const [editingGroup,    setEditingGroup]    = useState(undefined); // undefined=closed, null=new, group=edit
 
   // Course/unit modal state
   const [openUnitIds,      setOpenUnitIds]      = useState(new Set());
@@ -6777,11 +6849,16 @@ function TeacherDash({
         )}
 
         {tab === "students" && (
-          <StudentsTab students={students} exercises={exercises} results={results}
+          <StudentsTab
+            students={students} exercises={exercises} results={results}
+            groups={teacherGroups} courses={courses}
             onAddStudent={() => { setAddingUserRole("student"); setShowAddUser(true); }}
             onResetCred={(s) => { setResetCredTarget(s); setShowResetCred(true); }}
             onRemove={onRemoveUser} askConfirm={askConfirm}
-            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })} />
+            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })}
+            onEditGroup={(g) => setEditingGroup(g === null ? null : g)}
+            onDeleteGroup={onDeleteGroup}
+          />
         )}
 
         {tab === "categories" && (
@@ -6866,6 +6943,20 @@ function TeacherDash({
             allComposers={[...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort()}
             onSave={(a) => { if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a); setEditingAudio(null); }}
             onClose={() => setEditingAudio(null)} />
+        )}
+
+        {editingGroup !== undefined && (
+          <GroupEditorModal
+            initial={editingGroup}
+            students={students}
+            courses={courses}
+            currentUserId={currentUser.id}
+            onSave={(g) => {
+              if (editingGroup === null) onAddGroup(g); else onUpdateGroup(g);
+              setEditingGroup(undefined);
+            }}
+            onClose={() => setEditingGroup(undefined)}
+          />
         )}
 
         {confirmState && (
@@ -7875,6 +7966,80 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
 }
 
 // Formulario de curso
+function GroupEditorModal({ initial, students, courses, currentUserId, onSave, onClose }) {
+  const [name,             setName]             = useState(initial?.name || "");
+  const [studentIds,       setStudentIds]       = useState(() => new Set(initial?.studentIds || []));
+  const [allowedCourseIds, setAllowedCourseIds] = useState(() => new Set(initial?.allowedCourseIds || []));
+
+  const toggleStudent = (id) => setStudentIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleCourse  = (id) => setAllowedCourseIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const canSave = name.trim().length > 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      id:               initial?.id || uid("group"),
+      name:             name.trim(),
+      teacherId:        currentUserId,
+      studentIds:       [...studentIds],
+      allowedCourseIds: [...allowedCourseIds],
+      createdAt:        initial?.createdAt || Date.now(),
+    });
+  };
+
+  return (
+    <ModalShell width={520} align="top">
+      <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>
+        {initial ? "Editar grupo" : "Nuevo grupo"}
+      </h3>
+
+      <label style={S.label}>Nombre del grupo</label>
+      <input style={{ ...S.input, marginBottom: 18 }} value={name} autoFocus
+        onChange={(e) => setName(e.target.value)} placeholder="Ej: Grupo A, 2º Bachillerato…" />
+
+      {students.length > 0 && (
+        <>
+          <label style={{ ...S.label, marginBottom: 8 }}>Alumnos del grupo</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 200, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+            {students.map((s) => (
+              <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 13, color: C.ink }}>
+                <input type="checkbox" checked={studentIds.has(s.id)} onChange={() => toggleStudent(s.id)}
+                  style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
+                <span style={{ flex: 1 }}>{s.displayName}</span>
+                <span style={{ color: C.muted, fontSize: 11, fontFamily: FONT_MONO }}>@{s.username}</span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      {courses.length > 0 && (
+        <>
+          <label style={{ ...S.label, marginBottom: 4 }}>Cursos con acceso</label>
+          <p style={{ fontSize: 12, color: C.muted, margin: "0 0 8px" }}>Los alumnos de este grupo solo verán los cursos marcados.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 180, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+            {courses.map((c) => (
+              <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 13, color: C.ink }}>
+                <input type="checkbox" checked={allowedCourseIds.has(c.id)} onChange={() => toggleCourse(c.id)}
+                  style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
+                <span style={{ flex: 1 }}>{c.name}</span>
+                {c.hidden && <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>oculto</span>}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
+        <button onClick={onClose} style={S.btn}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
+          {initial ? "Guardar" : "Crear grupo"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function CourseFormModal({ initial, onSave, onClose }) {
   const [name, setName] = useState(initial?.name || "");
   const [desc, setDesc] = useState(initial?.description || "");
@@ -8561,6 +8726,7 @@ export default function App() {
   const [categories,   setCategories]   = useState([DEFAULT_CATEGORY]);
   const [courses,      setCourses]      = useState([]);
   const [units,        setUnits]        = useState([]);
+  const [groups,       setGroups]       = useState([]);
   const [audioLibrary, setAudioLibrary] = useState(INIT_AUDIO_LIBRARY);
 
   const [dbReady, setDbReady] = useState(false);
@@ -8616,7 +8782,7 @@ export default function App() {
         const sb = supabaseRef.current;
         const [
           exRes, userRes, catRes, courseRes, unitRes,
-          resultRes, settingsRes, audioRes,
+          resultRes, settingsRes, audioRes, groupRes,
         ] = await Promise.all([
           sb.from("fa_exercises").select("*"),
           sb.from("fa_users").select("*"),
@@ -8626,6 +8792,7 @@ export default function App() {
           sb.from("fa_results").select("*"),
           sb.from("fa_settings").select("*"),
           sb.from("fa_audio_library").select("*"),
+          sb.from("fa_groups").select("*"),
         ]);
 
         if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
@@ -8639,6 +8806,7 @@ export default function App() {
         if (courseRes.data?.length) setCourses(courseRes.data.map((r) => r.data));
         if (unitRes.data?.length)   setUnits(unitRes.data.map((r) => r.data));
         if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r) => r.data));
+        if (groupRes.data?.length)  setGroups(groupRes.data.map((r) => r.data));
 
         if (resultRes.data?.length) {
           const byUser = {};
@@ -8697,6 +8865,9 @@ export default function App() {
   const dbUpsertAudio = async (a)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").upsert({ id: a.id, data: a }); };
   const dbDeleteAudio = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").delete().eq("id", id); };
 
+  const dbUpsertGroup = async (g)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").upsert({ id: g.id, data: g }); };
+  const dbDeleteGroup = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").delete().eq("id", id); };
+
   // ─── Users ───────────────────────────────────────────────────────────────
   const addUser = (newUser) => {
     setUsers((prev) => [...prev, newUser]);
@@ -8706,6 +8877,15 @@ export default function App() {
   const removeUser = (userId) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
+    setGroups((prev) => {
+      const next = prev.map((g) => {
+        if (!g.studentIds?.includes(userId)) return g;
+        const updated = { ...g, studentIds: g.studentIds.filter((id) => id !== userId) };
+        dbUpsertGroup(updated);
+        return updated;
+      });
+      return next;
+    });
     dbDeleteUser(userId);
     dbDeleteResultsForUser(userId);
   };
@@ -8715,6 +8895,11 @@ export default function App() {
     if (user?.id === updatedUser.id) setUser(updatedUser);
     dbUpsertUser(updatedUser);
   };
+
+  // ─── Groups ──────────────────────────────────────────────────────────────
+  const addGroup    = (g) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
+  const updateGroup = (g) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
+  const deleteGroup = (id) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
 
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
   const handleSetup = (adminUser) => {
@@ -9193,6 +9378,7 @@ export default function App() {
         results={userResults}
         courses={courses}
         units={units}
+        groups={groups}
         tab={route.name === "student" ? route.params.tab : "all"}
         onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
         onExercise={(ex) => openEx(ex, "student")}
@@ -9238,6 +9424,7 @@ export default function App() {
       onAddUnit={addUnit} onUpdateUnit={updateUnit} onDeleteUnit={deleteUnit}
       onAddExercisesToUnit={addExercisesToUnit}
       onRemoveExerciseFromUnit={removeExerciseFromUnit}
+      groups={groups} onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
       audioLibrary={audioLibrary}
       onAddAudio={addAudio} onUpdateAudio={updateAudio} onDeleteAudio={deleteAudio}
     />
