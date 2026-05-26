@@ -2117,6 +2117,8 @@ function WaveformDisplay({
     window.addEventListener("resize", resize);
 
     let rafId;
+    const FRAME_MS = 1000 / 75;          // cap a 75 fps
+    let lastFrameTime = -FRAME_MS;       // garantiza que el primer frame siempre dibuja
     const ctx = canvas.getContext("2d");
     const drawPill = (x, y, w, h) => {
       if (typeof ctx.roundRect === "function") {
@@ -2129,7 +2131,9 @@ function WaveformDisplay({
       }
     };
 
-    const draw = () => {
+    const draw = (ts = 0) => {
+      if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
+      lastFrameTime = ts;
       const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
