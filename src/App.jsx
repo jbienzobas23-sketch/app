@@ -226,6 +226,18 @@ const SCHEMA_DEFAULT_LABELS = {
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
   4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
+// Calcula { bg, textColor } para cualquier bloque de esquema, replicando el sistema de colores del ejercicio real
+function schemaBlockColor(b, allBlocks) {
+  if (b.customColor) return harmonyBlockColors(null, b.customColor);
+  if (b.level === 3)  return harmonyBlockColors(b.label, SCHEMA_LEVELS[2].color);
+  if (b.level === 1)  return harmonyBlockColors(null, partBlockColor(b.label));
+  if (b.level === 2) {
+    const parent = allBlocks.find(p => p.level === 1 && p.start <= b.start + 0.01 && p.end > b.start + 0.01);
+    return harmonyBlockColors(null, lightenColor(parent ? (parent.customColor || partBlockColor(parent.label)) : SCHEMA_LEVELS[1].color, 18, -8));
+  }
+  return { bg: SCHEMA_LEVELS.find(l => l.id === b.level)?.color ?? "#999", textColor: "#fff" };
+}
+
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
 const SCHEMA_CLICK_MS       = 320;
@@ -534,6 +546,19 @@ const calcQuestionnaireScore = (questions, answers) => {
   if (testQs.length === 0) return null;
   const correct = testQs.filter((q) => (answers || {})[q.id] === q.correctOptionId).length;
   return Math.round((correct / testQs.length) * 100);
+};
+
+const calcSchemaPlacementScore = (keyBlocks, studentBlocks, margin = 3) => {
+  if (!keyBlocks?.length) return null;
+  let correct = 0;
+  for (const kb of keyBlocks) {
+    if (studentBlocks.some((sb) =>
+      sb.level === kb.level &&
+      Math.abs(sb.start - kb.start) <= margin &&
+      Math.abs(sb.end - kb.end) <= margin
+    )) correct++;
+  }
+  return Math.round((correct / keyBlocks.length) * 100);
 };
 
 // ─── Colores derivados ─────────────────────────────────────────────────────
@@ -1827,7 +1852,7 @@ function ModelToggleBar({ models, activeIdx, onSwitch }) {
 }
 
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
-function ExerciseRow({ ex, result, onOpen }) {
+function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const [open, setOpen] = useState(false);
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
@@ -1837,6 +1862,8 @@ function ExerciseRow({ ex, result, onOpen }) {
   const allBtns   = cats.flatMap((c) => c.buttons || []);
   const isDone    = result != null;
   const score     = result?.score ?? null;
+  const isCorrected = result?.teacherCorrection?.corrected;
+  const hasManualModel = exModels.includes("esquema") || (exModels.includes("cuestionario") && exQs.some((q) => q.type === "desarrollo"));
 
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
@@ -1862,6 +1889,12 @@ function ExerciseRow({ ex, result, onOpen }) {
             )}
           </div>
           <Chevron open={open} />
+          {isDone && onViewCorrection && (
+            <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }}
+              style={{ ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+              {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+            </button>
+          )}
           <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
             style={isDone
               ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
@@ -1893,7 +1926,7 @@ function ExerciseRow({ ex, result, onOpen }) {
 }
 
 // Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onLogout, onChangeTeacher, tab = "all", onTab }) {
+function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, tab = "all", onTab }) {
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
@@ -1970,7 +2003,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                 </p>
               : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                   {filteredExercises.map((ex) => (
-                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                   ))}
                 </div>
             }
@@ -2034,7 +2067,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                                                   <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
                                                     <StatusCircle done={results[ex.id] != null} />
                                                   </div>
-                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} />
+                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                                                 </div>
                                               );
                                             })}
@@ -5542,93 +5575,262 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
 
-function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios" }) {
+function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }) {
   const dur = exercise.duration;
+  const tc  = result.teacherCorrection;
 
-  // Modelo esquema — sin puntuación automática
+  // Hooks siempre en el mismo orden (reglas de React)
+  const [lvComments,   setLvComments]   = useState(() => tc?.levelComments   || {});
+  const [blkComments,  setBlkComments]  = useState(() => tc?.blockComments   || {});
+  const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
+  const [schemaScore,  setSchemaScore]  = useState(tc?.totalScore ?? "");
+  const [showBlkForm,  setShowBlkForm]  = useState(false);
+  const [qComments,    setQComments]    = useState(() => tc?.questionComments || {});
+  const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
+  const [quizScore,    setQuizScore]    = useState(tc?.totalScore ?? "");
+
+  // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
-    const blocks    = result.blocks || [];
-    const schemaKey = exercise.schemaKey || [];
-    const hasKey    = schemaKey.length > 0;
+    const blocks      = result.blocks || [];
+    const schemaKey   = exercise.schemaKey || [];
+    const hasKey      = schemaKey.length > 0;
+    const ps          = result.placementScore ?? null;
+    const activeLevels = SCHEMA_LEVELS.filter((lv) =>
+      !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+    );
 
-    const SchemaStrip = ({ title: stripTitle, bks, accent }) => {
-      const corrLevels = SCHEMA_LEVELS.filter(lv =>
-        !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
-      );
-      return (
+    const SchemaStrip = ({ title: stripTitle, bks }) => (
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
-        {corrLevels.map(lv => {
-          const lvBlocks = bks.filter(b => b.level === lv.id);
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
+        {activeLevels.map((lv) => {
+          const lvBlocks = bks.filter((b) => b.level === lv.id).sort((a, b) => a.start - b.start);
           if (lvBlocks.length === 0) return null;
           return (
-            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 10 : 5 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: lv.id === 4 ? 6 : 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                {lv.id !== 4 && (
-                  <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
-                    {lvBlocks.map((b, i) => (
-                      <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
+                  {lvBlocks.map((b, i) => {
+                    const lPct = (b.start / exercise.duration) * 100;
+                    const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                    const { bg, textColor } = schemaBlockColor(b, bks);
+                    if (lv.id === 3) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                          <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>{b.label}</span>
+                          </div>
+                          {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
+                        </div>
+                      );
+                    }
+                    if (lv.id === 4) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", pointerEvents: "none" }}>{b.label}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px", pointerEvents: "none" }}>{b.label}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
-              {/* Nivel 4: lista de bloques con texto */}
-              {lv.id === 4 && (
-                <div style={{ paddingLeft: 56, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {lvBlocks.map((b, i) => (
-                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
-                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 13, color: lv.color }}>{b.label}</span>
-                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
-                      </div>
-                      {b.bodyText && (
+              {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
+                <div style={{ paddingLeft: 66, marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {lvBlocks.filter(b => b.bodyText).map((b, i) => {
+                    const { bg } = schemaBlockColor(b, bks);
+                    return (
+                      <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 13, color: bg }}>{b.label}</span>
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                        </div>
                         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
-                      )}
-                      {!b.bodyText && (
-                        <div style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-      );
-    };
+    );
 
+    // ── Vista del profesor ────────────────────────────────────────────────────
+    if (isTeacherMode) {
+      const handleSave = () => onSaveCorrection?.(student?.id, exercise.id, {
+        levelComments: lvComments,
+        blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
+        globalComment: schemaGlobal.trim(),
+        totalScore:    schemaScore !== "" ? Number(schemaScore) : null,
+      });
+      return (
+        <div style={S.app}>
+          <div style={S.page}>
+            <button onClick={onBack} style={{ ...S.btn, marginBottom: 20, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+            <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+            {student && <p style={{ color: C.muted, fontSize: 13, margin: "0 0 20px" }}>Alumno: <strong>{student.displayName}</strong></p>}
+
+            {ps != null && (
+              <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Colocación automática (margen ±3 s)</div>
+                <div style={{ fontSize: 48, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
+                <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>de bloques dentro del margen</div>
+              </div>
+            )}
+
+            {(blocks.length > 0 || hasKey) && (
+              <div style={{ ...S.card, marginBottom: 16 }}>
+                {hasKey && <><SchemaStrip title="Referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+                {blocks.length > 0 && <SchemaStrip title="Esquema del alumno" bks={blocks} />}
+              </div>
+            )}
+
+            <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.3)` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.quiz, marginBottom: 16 }}>
+                {tc?.corrected ? "Editar corrección" : "Añadir corrección manual"}
+              </div>
+
+              {activeLevels.map((lv) => (
+                <div key={lv.id} style={{ marginBottom: 14 }}>
+                  <label style={{ ...S.label, color: lv.color }}>{lv.sub} — comentario (opcional)</label>
+                  <textarea value={lvComments[lv.id] || ""}
+                    onChange={(e) => setLvComments((p) => ({ ...p, [lv.id]: e.target.value }))}
+                    placeholder={`Valoración del nivel ${lv.sub}…`}
+                    style={{ ...S.input, minHeight: 56, resize: "vertical", fontFamily: FONT_SANS }} />
+                </div>
+              ))}
+
+              {blocks.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <button onClick={() => setShowBlkForm(!showBlkForm)} style={{ ...S.btn, fontSize: 12, marginBottom: 8 }}>
+                    {showBlkForm ? "▲ Ocultar comentarios por bloque" : "▼ Comentarios por bloque (opcional)"}
+                  </button>
+                  {showBlkForm && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {blocks.map((b) => {
+                        const lv = SCHEMA_LEVELS.find((l) => l.id === b.level);
+                        return (
+                          <div key={b.id} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                            <div style={{ ...S.row, gap: 6, marginBottom: 6 }}>
+                              <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{b.label}</span>
+                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                              <span style={{ fontSize: 10, background: (lv?.color || C.muted) + "20", color: lv?.color || C.muted, padding: "1px 6px", borderRadius: 3 }}>{lv?.sub}</span>
+                            </div>
+                            <textarea value={blkComments[b.id] || ""}
+                              onChange={(e) => setBlkComments((p) => ({ ...p, [b.id]: e.target.value }))}
+                              placeholder="Comentario sobre este bloque…" rows={2}
+                              style={{ ...S.input, resize: "vertical", fontFamily: FONT_SANS, fontSize: 12 }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={S.label}>Comentario general</label>
+                <textarea value={schemaGlobal} onChange={(e) => setSchemaGlobal(e.target.value)}
+                  placeholder="Observaciones generales sobre el esquema…"
+                  style={{ ...S.input, minHeight: 70, resize: "vertical", fontFamily: FONT_SANS }} />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={S.label}>Puntuación total (0–10, opcional)</label>
+                <input type="number" min={0} max={10} step={0.5} value={schemaScore}
+                  onChange={(e) => setSchemaScore(e.target.value)} placeholder="Ej: 7.5"
+                  style={{ ...S.input, width: 120 }} />
+              </div>
+
+              <button onClick={handleSave} style={{ ...S.btnPrimary, width: "100%" }}>
+                {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+              </button>
+            </div>
+            <div style={{ height: 32 }} />
+          </div>
+        </div>
+      );
+    }
+
+    // ── Vista del alumno ──────────────────────────────────────────────────────
+    const showRefSchema = exercise.immediateSchemaFeedback && hasKey;
     return (
       <div style={S.app}>
         <div style={S.page}>
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
+
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
-            <div style={{ color: C.muted, lineHeight: 1.6 }}>
-              Esquema enviado al profesor para revisión.<br />
-              <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
-            </div>
+            {ps != null ? (
+              <>
+                <div style={{ fontSize: 56, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>de bloques colocados correctamente (margen ±3 s)</div>
+              </>
+            ) : (
+              <div style={{ color: C.muted, lineHeight: 1.6 }}>
+                Esquema enviado al profesor para revisión.<br />
+                <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
+              </div>
+            )}
           </div>
 
-          {(blocks.length > 0 || hasKey) && (
+          {(blocks.length > 0 || showRefSchema) && (
             <div style={S.card}>
-              {hasKey && (
-                <>
-                  <SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} />
-                  <hr style={{ ...S.divider, margin: "10px 0 14px" }} />
-                </>
+              {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+              {!showRefSchema && hasKey && (
+                <p style={{ textAlign: "center", color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
+                  El esquema de referencia estará disponible cuando el profesor corrija el ejercicio.
+                </p>
               )}
-              {blocks.length > 0 && (
-                <SchemaStrip title="Tu esquema" bks={blocks} />
+              {blocks.length > 0 && <SchemaStrip title="Tu esquema" bks={blocks} />}
+            </div>
+          )}
+
+          {tc?.corrected && (
+            <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.35)`, marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>Corrección del profesor</div>
+              {tc.totalScore != null && (
+                <div style={{ textAlign: "center", marginBottom: 14 }}>
+                  <span style={{ fontSize: 48, fontWeight: 900, color: C.quiz, lineHeight: 1 }}>{tc.totalScore}</span>
+                  <span style={{ fontSize: 18, color: C.quiz }}>/10</span>
+                </div>
+              )}
+              {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
+                <div key={lv.id} style={{ marginBottom: 10, padding: "10px 12px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: lv.color, marginBottom: 4 }}>{lv.sub}</div>
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.levelComments[lv.id]}</div>
+                </div>
+              ))}
+              {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
+                const block = blocks.find((b) => b.id === blockId);
+                if (!block) return null;
+                const lv = SCHEMA_LEVELS.find((l) => l.id === block.level);
+                return (
+                  <div key={blockId} style={{ marginBottom: 6, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
+                    <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(block.start)}–{fmt(block.end)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
+                  </div>
+                );
+              })}
+              {tc.globalComment && (
+                <div style={{ padding: "10px 12px", background: "rgba(47,111,184,0.06)", border: `1px solid rgba(47,111,184,0.2)`, borderRadius: 8, marginTop: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, marginBottom: 4 }}>Comentario general</div>
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.globalComment}</div>
+                </div>
               )}
             </div>
           )}
 
-          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
+          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 16, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
       </div>
     );
@@ -5639,9 +5841,132 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     const questions = questionsOf(exercise);
     const sc        = result.score;
     const testQs    = questions.filter((q) => q.type === "test" && q.correctOptionId);
+    const devQs     = questions.filter((q) => q.type === "desarrollo");
     const correctN  = testQs.filter((q) => result.answers?.[q.id] === q.correctOptionId).length;
     const col       = scoreColor(sc);
 
+    const handleSaveQuiz = () => {
+      const correction = {
+        corrected: true,
+        questionComments: qComments,
+        globalComment: quizGlobal,
+        totalScore: quizScore === "" ? null : Number(quizScore),
+      };
+      onSaveCorrection(student.id, exercise.id, correction);
+    };
+
+    if (isTeacherMode) {
+      return (
+        <div style={S.app}>
+          <div style={S.page}>
+            <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+            <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+            {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
+
+            {sc != null && (
+              <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>{correctN} de {testQs.length} {testQs.length === 1 ? "pregunta test" : "preguntas test"} correctas (automático)</div>
+              </div>
+            )}
+
+            {questions.map((q, idx) => {
+              const studentAnswer = result.answers?.[q.id];
+              const isCorrect = q.type === "test" && studentAnswer === q.correctOptionId;
+              const isWrong   = q.type === "test" && !!studentAnswer && studentAnswer !== q.correctOptionId;
+              return (
+                <div key={q.id} style={{ ...S.card, marginBottom: 16, border: q.type !== "test" ? `1.5px solid ${C.quiz}33` : `1.5px solid ${isCorrect ? C.fnT : isWrong ? C.danger : C.line}` }}>
+                  <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
+                    <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)}–{fmt(q.audioEnd)}</span>
+                    {q.type === "test" && (
+                      <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
+                        {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 14, color: C.ink, marginBottom: 12 }}>{q.text}</div>
+
+                  {q.type === "test" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {q.options.map((opt) => {
+                        const isPick       = opt.id === studentAnswer;
+                        const isCorrectOpt = opt.id === q.correctOptionId;
+                        return (
+                          <div key={opt.id} style={{
+                            ...S.row, gap: 10, padding: "8px 12px", borderRadius: 8,
+                            background: isCorrectOpt ? "rgba(63,155,91,0.10)" : isPick && !isCorrectOpt ? "rgba(184,74,58,0.10)" : C.paper2,
+                            border:     `1.5px solid ${isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.line}`,
+                            color:      isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.muted,
+                          }}>
+                            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, minWidth: 20 }}>{opt.id}</span>
+                            <span style={{ flex: 1, fontSize: 13 }}>{opt.text}</span>
+                            {isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>✓ Correcta</span>}
+                            {isPick && !isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>Resp. alumno</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {q.type === "desarrollo" && (
+                    <div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Respuesta del alumno:</div>
+                      <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", minHeight: 40, lineHeight: 1.5, marginBottom: 12 }}>
+                        {studentAnswer || <span style={{ color: C.muted2, fontStyle: "italic" }}>Sin respuesta</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario del profesor:</div>
+                      <textarea
+                        value={qComments[q.id] || ""}
+                        onChange={(e) => setQComments((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        placeholder="Escribe un comentario para esta respuesta..."
+                        rows={3}
+                        style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {devQs.length > 0 && (
+              <div style={{ ...S.card, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 12 }}>Corrección global</div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario global:</div>
+                <textarea
+                  value={quizGlobal}
+                  onChange={(e) => setQuizGlobal(e.target.value)}
+                  placeholder="Comentario general sobre el cuestionario..."
+                  rows={3}
+                  style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box", marginBottom: 12 }}
+                />
+                <div style={{ ...S.row, gap: 12, alignItems: "center" }}>
+                  <label style={{ fontSize: 13, color: C.muted }}>Puntuación total (0–10):</label>
+                  <input
+                    type="number" min={0} max={10} step={0.5}
+                    value={quizScore}
+                    onChange={(e) => setQuizScore(e.target.value)}
+                    style={{ width: 80, fontFamily: "Outfit, sans-serif", fontSize: 14, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 10px", color: C.ink, textAlign: "center" }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveQuiz}
+              disabled={devQs.length === 0}
+              style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, marginBottom: 8, opacity: devQs.length === 0 ? 0.4 : 1 }}
+            >
+              {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+            </button>
+            <button onClick={onBack} style={{ ...S.btn, width: "100%", padding: 14, borderRadius: 12 }}>{backLabel}</button>
+          </div>
+        </div>
+      );
+    }
+
+    // Student mode
     return (
       <div style={S.app}>
         <div style={S.page}>
@@ -5649,13 +5974,13 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            {sc == null ? (
-              <div style={{ color: C.muted, lineHeight: 1.6 }}>
-                {testQs.length === 0
-                  ? <>Respuestas enviadas al profesor para revisión.<br /><span style={{ fontSize: 12 }}>Las preguntas de desarrollo se corrigen manualmente.</span></>
-                  : "Sin puntuación automática."}
-              </div>
-            ) : (
+            {tc?.corrected && tc?.totalScore != null ? (
+              <>
+                <div style={{ fontSize: 64, fontWeight: 900, color: scoreColor(tc.totalScore * 10), lineHeight: 1 }}>{tc.totalScore}<span style={{ fontSize: 28 }}>/10</span></div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Puntuación del profesor</div>
+                {sc != null && <div style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>{correctN} de {testQs.length} preguntas test correctas ({sc}% automático)</div>}
+              </>
+            ) : sc != null ? (
               <>
                 <div style={{ fontSize: 64, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
                 <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>{correctN} de {testQs.length} {testQs.length === 1 ? "pregunta" : "preguntas"} correctas</div>
@@ -5663,6 +5988,12 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                   {sc >= 80 ? "Excelente análisis." : sc >= 50 ? "Bien, pero hay margen de mejora." : "Sigue practicando."}
                 </div>
               </>
+            ) : (
+              <div style={{ color: C.muted, lineHeight: 1.6 }}>
+                {devQs.length > 0
+                  ? <>Respuestas enviadas al profesor para revisión.<br /><span style={{ fontSize: 12 }}>Las preguntas de desarrollo se corrigen manualmente.</span></>
+                  : "Sin puntuación automática."}
+              </div>
             )}
           </div>
 
@@ -5670,6 +6001,7 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
             const studentAnswer = result.answers?.[q.id];
             const isCorrect = q.type === "test" && studentAnswer === q.correctOptionId;
             const isWrong   = q.type === "test" && !!studentAnswer && studentAnswer !== q.correctOptionId;
+            const teacherComment = tc?.corrected ? tc?.questionComments?.[q.id] : null;
             return (
               <div key={q.id} style={{ ...S.card, border: q.type !== "test" ? `1px solid ${C.line}` : `1.5px solid ${isCorrect ? C.fnT : isWrong ? C.danger : C.line}` }}>
                 <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
@@ -5712,12 +6044,26 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                     <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", minHeight: 40, lineHeight: 1.5 }}>
                       {studentAnswer || <span style={{ color: C.muted2, fontStyle: "italic" }}>Sin respuesta</span>}
                     </div>
-                    <p style={{ fontSize: 11, color: C.muted2, margin: "6px 0 0" }}>Las preguntas de desarrollo serán revisadas por el profesor.</p>
+                    {teacherComment ? (
+                      <div style={{ marginTop: 10, background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor:</div>
+                        <div style={{ fontSize: 13, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{teacherComment}</div>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 11, color: C.muted2, margin: "6px 0 0" }}>Pendiente de revisión por el profesor.</p>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+
+          {tc?.corrected && tc?.globalComment && (
+            <div style={{ ...S.card, background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: C.quiz, fontWeight: 700, marginBottom: 6 }}>Comentario global del profesor</div>
+              <div style={{ fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{tc.globalComment}</div>
+            </div>
+          )}
 
           <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
@@ -6320,10 +6666,17 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
           <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
             {exercises.map((ex) => {
               const r = sRes[ex.id];
+              const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                r.type === "esquema" ||
+                (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+              );
               return (
                 <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
                   <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                    {needsCorrection && (
+                      <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                    )}
                     {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
                     {r && (
                       <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
@@ -6679,6 +7032,7 @@ function TeacherDash({
   onAddUnit, onUpdateUnit, onDeleteUnit,
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
   groups = [], onAddGroup, onUpdateGroup, onDeleteGroup,
+  onSaveCorrection,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
   tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }) {
@@ -6735,7 +7089,8 @@ function TeacherDash({
   // Vista de respuesta de un alumno
   if (viewingAnswer) {
     const { student, exercise: va_ex, result: va_result } = viewingAnswer;
-    const freshVa = exercises.find((e) => e.id === va_ex.id) || va_ex;
+    const freshVa      = exercises.find((e) => e.id === va_ex.id) || va_ex;
+    const freshResult  = (results[student.id] || {})[va_ex.id] || va_result;
     return (
       <div style={S.app}>
         <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -6746,11 +7101,15 @@ function TeacherDash({
           </div>
         </div>
         <CorrectionView
+          key={JSON.stringify(freshResult.teacherCorrection)}
           exercise={freshVa}
-          result={va_result}
+          result={freshResult}
           margin={margin}
           onBack={() => setViewingAnswer(null)}
           backLabel="← Volver a alumnos"
+          isTeacherMode={true}
+          student={student}
+          onSaveCorrection={onSaveCorrection}
         />
       </div>
     );
@@ -7025,8 +7384,9 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
   );
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
-  const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
-  const [showComposer,      setShowComposer]      = useState(isCreating ? true  : (exercise.showComposer ?? true));
+  const [listenOnly,                setListenOnly]                = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [immediateSchemaFeedback,   setImmediateSchemaFeedback]   = useState(isCreating ? false : (exercise.immediateSchemaFeedback ?? false));
+  const [showComposer,              setShowComposer]              = useState(isCreating ? true  : (exercise.showComposer ?? true));
   const [schemaLevels,      setSchemaLevels]      = useState(
     () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
   );
@@ -7126,6 +7486,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
     if (selectedModels.includes("esquema") && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if (selectedModels.includes("esquema") && (exercise.immediateSchemaFeedback ?? false) !== immediateSchemaFeedback) return true;
     if ((exercise.showComposer ?? true) !== showComposer) return true;
     if (selectedModels.includes("esquema")) {
       const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
@@ -7152,7 +7513,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
     if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels, fragStart, fragEnd]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
   const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
@@ -7188,7 +7549,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
         categories: hasInteractivo ? safe : [],
         answers:    {},
         ...(hasCuestionario ? { questions: [] } : {}),
-        ...(hasEsquema ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
+        ...(hasEsquema ? { listenOnly, immediateSchemaFeedback, schemaLevels: [...schemaLevels] } : {}),
         showComposer,
         composerName: activeComposer || null,
       });
@@ -7212,7 +7573,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     patch.audioFragmentStart  = fragStart    ?? null;
     patch.audioFragmentEnd    = fragEnd      ?? null;
     patch.audioTotalDuration  = totalAudioDuration || null;
-    if (hasEsquema) { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
+    if (hasEsquema) { patch.listenOnly = listenOnly; patch.immediateSchemaFeedback = immediateSchemaFeedback; patch.schemaLevels = [...schemaLevels]; }
     patch.showComposer = showComposer;
     patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
@@ -7518,6 +7879,16 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                 </div>
               </label>
             </div>
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${immediateSchemaFeedback ? C.quiz + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={immediateSchemaFeedback} onChange={e => setImmediateSchemaFeedback(e.target.checked)}
+                  style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Retroalimentación inmediata</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Al entregar el ejercicio, el alumno verá el esquema de referencia del profesor antes de que corrija manualmente.</div>
+                </div>
+              </label>
+            </div>
             {(() => {
               const key = exercise.schemaKey;
               const hasKey = Array.isArray(key) && key.length > 0;
@@ -7532,16 +7903,38 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                     </span>
                   </div>
                   {hasKey && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {byLevel.map(({ lv, blocks }) => (
                         <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                          <div style={{ flex: 1, position: "relative", height: 20, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
-                            {blocks.map((b, i) => (
-                              <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                                <span style={{ fontSize: 8, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
-                              </div>
-                            ))}
+                          <div style={{ flex: 1, position: "relative", height: 28, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                            {blocks.map((b, i) => {
+                              const lPct = (b.start / exercise.duration) * 100;
+                              const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                              const { bg, textColor } = schemaBlockColor(b, key);
+                              if (lv.id === 3) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                                    <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", padding: "2px 7px", flexShrink: 0 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
+                                    </div>
+                                    {wPct >= 4 && <div style={{ flex: 1, height: 2, background: bg, opacity: 0.5, marginLeft: 3, borderRadius: 1 }} />}
+                                  </div>
+                                );
+                              }
+                              if (lv.id === 4) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                    <span style={{ fontSize: 9, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 4px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 3, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                  <span style={{ fontSize: 9, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
@@ -8921,6 +9314,16 @@ export default function App() {
     dbUpsertUser(updatedUser);
   };
 
+  // ─── Correction save ─────────────────────────────────────────────────────
+  const saveCorrection = (studentId, exerciseId, correction) => {
+    setResults((prev) => {
+      const existing = (prev[studentId] || {})[exerciseId] || {};
+      const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
+      dbUpsertResult(studentId, exerciseId, updated);
+      return { ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } };
+    });
+  };
+
   // ─── Groups ──────────────────────────────────────────────────────────────
   const addGroup    = (g) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
   const updateGroup = (g) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
@@ -9086,6 +9489,13 @@ export default function App() {
     }
   }, [user, route]);
 
+  const openCorrection = (ex) => {
+    const stored = userResults[ex.id];
+    if (!stored) return;
+    setLastResult(stored);
+    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
+  };
+
   const openEx = (ex, mode = "student") => {
     if (mode === "record") {
       // El cuestionario puro se "graba" desde el gestor de preguntas.
@@ -9142,7 +9552,8 @@ export default function App() {
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const data = { type: "esquema", blocks: payload.blocks, timestamp: Date.now() };
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey, payload.blocks);
+      const data = { type: "esquema", blocks: payload.blocks, placementScore, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real
         if (isGuest) {
@@ -9407,6 +9818,7 @@ export default function App() {
         tab={route.name === "student" ? route.params.tab : "all"}
         onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
         onExercise={(ex) => openEx(ex, "student")}
+        onViewCorrection={openCorrection}
         onLogout={onLogout}
         onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
       />
@@ -9450,6 +9862,7 @@ export default function App() {
       onAddExercisesToUnit={addExercisesToUnit}
       onRemoveExerciseFromUnit={removeExerciseFromUnit}
       groups={groups} onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
+      onSaveCorrection={saveCorrection}
       audioLibrary={audioLibrary}
       onAddAudio={addAudio} onUpdateAudio={updateAudio} onDeleteAudio={deleteAudio}
     />
