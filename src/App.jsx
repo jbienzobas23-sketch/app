@@ -759,12 +759,20 @@ const questionsOf = (exercise)      => (Array.isArray(exercise?.questions) ? exe
 // Inyecta Google Fonts una sola vez al montar la app
 function useInjectFonts() {
   useEffect(() => {
-    if (typeof document === "undefined" || document.querySelector('link[data-gf="fa-v3"]')) return;
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.setAttribute("data-gf", "fa-v3");
-    link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@400;500;600;700&display=swap";
-    document.head.appendChild(link);
+    if (typeof document === "undefined") return;
+    if (!document.querySelector('link[data-gf="fa-v3"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.setAttribute("data-gf", "fa-v3");
+      link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@400;500;600;700&display=swap";
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('style[data-fa-anim]')) {
+      const style = document.createElement("style");
+      style.setAttribute("data-fa-anim", "1");
+      style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}";
+      document.head.appendChild(style);
+    }
   }, []);
 }
 
@@ -882,6 +890,17 @@ function CircleButton({ onClick, disabled, title, children, size = 42, primary =
 }
 
 // Botón submit grande con flecha (usado en ExerciseView y QuestionnaireView)
+function AudioLoadingOverlay() {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.52)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400 }}>
+      <div style={{ background: C.paper, borderRadius: 18, padding: "28px 36px", textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,0.20)", maxWidth: 280 }}>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 15, fontWeight: 600, color: C.ink, marginBottom: 6 }}>Cargando audio…</div>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Espera un momento antes de comenzar el ejercicio</div>
+      </div>
+    </div>
+  );
+}
+
 function PillSubmitButton({ onClick, children }) {
   return (
     <button onClick={onClick} style={{
@@ -1865,6 +1884,9 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const sourceIdRef      = useRef(0);
   // Evita que togglePlay sea llamado concurrentemente mientras ctx.resume() está pendiente
   const pendingToggleRef = useRef(false);
+  // Throttle de setTime: el canvas lee timeRef directamente a 60 fps; React solo necesita
+  // ~10 fps para el contador de tiempo visible → mucho menos re-renders.
+  const lastSetTimeRef   = useRef(0);
   playingRef.current     = playing;
   timeRef.current        = time;
 
@@ -1956,7 +1978,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, dur, hasAudio]);
 
-  // RAF tick para audio real (60 fps sin parpadeos)
+  // RAF tick para audio real — el canvas lee timeRef a 60 fps; React setState se
+  // throttlea a ~10 fps para no saturar el árbol de componentes con re-renders.
   useEffect(() => {
     if (!playing || !hasAudio) return;
     let raf;
@@ -1968,16 +1991,22 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         if (lq && rawT >= lq.audioEnd) {
           stopSource();
           playOffsetRef.current = lq.audioStart;
-          setTime(lq.audioStart);
+          timeRef.current = lq.audioStart;
+          setTime(lq.audioStart);          // loop reset: sin throttle
+          lastSetTimeRef.current = performance.now();
           startSource(lq.audioStart);
         } else {
           const effectiveDur = bufferRef.current?.duration ?? dur;
           const t = Math.min(effectiveDur, rawT);
-          timeRef.current = t;
-          setTime(t);
+          timeRef.current = t;             // siempre actualizar ref (canvas lo lee directo)
+          const now = performance.now();
+          if (now - lastSetTimeRef.current >= 100) {    // ~10 fps para React
+            lastSetTimeRef.current = now;
+            setTime(t);
+          }
           if (!lq && rawT >= effectiveDur) {
             timeRef.current = effectiveDur;
-            setTime(effectiveDur);
+            setTime(effectiveDur);         // fin de audio: sin throttle
             setPlaying(false);
             return;
           }
@@ -2512,7 +2541,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
         {modelToggleNode}
 
-        {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
+        {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -2564,12 +2593,10 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-                primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-            </div>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
               {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
@@ -4315,7 +4342,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
-          {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
+          {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} waveformDuration={audioDuration} allIntervals={[]} exerciseId={exercise.id}
@@ -4341,39 +4368,39 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-              {/* Switch completa / resumida — estilo interruptor de categorías */}
-              {hasRepeats ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                  <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div role="tablist"
-                      style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
-                      {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
-                        <button key={v} type="button" role="tab" aria-selected={viewMode === v}
-                          onClick={() => setViewMode(v)}
-                          title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
-                          style={{
-                            flex: "1 1 0", border: "none", borderRadius: 999,
-                            background: viewMode === v ? C.ink : "transparent",
-                            color: viewMode === v ? C.paper : C.muted,
-                            padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
-                            cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
-                            whiteSpace: "nowrap",
-                          }}>
-                          {label}
-                        </button>
-                      ))}
+              {/* Columna izq: switch (si hay repeticiones) + ⏮ a la derecha */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                {hasRepeats ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                    <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div role="tablist"
+                        style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
+                        {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
+                          <button key={v} type="button" role="tab" aria-selected={viewMode === v}
+                            onClick={() => setViewMode(v)}
+                            title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
+                            style={{
+                              flex: "1 1 0", border: "none", borderRadius: 999,
+                              background: viewMode === v ? C.ink : "transparent",
+                              color: viewMode === v ? C.paper : C.muted,
+                              padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
+                              cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
+                              whiteSpace: "nowrap",
+                            }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-
                   </div>
-                </div>
-              ) : <div />}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                ) : <div />}
                 <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
-                <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
-                  {playing ? "❚❚" : "▶"}
-                </CircleButton>
               </div>
+              {/* Columna central: ▶ centrado */}
+              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+                {playing ? "❚❚" : "▶"}
+              </CircleButton>
               <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
                 {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
               </div>
@@ -5351,7 +5378,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
 
         {modelToggleNode}
 
-        {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
+        {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -7818,13 +7845,43 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
     <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
   ) : null;
 
+  // Fade-in al montar cada vista para ocultar el frame en blanco del canvas
+  const fadeStyle = { animation: "faModelIn 130ms ease both" };
+
   // Cada vista tiene su propio estado de UI; al cambiar de modelo se desmonta
   // y vuelve a montar (React detecta el cambio de key). El audio, sin embargo,
   // vive aquí y se pasa como sharedAudioPlayer para no re-decodificar.
   if (activeModel === "esquema") {
     return (
-      <SchemaExerciseView
-        key={`schema-${exercise.id}`}
+      <div key={`schema-${exercise.id}`} style={fadeStyle}>
+        <SchemaExerciseView
+          exercise={exercise}
+          mode={mode}
+          onSubmit={onSubmit}
+          onBack={onBack}
+          modelToggleNode={toggleNode}
+          sharedAudioPlayer={sharedAudioPlayer}
+        />
+      </div>
+    );
+  }
+  if (activeModel === "cuestionario") {
+    return (
+      <div key={`quiz-${exercise.id}`} style={fadeStyle}>
+        <QuestionnaireView
+          exercise={exercise}
+          onSubmit={onSubmit}
+          onBack={onBack}
+          modelToggleNode={toggleNode}
+          sharedAudioPlayer={sharedAudioPlayer}
+          loopRegionRef={loopRegionRef}
+        />
+      </div>
+    );
+  }
+  return (
+    <div key={`interactive-${exercise.id}`} style={fadeStyle}>
+      <ExerciseView
         exercise={exercise}
         mode={mode}
         onSubmit={onSubmit}
@@ -7832,31 +7889,7 @@ function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
         modelToggleNode={toggleNode}
         sharedAudioPlayer={sharedAudioPlayer}
       />
-    );
-  }
-  if (activeModel === "cuestionario") {
-    return (
-      <QuestionnaireView
-        key={`quiz-${exercise.id}`}
-        exercise={exercise}
-        onSubmit={onSubmit}
-        onBack={onBack}
-        modelToggleNode={toggleNode}
-        sharedAudioPlayer={sharedAudioPlayer}
-        loopRegionRef={loopRegionRef}
-      />
-    );
-  }
-  return (
-    <ExerciseView
-      key={`interactive-${exercise.id}`}
-      exercise={exercise}
-      mode={mode}
-      onSubmit={onSubmit}
-      onBack={onBack}
-      modelToggleNode={toggleNode}
-      sharedAudioPlayer={sharedAudioPlayer}
-    />
+    </div>
   );
 }
 
