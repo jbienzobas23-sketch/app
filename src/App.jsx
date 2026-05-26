@@ -194,6 +194,25 @@ const EXERCISE_MODELS = [
 ];
 const DEFAULT_MODEL_ID = "interactivo";
 
+// Opciones de combinación de modelos para el editor (incluye modelos individuales + combos dobles)
+const MODEL_COMBOS = [
+  { id: "interactivo",              models: ["interactivo"],                name: "Interactivo",                description: "El alumno marca categorías en vivo durante el audio." },
+  { id: "cuestionario",             models: ["cuestionario"],               name: "Cuestionario",               description: "Preguntas ancladas a fragmentos concretos del audio." },
+  { id: "esquema",                  models: ["esquema"],                    name: "Esquema",                    description: "El alumno dibuja bloques de forma musical en una línea de tiempo." },
+  { id: "interactivo+cuestionario", models: ["interactivo","cuestionario"], name: "Interactivo + Cuestionario", description: "El alumno puede alternar entre marcado en vivo y cuestionario de preguntas." },
+  { id: "esquema+cuestionario",     models: ["esquema","cuestionario"],     name: "Esquema + Cuestionario",     description: "El alumno puede alternar entre el esquema formal y el cuestionario." },
+];
+
+// Devuelve el comboId a partir de un array de modelos (para inicializar el editor)
+function comboIdFromModels(models) {
+  if (!Array.isArray(models) || models.length === 0) return DEFAULT_MODEL_ID;
+  if (models.length === 1) return models[0];
+  const has = (m) => models.includes(m);
+  if (has("interactivo") && has("cuestionario")) return "interactivo+cuestionario";
+  if (has("esquema")     && has("cuestionario")) return "esquema+cuestionario";
+  return models[0];
+}
+
 // Constantes del modelo Esquema
 const SCHEMA_LEVELS = [
   { id: 1, sub: "Partes",  color: "#B87850", bg: "rgba(184,120,80,0.10)" },
@@ -710,6 +729,12 @@ const categoriesOf = (exercise) => {
 };
 
 const modelOf = (exercise) => exercise?.model || DEFAULT_MODEL_ID;
+
+// Devuelve el array de modelos de un ejercicio (puede tener 1 ó 2 modelos)
+const modelsOf = (exercise) => {
+  if (Array.isArray(exercise?.models) && exercise.models.length > 0) return exercise.models;
+  return [modelOf(exercise)];
+};
 
 const answerFor = (exercise, categoryId) => {
   if (exercise?.answers && Array.isArray(exercise.answers[categoryId])) return exercise.answers[categoryId];
@@ -1284,6 +1309,33 @@ function ExerciseViewHeader({ title, onBack }) {
   );
 }
 
+// Cabecera unificada para los tres tipos de vista de ejercicio en sesión
+function ExercisePageHeader({ exercise, onBack }) {
+  return (
+    <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
+      <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <button
+          onClick={onBack}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0,
+            flexShrink: 0, display: "flex", alignItems: "center", gap: 5,
+          }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
+          <span>Volver</span>
+        </button>
+        <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2,
+          }}>{exercise.title}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
@@ -1508,10 +1560,66 @@ const MODEL_META = {
 };
 const modelMeta = (ex) => MODEL_META[modelOf(ex)] || MODEL_META.interactivo;
 
+// Barra de alternancia entre modelos (se inyecta entre título y waveform en sesiones con 2 modelos)
+function ModelToggleBar({ models, activeIdx, onSwitch }) {
+  if (!models || models.length < 2) return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+      <div style={{
+        display: "inline-flex",
+        background: C.paper2,
+        border: `1px solid ${C.line}`,
+        borderRadius: 999,
+        padding: 3,
+        gap: 3,
+      }}>
+        {models.map((modelId, idx) => {
+          const meta = MODEL_META[modelId] || MODEL_META.interactivo;
+          const isActive = activeIdx === idx;
+          return (
+            <button
+              key={modelId}
+              type="button"
+              onClick={() => onSwitch(idx)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 16px",
+                borderRadius: 999,
+                border: "none",
+                background: isActive ? C.ink : "transparent",
+                color: isActive ? C.paper : C.ink2,
+                cursor: "pointer",
+                fontFamily: F.sans,
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 400,
+                transition: "background .15s, color .15s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: isActive ? "rgba(255,255,255,0.55)" : meta.color,
+                flexShrink: 0,
+                transition: "background .15s",
+              }} />
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
 function ExerciseRow({ ex, result, onOpen }) {
   const [open, setOpen] = useState(false);
   const meta      = modelMeta(ex);
+  const exModels  = modelsOf(ex);
   const isQuiz    = modelOf(ex) === "cuestionario";
   const exQs      = questionsOf(ex);
   const cats      = categoriesOf(ex);
@@ -1521,7 +1629,14 @@ function ExerciseRow({ ex, result, onOpen }) {
 
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-      <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      {exModels.length > 1 ? (
+        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
+          <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
+        </div>
+      ) : (
+        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
@@ -1585,7 +1700,7 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
   const filteredExercises = useMemo(() => {
     return exercises.filter((ex) => {
       if (ex.hidden) return false;
-      if (filterModel !== "all" && modelOf(ex) !== filterModel) return false;
+      if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterDone === "done"    && !results[ex.id]) return false;
       if (filterDone === "notdone" &&  results[ex.id]) return false;
       return true;
@@ -2054,7 +2169,7 @@ function IntervalStrip({
   );
 }
 
-function ExerciseView({ exercise, mode, onSubmit, onBack }) {
+function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null }) {
   const dur          = exercise.duration;
   const exCategories = categoriesOf(exercise);
   const initialCategoryId = useMemo(() => {
@@ -2244,12 +2359,10 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
+      <ExercisePageHeader exercise={exercise} onBack={onBack} />
       <div style={{ ...S.page, paddingTop: "1.25rem" }}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0 }}>← Volver</button>
-          <div style={{ fontFamily: F.serif, fontWeight: 600, color: C.ink, fontSize: 18, textAlign: "center", flex: 1 }}>{exercise.title}</div>
-          <div style={{ width: 70 }} />
-        </div>
+
+        {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
@@ -2340,7 +2453,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
             Mantén pulsado el botón (o tecla) mientras suena · Espacio = Play/Pausa
           </div>
           <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar como respuesta correcta" : "Corregir ejercicio"}
+            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
         </div>
       </div>
@@ -2651,7 +2764,7 @@ function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
 
 // ═══ 9b. SCHEMA EXERCISE VIEW (modelo Esquema) ══════════════════════════════
 
-function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
+function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null }) {
   const duration = exercise.duration;
   const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
   const onWaveform = exercise.waveformData ? null : wd => setWaveformData(wd);
@@ -4019,20 +4132,16 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   return (
     <div style={S.app}>
       {/* Cabecera */}
-      {/* ── Cabecera principal ─────────────────────────────────────────────── */}
-      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}` }}>
+      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
         <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
             <span>Volver</span>
           </button>
-          {/* Separador vertical */}
           <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{exercise.title}</div>
-            <div style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 2, letterSpacing: 0.2 }}>Esquema formal</div>
           </div>
-          <span style={{ background: `${C.fnD}18`, color: C.fnD, border: `1px solid ${C.fnD}50`, borderRadius: 5, padding: "3px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, fontFamily: FONT_SANS, flexShrink: 0 }}>ESQUEMA</span>
         </div>
       </div>
 
@@ -4047,6 +4156,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
+
+        {modelToggleNode}
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -5021,7 +5132,7 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
 }
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-function QuestionnaireView({ exercise, onSubmit, onBack }) {
+function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null }) {
   const dur       = exercise.duration;
   const questions = questionsOf(exercise);
 
@@ -5074,12 +5185,10 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
+      <ExercisePageHeader exercise={exercise} onBack={onBack} />
       <div style={{ ...S.page, paddingTop: "1.25rem" }}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0 }}>← Volver</button>
-          <div style={{ fontFamily: F.serif, fontWeight: 600, color: C.ink, fontSize: 18, textAlign: "center", flex: 1 }}>{exercise.title}</div>
-          <div style={{ width: 70 }} />
-        </div>
+
+        {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
@@ -5190,7 +5299,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, flex: "1 1 200px" }}>
             Haz clic en una pregunta para ver su fragmento en la waveform · Espacio = Play/Pausa
           </div>
-          <PillSubmitButton onClick={handleSubmit}>Entregar respuestas</PillSubmitButton>
+          <PillSubmitButton onClick={handleSubmit}>Entregar</PillSubmitButton>
         </div>
       </div>
     </div>
@@ -5203,6 +5312,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
+  const exModels= modelsOf(ex);
   const isQuiz  = modelOf(ex) === "cuestionario";
   const isSchema= modelOf(ex) === "esquema";
   const exQs    = questionsOf(ex);
@@ -5213,7 +5323,14 @@ function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, compos
 
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
-      <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      {exModels.length > 1 ? (
+        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
+          <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
+        </div>
+      ) : (
+        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
@@ -5276,7 +5393,7 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
 
   const filtered = useMemo(() => {
     return exercises.filter((ex) => {
-      if (filterModel !== "all" && modelOf(ex) !== filterModel) return false;
+      if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterComposers.length > 0 || filterTags.length > 0) {
         const audio = ex.audioUrl ? audioByUrl[ex.audioUrl] : null;
         if (filterComposers.length > 0 && (!audio || !filterComposers.includes(audio.composer))) return false;
@@ -5706,7 +5823,7 @@ function TeacherDash({
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
-  onRecord, onPreview, onAdd, onLogout,
+  onRecord, onPreview, onManageQuestions, onAdd, onLogout,
   categories, onAddCategory, onUpdateCategory, onDeleteCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
@@ -5811,6 +5928,7 @@ function TeacherDash({
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
         onPreview={onPreview}
+        onManageQuestions={onManageQuestions}
         onUpdate={(patch) => onUpdateExercise(selectedExercise.id, patch)}
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
@@ -5978,12 +6096,18 @@ function TeacherDash({
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
+function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
   const isCreating = exercise == null;
 
   // Estado del formulario
   const [title, setTitle] = useState(isCreating ? "" : exercise.title);
-  const [model, setModel] = useState(isCreating ? DEFAULT_MODEL_ID : modelOf(exercise));
+  // comboId: id de MODEL_COMBOS — puede ser un solo modelo o un combo doble
+  const [comboId, setComboId] = useState(() =>
+    isCreating ? DEFAULT_MODEL_ID : comboIdFromModels(modelsOf(exercise))
+  );
+  const activeCombo   = MODEL_COMBOS.find((c) => c.id === comboId) || MODEL_COMBOS[0];
+  const selectedModels = activeCombo.models;          // ej. ["interactivo","cuestionario"]
+  const model          = selectedModels[0];           // modelo primario (backward compat)
 
   const initialCatIds = useMemo(() => {
     if (isCreating) return new Set([categories[0]?.id || "default"]);
@@ -6098,17 +6222,19 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   const isDirty = useMemo(() => {
     if (isCreating) return false;
     if (title.trim() !== exercise.title) return true;
-    if (model !== modelOf(exercise)) return true;
+    // Comparar array de modelos
+    const exModelsArr = modelsOf(exercise);
+    if (selectedModels.join(",") !== exModelsArr.join(",")) return true;
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
-    if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if (selectedModels.includes("esquema") && (exercise.listenOnly ?? false) !== listenOnly) return true;
     if ((exercise.showComposer ?? true) !== showComposer) return true;
-    if (model === "esquema") {
+    if (selectedModels.includes("esquema")) {
       const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
     }
 
-    if (model === "interactivo") {
+    if (selectedModels.includes("interactivo")) {
       const exCats = categoriesOf(exercise);
       const exIds  = new Set(exCats.map((m) => m.id));
       if (selectedCategoryIds.size !== exIds.size) return true;
@@ -6126,43 +6252,47 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       if (manual !== exercise.duration) return true;
     }
     return false;
-  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
 
   const handleSave = () => {
     if (!canSave) return;
-    const chosen = model === "interactivo" ? categories.filter((m) => selectedCategoryIds.has(m.id)) : [];
+    const hasInteractivo = selectedModels.includes("interactivo");
+    const hasEsquema     = selectedModels.includes("esquema");
+    const hasCuestionario = selectedModels.includes("cuestionario");
+    const chosen = hasInteractivo ? categories.filter((m) => selectedCategoryIds.has(m.id)) : [];
 
     const applyBtnFilter = (cat) => {
       const selBtns = selectedButtonIds.get(cat.id);
       const btns    = selBtns ? cat.buttons.filter((b) => selBtns.has(b.id)) : cat.buttons;
       return { ...cat, buttons: btns.length >= 1 ? btns : cat.buttons };
     };
-    const safe = (chosen.length ? chosen : (model === "interactivo" ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
+    const safe = (chosen.length ? chosen : (hasInteractivo ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
 
     if (isCreating) {
       onCreate({
         id: Date.now(),
         title: title.trim(),
         duration: effDuration,
-        model,
+        model,                     // modelo primario (backward compat)
+        models: selectedModels,    // array completo de modelos
         audioUrl:     audioUrl     || null,
         audioName:    audioName    || null,
         waveformData: waveformData || null,
         showHint: false,
-        categories: model === "interactivo" ? safe : [],
+        categories: hasInteractivo ? safe : [],
         answers:    {},
-        ...(model === "cuestionario" ? { questions: [] } : {}),
-        ...(model === "esquema" ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
+        ...(hasCuestionario ? { questions: [] } : {}),
+        ...(hasEsquema ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
         showComposer,
         composerName: activeComposer || null,
       });
       return;
     }
 
-    const patch = { title: title.trim(), duration: effDuration, model };
-    if (model === "interactivo") {
+    const patch = { title: title.trim(), duration: effDuration, model, models: selectedModels };
+    if (hasInteractivo) {
       const keepIds = new Set(safe.map((m) => m.id));
       const prev    = exercise.answers || {};
       patch.categories = safe;
@@ -6175,7 +6305,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     patch.audioUrl     = audioUrl     || null;
     patch.audioName    = audioName    || null;
     patch.waveformData = waveformData || null;
-    if (model === "esquema") { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
+    if (hasEsquema) { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
     patch.showComposer = showComposer;
     patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
@@ -6185,7 +6315,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   };
 
   // Estado derivado del ejercicio guardado
-  const isQuizSaved = !isCreating && modelOf(exercise) === "cuestionario";
+  const isQuizSaved = !isCreating && modelsOf(exercise).includes("cuestionario");
   const exQs        = isCreating ? [] : questionsOf(exercise);
   const { recorded, total } = (isCreating || isQuizSaved) ? { recorded: 0, total: 0 } : answerStats(exercise);
 
@@ -6249,26 +6379,63 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         <div style={{ marginBottom: 18 }} />
 
         <label style={S.label}>Modelo de ejercicio</label>
-        <div style={{ ...S.row, gap: 8, marginBottom: 8 }}>
-          {EXERCISE_MODELS.map((m) => (
-            <button key={m.id} type="button" onClick={() => setModel(m.id)} title={m.description}
-              style={{
-                ...S.btn, flex: 1, fontSize: 13, padding: "9px 12px",
-                background: model === m.id ? C.ink : C.paper,
-                color:      model === m.id ? C.paper : C.ink2,
-                border:     `1px solid ${model === m.id ? C.ink : C.line}`,
-              }}>
-              {m.name}
-            </button>
-          ))}
+        {/* Fila 1: modelos individuales */}
+        <div style={{ ...S.row, gap: 8, marginBottom: 6 }}>
+          {MODEL_COMBOS.slice(0, 3).map((c) => {
+            const isActive = comboId === c.id;
+            const dotColor = MODEL_META[c.models[0]]?.color || C.muted;
+            return (
+              <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                style={{
+                  ...S.btn, flex: 1, fontSize: 13, padding: "8px 10px",
+                  background: isActive ? C.ink : C.paper,
+                  color:      isActive ? C.paper : C.ink2,
+                  border:     `1px solid ${isActive ? C.ink : C.line}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "rgba(255,255,255,0.55)" : dotColor, flexShrink: 0 }} />
+                {c.name}
+              </button>
+            );
+          })}
         </div>
-        {model === "cuestionario" && (
-          <p style={{ fontSize: 11, color: C.quiz, margin: 0, padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
-            Las preguntas se gestionan desde la sección de abajo.
+        {/* Fila 2: combos dobles */}
+        <div style={{ ...S.row, gap: 8, marginBottom: 10 }}>
+          {MODEL_COMBOS.slice(3).map((c) => {
+            const isActive = comboId === c.id;
+            return (
+              <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                style={{
+                  ...S.btn, flex: 1, fontSize: 12, padding: "8px 10px",
+                  background: isActive ? C.ink : C.paper,
+                  color:      isActive ? C.paper : C.ink2,
+                  border:     `1px solid ${isActive ? C.ink : C.line}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}>
+                {/* Doble pastilla de color */}
+                <span style={{ display: "flex", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
+                  <span style={{ width: 8, height: 8, background: MODEL_META[c.models[0]]?.color || C.muted }} />
+                  <span style={{ width: 8, height: 8, background: MODEL_META[c.models[1]]?.color || C.muted }} />
+                </span>
+                {c.name}
+              </button>
+            );
+          })}
+        </div>
+        {selectedModels.includes("cuestionario") && (
+          <p style={{ fontSize: 11, color: C.quiz, margin: "0 0 4px", padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
+            {selectedModels.length > 1
+              ? "Incluye cuestionario: las preguntas se gestionan desde la sección de abajo."
+              : "Las preguntas se gestionan desde la sección de abajo."}
+          </p>
+        )}
+        {selectedModels.length > 1 && (
+          <p style={{ fontSize: 11, color: C.muted, margin: "4px 0 0", padding: "6px 10px", background: C.paper2, borderRadius: 8, lineHeight: 1.5 }}>
+            El alumno podrá alternar entre los dos modos durante la práctica del ejercicio.
           </p>
         )}
 
-        {model === "interactivo" && (
+        {selectedModels.includes("interactivo") && (
           <div style={{ marginTop: 18 }}>
             <label style={S.label}>Categorías y botones del ejercicio</label>
             <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 8, maxHeight: 320, overflowY: "auto" }}>
@@ -6320,7 +6487,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         <hr style={{ ...S.divider, margin: "28px 0" }} />
 
         {/* Clave · Interactivo */}
-        {model === "interactivo" && (
+        {selectedModels.includes("interactivo") && (
           <>
             <p style={SECTION_STYLE}>Clave de corrección</p>
             {isCreating ? (
@@ -6359,7 +6526,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         )}
 
         {/* Esquema · info + botones grabar/probar */}
-        {model === "esquema" && !isCreating && (
+        {selectedModels.includes("esquema") && !isCreating && (
           <>
             <p style={SECTION_STYLE}>Esquema formal</p>
             <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
@@ -6478,7 +6645,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         )}
 
         {/* Preguntas · Cuestionario */}
-        {model === "cuestionario" && !isCreating && (
+        {selectedModels.includes("cuestionario") && !isCreating && (
           <>
             <p style={SECTION_STYLE}>Preguntas</p>
             <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 16 }}>
@@ -6487,7 +6654,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                 {exQs.length > 0 ? `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}` : "Ninguna todavía"}
               </span>
             </div>
-            <button onClick={() => onRecord(exercise)} style={{
+            <button onClick={() => (onManageQuestions || onRecord)(exercise)} style={{
               width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
               background: exQs.length === 0 ? C.ink : C.paper2,
               color:      exQs.length === 0 ? C.paper : C.ink,
@@ -6497,11 +6664,24 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
               <span>{exQs.length === 0 ? "Crear preguntas" : "Editar preguntas"}</span>
               <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
             </button>
+            {/* Para ejercicios híbridos, ofrecer previsualización con el toggle */}
+            {selectedModels.length > 1 && onPreview && (
+              <button onClick={() => onPreview(exercise)} style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: "transparent", color: C.ink2,
+                border: `1px solid ${C.line}`,
+                borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13,
+                fontWeight: 500, marginTop: 8,
+              }}>
+                <span>Probar ejercicio completo</span>
+                <span style={{ fontSize: 16, opacity: 0.45, fontWeight: 300 }}>→</span>
+              </button>
+            )}
           </>
         )}
 
         {/* Opciones para el alumno (solo interactivo, tras crear) */}
-        {!isCreating && model === "interactivo" && (
+        {!isCreating && selectedModels.includes("interactivo") && (
           <>
             <hr style={{ ...S.divider, margin: "28px 0" }} />
             <p style={SECTION_STYLE}>Opciones para el alumno</p>
@@ -6533,7 +6713,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
         )}
 
         {/* Toggle compositor para modelos no interactivos o en creación */}
-        {activeComposer && (isCreating || model !== "interactivo") && (
+        {activeComposer && (isCreating || !selectedModels.includes("interactivo")) && (
           <>
             <hr style={{ ...S.divider, margin: "28px 0" }} />
             <p style={SECTION_STYLE}>Opciones para el alumno</p>
@@ -7453,6 +7633,56 @@ function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onC
   );
 }
 
+// ═══ 14b. MULTI-MODEL SESSION VIEW ══════════════════════════════════════════
+// Wrapper para ejercicios con dos modelos: gestiona el estado de alternancia
+// y pasa la barra de toggle a cada vista como prop.
+function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
+  const models = modelsOf(exercise);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const activeModel = models[activeIdx] || models[0];
+
+  const toggleNode = models.length > 1 ? (
+    <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
+  ) : null;
+
+  // Cada vista tiene su propio estado interno; al cambiar de modelo se desmonta
+  // y vuelve a montar (React detecta el cambio de key). Esto garantiza que el
+  // estado de un modelo no "se filtra" al otro.
+  if (activeModel === "esquema") {
+    return (
+      <SchemaExerciseView
+        key={`schema-${exercise.id}`}
+        exercise={exercise}
+        mode={mode}
+        onSubmit={onSubmit}
+        onBack={onBack}
+        modelToggleNode={toggleNode}
+      />
+    );
+  }
+  if (activeModel === "cuestionario") {
+    return (
+      <QuestionnaireView
+        key={`quiz-${exercise.id}`}
+        exercise={exercise}
+        onSubmit={onSubmit}
+        onBack={onBack}
+        modelToggleNode={toggleNode}
+      />
+    );
+  }
+  return (
+    <ExerciseView
+      key={`interactive-${exercise.id}`}
+      exercise={exercise}
+      mode={mode}
+      onSubmit={onSubmit}
+      onBack={onBack}
+      modelToggleNode={toggleNode}
+    />
+  );
+}
+
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
   useInjectFonts();
@@ -7767,8 +7997,9 @@ export default function App() {
 
   const openEx = (ex, mode = "student") => {
     if (mode === "record") {
-      // El cuestionario se "graba" desde el gestor de preguntas
-      if (modelOf(ex) === "cuestionario") navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
+      // El cuestionario puro se "graba" desde el gestor de preguntas.
+      // Los híbridos tienen su propio botón onManageQuestions; aquí se graba la clave interactiva.
+      if (modelsOf(ex).join(",") === "cuestionario") navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
       else navigate(`/profesor/ejercicio/${ex.id}/grabar`);
     } else {
       navigate(`/alumno/ejercicio/${ex.id}`);
@@ -7960,8 +8191,14 @@ export default function App() {
     // Un alumno no puede entrar a modos de profesor
     if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
     if (!exCtx) return <NotFound to={back} />;
-    const m = modelOf(exCtx.exercise);
+    const exModels = modelsOf(exCtx.exercise);
     const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
+    // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
+    if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
+      return <MultiModelSessionView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    // Ejercicio de un solo modelo (o modo record/preview con el modelo primario)
+    const m = exModels[0];
     if (m === "esquema") {
       return <SchemaExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
     }
@@ -8043,6 +8280,7 @@ export default function App() {
         else navigate(`/profesor/ejercicio/${id}`);
       }}
       onRecord={(ex) => openEx(freshExercise(ex), "record")}
+      onManageQuestions={(ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`)}
       onPreview={(ex) => navigate(`/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
       onLogout={onLogout}
