@@ -1844,106 +1844,92 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
   const dur      = exercise.duration;
-  const hasAudio = !!exercise.audioUrl;
-  const audioDuration = dur;
+  const audioUrl = exercise.audioUrl;
+  const hasAudio = !!audioUrl;
 
-  const [time,       setTime]       = useState(0);
-  const [playing,    setPlaying]    = useState(false);
-  const [audioReady, setAudioReady] = useState(false);
-  const [audioError, setAudioError] = useState(null);
+  const [time,          setTime]          = useState(0);
+  const [playing,       setPlaying]       = useState(false);
+  const [audioReady,    setAudioReady]    = useState(false);
+  const [audioError,    setAudioError]    = useState(null);
+  const [audioDuration, setAudioDuration] = useState(exercise.duration);
 
-  const timeRef      = useRef(0);
-  const playingRef   = useRef(false);
-  const scrubbingRef = useRef(false);
-  const audioRef     = useRef(null);
-  playingRef.current = playing;
-  timeRef.current    = time;
+  const ctxRef           = useRef(null);
+  const bufferRef        = useRef(null);
+  const sourceRef        = useRef(null);
+  const startCtxTimeRef  = useRef(0);
+  const playOffsetRef    = useRef(0);
+  const playingRef       = useRef(false);
+  const timeRef          = useRef(0);
+  const scrubbingRef     = useRef(false);
+  // Cada fuente recibe un ID único; onended sólo actúa si sigue siendo la fuente activa
+  const sourceIdRef      = useRef(0);
+  // Evita que togglePlay sea llamado concurrentemente mientras ctx.resume() está pendiente
+  const pendingToggleRef = useRef(false);
+  playingRef.current     = playing;
+  timeRef.current        = time;
 
-  // ── Elemento de audio real ──────────────────────────────────────────────
+  const stopSource = () => {
+    if (sourceRef.current) {
+      sourceIdRef.current += 1;            // invalida el onended de la fuente anterior
+      try { sourceRef.current.stop(); } catch (_) {}
+      sourceRef.current = null;
+    }
+  };
+
+  const startSource = (offset) => {
+    const ctx = ctxRef.current;
+    if (!ctx || !bufferRef.current) return;
+    const myId = ++sourceIdRef.current;    // captura el ID de ESTA fuente
+    const src  = ctx.createBufferSource();
+    src.buffer = bufferRef.current;
+    src.connect(ctx.destination);
+    src.onended = () => {
+      if (sourceIdRef.current !== myId) return;   // ya hay otra fuente activa → ignorar
+      const lq = loopRegionRef?.current;
+      if (!lq && playingRef.current) {
+        const endT = bufferRef.current?.duration ?? dur;
+        timeRef.current = endT;
+        playOffsetRef.current = endT;
+        setTime(endT);
+        setPlaying(false);
+      }
+    };
+    src.start(0, Math.min(offset, bufferRef.current.duration));
+    sourceRef.current        = src;
+    startCtxTimeRef.current  = ctx.currentTime;
+  };
+
+  // Carga + decodificación cuando cambia el ejercicio
   useEffect(() => {
+    setTime(0); setPlaying(false); setAudioReady(false); setAudioError(null);
+    setAudioDuration(exercise.duration);
+    playOffsetRef.current = 0;
+    bufferRef.current     = null;
     if (!hasAudio) return;
 
-    const audio = new window.Audio();
-    audioRef.current = audio;
-    setAudioReady(false);
-    setAudioError(null);
+    let cancelled = false;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) { setAudioError("Tu navegador no soporta Web Audio API"); return; }
+    const ctx = new AudioCtx();
+    ctxRef.current = ctx;
 
-    const onCanPlay    = () => setAudioReady(true);
-    const onError      = () => { setAudioError("No se pudo cargar el audio."); setAudioReady(false); };
-    const onTimeUpdate = () => {
-      if (scrubbingRef.current) return;
-      const t = audio.currentTime;
-      const lq = loopRegionRef?.current;
-      if (lq && t >= lq.audioEnd) {
-        audio.currentTime = lq.audioStart;
-        timeRef.current   = lq.audioStart;
-        setTime(lq.audioStart);
-        return;
-      }
-      timeRef.current = t;
-      setTime(t);
-    };
-    const onEnded = () => {
-      const lq = loopRegionRef?.current;
-      if (lq) {
-        audio.currentTime = lq.audioStart;
-        audio.play().catch(() => {});
-      } else {
-        setPlaying(false);
-        timeRef.current = dur;
-        setTime(dur);
-      }
-    };
+    (async () => {
+      try {
+        const buf     = await fetchAudioBuffer(audioUrl);
+        const decoded = await ctx.decodeAudioData(buf);
+        if (cancelled) return;
+        bufferRef.current = decoded;
+        setAudioDuration(decoded.duration);
+        setAudioReady(true);
+        onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
+      } catch (_) { if (!cancelled) setAudioError("Error al decodificar el audio"); }
+    })();
 
-    audio.addEventListener("canplay",    onCanPlay);
-    audio.addEventListener("error",      onError);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended",      onEnded);
-    audio.src = exercise.audioUrl;
-    audio.load();
-
-    // Decodificar waveform real desde los datos PCM
-    if (onWaveform) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        fetchAudioBuffer(exercise.audioUrl)
-          .then((buf) => ctx.decodeAudioData(buf))
-          .then((decoded) => {
-            ctx.close();
-            onWaveform(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
-          })
-          .catch(() => { try { ctx.close(); } catch (_) {} });
-      }
-    }
-
-    return () => {
-      audio.pause();
-      audio.removeEventListener("canplay",    onCanPlay);
-      audio.removeEventListener("error",      onError);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("ended",      onEnded);
-      audio.src = "";
-      audioRef.current = null;
-      setAudioReady(false);
-      setTime(0);
-      timeRef.current = 0;
-    };
+    return () => { cancelled = true; stopSource(); try { ctx.close(); } catch (_) {} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exercise.audioUrl]);
+  }, [exercise.id, audioUrl]);
 
-  // Sincronizar estado playing → elemento de audio
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (playing) {
-      audio.play().catch(() => setPlaying(false));
-    } else {
-      audio.pause();
-    }
-  }, [playing]);
-
-  // ── Timer simulado (solo cuando no hay audio real) ──────────────────────
+  // Timer simulado cuando no hay audio real
   const timerRef = useRef(null);
   useEffect(() => {
     if (playing && !hasAudio) {
@@ -1968,34 +1954,92 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
     }
     return () => clearInterval(timerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, dur]);
+  }, [playing, dur, hasAudio]);
 
-  const togglePlay = () => setPlaying((p) => !p);
+  // RAF tick para audio real (60 fps sin parpadeos)
+  useEffect(() => {
+    if (!playing || !hasAudio) return;
+    let raf;
+    const tick = () => {
+      const ctx = ctxRef.current;
+      if (ctx && !scrubbingRef.current) {
+        const rawT = playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current);
+        const lq   = loopRegionRef?.current;
+        if (lq && rawT >= lq.audioEnd) {
+          stopSource();
+          playOffsetRef.current = lq.audioStart;
+          setTime(lq.audioStart);
+          startSource(lq.audioStart);
+        } else {
+          const effectiveDur = bufferRef.current?.duration ?? dur;
+          const t = Math.min(effectiveDur, rawT);
+          timeRef.current = t;
+          setTime(t);
+          if (!lq && rawT >= effectiveDur) {
+            timeRef.current = effectiveDur;
+            setTime(effectiveDur);
+            setPlaying(false);
+            return;
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, dur, hasAudio]);
+
+  const togglePlay = () => {
+    if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
+    if (pendingToggleRef.current) return;
+    const ctx = ctxRef.current;
+    const wasPlaying = playingRef.current;
+    pendingToggleRef.current = true;
+    ctx.resume().then(() => {
+      pendingToggleRef.current = false;
+      if (wasPlaying) {
+        stopSource();
+        playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
+        setPlaying(false);
+      } else {
+        stopSource();                        // safety: matar cualquier fuente huérfana
+        startSource(playOffsetRef.current);
+        setPlaying(true);
+      }
+    });
+  };
+
   const seekTo = (t) => {
     const c = Math.max(0, Math.min(dur, t));
-    timeRef.current = c;
-    setTime(c);
-    if (audioRef.current) audioRef.current.currentTime = c;
+    playOffsetRef.current = c; setTime(c);
+    if (playingRef.current && bufferRef.current && ctxRef.current) { stopSource(); startSource(c); }
   };
-  const playFrom   = (t) => { seekTo(t); setPlaying(true); };
-  const scrubBegin = () => { scrubbingRef.current = true; if (audioRef.current) audioRef.current.pause(); };
-  const scrubTo    = (t) => {
+
+  // Saltar e iniciar reproducción (usado por QuestionnaireView)
+  const playFrom = (t) => {
     const c = Math.max(0, Math.min(dur, t));
-    timeRef.current = c;
-    setTime(c);
-    if (audioRef.current) audioRef.current.currentTime = c;
+    playOffsetRef.current = c; setTime(c);
+    if (hasAudio && bufferRef.current && ctxRef.current) {
+      stopSource();
+      ctxRef.current.resume().then(() => { startSource(c); setPlaying(true); });
+    } else {
+      setPlaying(true);
+    }
   };
-  const scrubEnd = () => {
+
+  const scrubBegin = () => { scrubbingRef.current = true; stopSource(); };
+  const scrubTo    = (t) => { const c = Math.max(0, Math.min(dur, t)); playOffsetRef.current = c; setTime(c); };
+  const scrubEnd   = () => {
+    if (!scrubbingRef.current) return;
     scrubbingRef.current = false;
-    if (playing && audioRef.current) audioRef.current.play().catch(() => {});
+    if (playingRef.current && bufferRef.current && ctxRef.current) startSource(playOffsetRef.current);
   };
 
   return {
     time, setTime, playing, setPlaying,
-    audioReady: hasAudio ? audioReady : false,
-    audioError: hasAudio ? audioError : null,
-    hasAudio,
-    timeRef, playOffsetRef: { current: time },
+    audioReady, audioError, hasAudio,
+    timeRef, playOffsetRef,
     audioDuration,
     togglePlay, seekTo, playFrom,
     scrubBegin, scrubTo, scrubEnd,
