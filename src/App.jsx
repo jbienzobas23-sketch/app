@@ -887,7 +887,7 @@ function PillSubmitButton({ onClick, children }) {
     <button onClick={onClick} style={{
       background: C.ink, color: C.paper, border: `1px solid ${C.ink}`,
       borderRadius: 999, padding: "10px 16px 10px 20px",
-      fontSize: 13, fontWeight: 600, cursor: "pointer",
+      fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_SANS,
       display: "inline-flex", alignItems: "center", gap: 10,
     }}>
       {children}
@@ -2070,7 +2070,7 @@ function WaveformDisplay({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const NUM_BARS = 90;
+    const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
 
@@ -2508,15 +2508,15 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ ...S.page, paddingTop: "1.25rem" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
-          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}` }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn}
@@ -5347,15 +5347,15 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ ...S.page, paddingTop: "1.25rem" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 14px 12px", marginBottom: 16 }}>
-          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={{}} questionRegion={questionRegion}
