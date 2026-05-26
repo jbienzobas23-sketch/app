@@ -668,6 +668,15 @@ function buildWaveformFromPCM(channelData, duration) {
   return sm.map((v) => 0.08 + (v / mx) * 0.92);
 }
 
+function buildFragmentWaveform(channelData, totalDuration, fragStart, fragEnd) {
+  const s = fragStart ?? 0;
+  const e = fragEnd   ?? totalDuration;
+  if (s <= 0 && e >= totalDuration) return buildWaveformFromPCM(channelData, totalDuration);
+  const startIdx = Math.max(0, Math.floor((s / totalDuration) * channelData.length));
+  const endIdx   = Math.min(channelData.length, Math.ceil((e  / totalDuration) * channelData.length));
+  return buildWaveformFromPCM(channelData.slice(startIdx, endIdx), e - s);
+}
+
 function generateWaveform(seed, numSamples) {
   let s = (seed * 1664525 + 1013904223) >>> 0;
   const raw = new Array(numSamples);
@@ -1081,6 +1090,20 @@ function EyeIcon({ open = true, size = 15 }) {
       <path d="M3 3l14 14" />
       <path d="M6.5 6.5C4.5 7.6 3 9 3 10c0 2.8 3.1 5 7 5a9 9 0 0 0 3.5-.7" />
       <path d="M10 5c3.9 0 7 2.2 7 5a6.3 6.3 0 0 1-1.5 2.5" />
+    </svg>
+  );
+}
+
+// Icono de onda de audio — barras verticales de altura variable, estética waveform
+function AudioWaveIcon({ size = 16, color = "currentColor" }) {
+  const bars = [0.35, 0.6, 0.85, 0.65, 1.0, 0.8, 0.5, 0.9, 0.55, 0.3];
+  return (
+    <svg width={size} height={size * 0.875} viewBox="0 0 20 14" fill="none" style={{ flexShrink: 0 }}>
+      {bars.map((h, i) => {
+        const bh = h * 12;
+        const y  = (14 - bh) / 2;
+        return <rect key={i} x={i * 2} y={y} width={1.2} height={bh} rx={0.6} fill={color} />;
+      })}
     </svg>
   );
 }
@@ -1862,9 +1885,11 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //   loopRegionRef:   ref con { audioStart, audioEnd } | null para bucle en
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
-  const dur      = exercise.duration;
-  const audioUrl = exercise.audioUrl;
-  const hasAudio = !!audioUrl;
+  const dur           = exercise.duration;
+  const audioUrl      = exercise.audioUrl;
+  const hasAudio      = !!audioUrl;
+  const fragmentStart = exercise.audioFragmentStart ?? 0;
+  const fragmentEnd   = exercise.audioFragmentEnd   ?? null;
 
   const [time,          setTime]          = useState(0);
   const [playing,       setPlaying]       = useState(false);
@@ -1909,14 +1934,15 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       if (sourceIdRef.current !== myId) return;   // ya hay otra fuente activa → ignorar
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
-        const endT = bufferRef.current?.duration ?? dur;
-        timeRef.current = endT;
-        playOffsetRef.current = endT;
-        setTime(endT);
+        timeRef.current       = dur;
+        playOffsetRef.current = dur;
+        setTime(dur);
         setPlaying(false);
       }
     };
-    src.start(0, Math.min(offset, bufferRef.current.duration));
+    const absOffset = Math.min(bufferRef.current.duration, offset + fragmentStart);
+    const clipDur   = fragmentEnd != null ? Math.max(0, (fragmentEnd - fragmentStart) - offset) : undefined;
+    src.start(0, absOffset, clipDur);
     sourceRef.current        = src;
     startCtxTimeRef.current  = ctx.currentTime;
   };
@@ -1943,7 +1969,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         bufferRef.current = decoded;
         setAudioDuration(decoded.duration);
         setAudioReady(true);
-        onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
+        onWaveform?.(buildFragmentWaveform(decoded.getChannelData(0), decoded.duration, fragmentStart, fragmentEnd));
       } catch (_) { if (!cancelled) setAudioError("Error al decodificar el audio"); }
     })();
 
@@ -1996,7 +2022,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           lastSetTimeRef.current = performance.now();
           startSource(lq.audioStart);
         } else {
-          const effectiveDur = bufferRef.current?.duration ?? dur;
+          const effectiveDur = Math.min(bufferRef.current?.duration ?? dur, dur);
           const t = Math.min(effectiveDur, rawT);
           timeRef.current = t;             // siempre actualizar ref (canvas lo lee directo)
           const now = performance.now();
@@ -2075,6 +2101,307 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   };
 }
 
+
+// Selector visual de fragmento (barra de rango con handles arrastrables)
+function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }) {
+  const barRef    = useRef(null);
+  const audioRef  = useRef(null);
+  const rafRef    = useRef(null);
+  const [playing,      setPlaying]      = useState(false);
+  const [currentTime,  setCurrentTime]  = useState(start ?? 0);
+  // fragPlayMode: si true, la reproducción se limita al fragmento; si false, reproduce libre
+  const [fragPlayMode, setFragPlayMode] = useState(false);
+
+  // Refs para acceder a valores actuales dentro del RAF sin causar re-renders
+  const startRef        = useRef(start);
+  const endRef          = useRef(end);
+  const fragPlayModeRef = useRef(false);
+  startRef.current        = start;
+  endRef.current          = end;
+  fragPlayModeRef.current = fragPlayMode;
+
+  // RAF: actualiza el playhead y, en modo fragmento, para al llegar al fin
+  useEffect(() => {
+    if (!playing) { cancelAnimationFrame(rafRef.current); return; }
+    const tick = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const t = audio.currentTime;
+      setCurrentTime(t);
+      const e = endRef.current;
+      const s = startRef.current;
+      // Parar al final del fragmento solo en fragPlayMode
+      if (fragPlayModeRef.current && e != null && t >= e) {
+        audio.pause();
+        audio.currentTime = s ?? 0;
+        setCurrentTime(s ?? 0);
+        setPlaying(false);
+        setFragPlayMode(false);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [playing]);
+
+  // Cleanup: parar audio al desmontar el componente
+  useEffect(() => () => {
+    cancelAnimationFrame(rafRef.current);
+    if (audioRef.current) audioRef.current.pause();
+  }, []);
+
+  // Si el fragmento cambia y el cursor queda fuera, recolocarlo
+  useEffect(() => {
+    if (audioRef.current && !playing) {
+      if (start != null && (currentTime < start || (end != null && currentTime > end))) {
+        audioRef.current.currentTime = start;
+        setCurrentTime(start);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end]);
+
+  const getT = (clientX) => {
+    const r = barRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return 0;
+    return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
+  };
+
+  // Clic/arrastre en la barra para seek
+  const beginSeek = (e) => {
+    e.preventDefault();
+    const t = getT(e.clientX);
+    if (audioRef.current) { audioRef.current.currentTime = t; }
+    setCurrentTime(t);
+    const onMove = (ev) => {
+      const tv = getT(ev.clientX);
+      if (audioRef.current) audioRef.current.currentTime = tv;
+      setCurrentTime(tv);
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+  };
+
+  // Arrastre de handles de fragmento
+  const beginDrag = (e, which) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const onMove = (ev) => {
+      const raw = Math.round(getT(ev.clientX) * 10) / 10;
+      if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
+      else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+  };
+
+  // Reproducción libre (sin límite de fragmento)
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+      setFragPlayMode(false);
+    } else {
+      setFragPlayMode(false);
+      audio.play().catch(() => {});
+      setPlaying(true);
+    }
+  };
+
+  // Reproducción solo del fragmento (fragStart → fragEnd)
+  const playFragment = () => {
+    const audio = audioRef.current;
+    if (!audio || start == null) return;
+    if (playing && fragPlayMode) {
+      audio.pause();
+      setPlaying(false);
+      setFragPlayMode(false);
+      return;
+    }
+    if (playing) audio.pause();
+    audio.currentTime = start;
+    setCurrentTime(start);
+    setFragPlayMode(true);
+    audio.play().catch(() => {});
+    setPlaying(true);
+  };
+
+  const startPct    = start != null ? (start / totalDuration) * 100 : null;
+  const endPct      = end   != null ? (end   / totalDuration) * 100 : null;
+  const playheadPct = Math.min(100, (currentTime / totalDuration) * 100);
+
+  const HANDLE_W = 12;
+  const handleStyle = (pct) => ({
+    position: "absolute", top: 0, bottom: 0,
+    left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
+    background: C.quiz, borderRadius: 3, cursor: "ew-resize",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
+  });
+
+  // Formato M:SS.d para mayor precisión en el contador
+  const fmtP = (s) => {
+    const m  = Math.floor(s / 60);
+    const ss = (s % 60).toFixed(1).padStart(4, "0");
+    return `${m}:${ss}`;
+  };
+
+  return (
+    <div>
+      {/* Audio element oculto */}
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: "none" }} />}
+
+      {/* Fila de controles: play + tiempo + botones de fragmento */}
+      <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "center" }}>
+        {/* ▶ Reproducir desde posición actual (libre) */}
+        <button type="button" onClick={togglePlay} disabled={!audioUrl}
+          title="Reproducir desde aquí"
+          style={{
+            ...S.btn, width: 34, height: 34, padding: 0, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, borderRadius: "50%",
+            background: (playing && !fragPlayMode) ? C.ink : C.paper,
+            color:      (playing && !fragPlayMode) ? C.paper : C.ink2,
+            border: `1px solid ${(playing && !fragPlayMode) ? C.ink : C.line}`,
+          }}>
+          {(playing && !fragPlayMode) ? "⏸" : "▶"}
+        </button>
+
+        {/* Contador de tiempo */}
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2, minWidth: 70 }}>
+          {fmtP(currentTime)}
+          {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* ▶ Solo fragmento (solo cuando fragmento definido) / + Definir */}
+        {start !== null ? (
+          <button type="button" onClick={playFragment} disabled={!audioUrl}
+            title="Reproducir solo el fragmento seleccionado"
+            style={{
+              ...S.btn, padding: "4px 10px", fontSize: 12, flexShrink: 0,
+              display: "flex", alignItems: "center", gap: 5,
+              background: fragPlayMode ? C.quiz : "rgba(47,111,184,0.08)",
+              color:      fragPlayMode ? "#fff"  : C.quiz,
+              border: `1px solid ${fragPlayMode ? C.quiz : "rgba(47,111,184,0.35)"}`,
+            }}>
+            <span style={{ fontSize: 11 }}>{fragPlayMode ? "⏸" : "▶"}</span>
+            <span>Solo fragmento</span>
+          </button>
+        ) : (
+          <button type="button" onClick={onDefine}
+            style={{ ...S.btn, padding: "4px 10px", fontSize: 12, flexShrink: 0 }}>
+            + Definir fragmento
+          </button>
+        )}
+      </div>
+
+      {/* Barra integrada: seek + región de fragmento + handles + playhead */}
+      <div style={{ position: "relative", paddingTop: start != null ? 20 : 6, marginBottom: 12, userSelect: "none" }}>
+        {/* Etiquetas sobre los handles */}
+        {start != null && startPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(start)}
+          </div>
+        )}
+        {end != null && endPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(end)}
+          </div>
+        )}
+
+        {/* La barra principal (clicable para seek) */}
+        <div ref={barRef} onMouseDown={beginSeek}
+          style={{ position: "relative", height: 32, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+
+          {/* Región del fragmento */}
+          {start != null && startPct != null && endPct != null && (
+            <div style={{
+              position: "absolute", top: 3, bottom: 3,
+              left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%`,
+              background: "rgba(47,111,184,0.18)", border: "1px solid rgba(47,111,184,0.4)", borderRadius: 3, pointerEvents: "none",
+            }} />
+          )}
+
+          {/* Zona fuera del fragmento (oscurecida) */}
+          {start != null && startPct != null && startPct > 0 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${startPct}%`, background: "rgba(26,25,21,0.07)", borderRadius: "6px 0 0 6px", pointerEvents: "none" }} />
+          )}
+          {end != null && endPct != null && endPct < 100 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${endPct}%`, right: 0, background: "rgba(26,25,21,0.07)", borderRadius: "0 6px 6px 0", pointerEvents: "none" }} />
+          )}
+
+          {/* Playhead */}
+          <div style={{
+            position: "absolute", top: -3, bottom: -3,
+            left: `${playheadPct}%`, width: 2, marginLeft: -1,
+            background: C.fnT, borderRadius: 1, pointerEvents: "none", zIndex: 4,
+          }}>
+            <div style={{ position: "absolute", top: 0, left: -3, width: 8, height: 8, borderRadius: "50%", background: C.fnT }} />
+          </div>
+
+          {/* Handle izquierdo */}
+          {start != null && startPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
+          {/* Handle derecho */}
+          {end != null && endPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Inputs numéricos (solo cuando hay fragmento) */}
+      {start != null && (
+        <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
+            <input type="number" min={0} max={end - 0.5} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={start}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start: Math.max(0, Math.min(v, end - 0.5)), end });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
+            <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={end}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start, end: Math.max(start + 0.5, Math.min(v, totalDuration)) });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
+            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
+              {fmt(Math.max(0, end - start))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botón quitar fragmento */}
+      {start !== null && (
+        <button type="button" onClick={onClear}
+          style={{ ...S.btn, width: "100%", fontSize: 12, color: C.muted, padding: "6px 10px" }}>
+          Usar audio completo
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
@@ -6325,8 +6652,17 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
 
   const [audioUrl,       setAudioUrl]       = useState(isCreating ? null : (exercise.audioUrl || null));
   const [audioName,      setAudioName]      = useState(isCreating ? null : (exercise.audioName || null));
-  const [audioDuration,  setAudioDuration]  = useState(null);
+  const [audioDuration,  setAudioDuration]  = useState(() => {
+    if (isCreating) return null;
+    const lib = (exercise.audioUrl || null)
+      ? audioLibrary.find(a => a.url === exercise.audioUrl)
+      : null;
+    return lib?.duration || exercise.audioTotalDuration || null;
+  });
   const [waveformData,   setWaveformData]   = useState(isCreating ? null : (exercise.waveformData || null));
+  // Fragmento de audio: inicio y fin en el audio completo (segundos), o null = sin fragmento
+  const [fragStart,      setFragStart]      = useState(isCreating ? null : (exercise.audioFragmentStart ?? null));
+  const [fragEnd,        setFragEnd]        = useState(isCreating ? null : (exercise.audioFragmentEnd   ?? null));
   const [manualDuration, setManualDuration] = useState(
     !isCreating && !exercise.audioName && exercise.duration ? String(exercise.duration) : ""
   );
@@ -6366,6 +6702,8 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     setAudioName(url ? url.split("/").pop().split("?")[0] || "audio" : null);
     setAudioDuration(null);
     setWaveformData(null);
+    setFragStart(null);
+    setFragEnd(null);
     if (!url) return;
 
     const reqId    = ++urlReqRef.current;
@@ -6386,6 +6724,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
   const clearAudio = () => {
     setAudioUrl(null); setAudioName(null);
     setAudioDuration(null); setWaveformData(null);
+    setFragStart(null); setFragEnd(null);
     urlReqRef.current++;
   };
 
@@ -6396,12 +6735,22 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
     setAudioDuration(audio.duration);
     setWaveformData(null);                      // se recalcula al reproducir
     setManualDuration(String(audio.duration));
+    setFragStart(null);                         // reset fragmento al cambiar audio
+    setFragEnd(null);
     setShowLibraryPicker(false);
   };
 
   const hasExistingAudio = !!audioName;
+  // Duración total del audio del almacén (sin recortar), para la barra de fragmento
+  const totalAudioDuration = audioDuration
+    || (!audioUrl ? null : audioLibrary.find(a => a.url === audioUrl)?.duration)
+    || (!isCreating && !exercise.audioFragmentStart ? exercise.duration : null)
+    || null;
+  // Duración efectiva del ejercicio (del fragmento si está definido, del audio completo si no)
   const effDuration = hasExistingAudio
-    ? (audioDuration || (!isCreating ? exercise.duration : 0))
+    ? (fragStart != null && fragEnd != null
+        ? Math.round((fragEnd - fragStart) * 10) / 10
+        : (audioDuration || (!isCreating ? exercise.duration : 0)))
     : (parseInt(manualDuration) || 0);
 
   // Compositor del audio actualmente seleccionado (para el toggle)
@@ -6443,10 +6792,13 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       const manual = parseInt(manualDuration) || 0;
       if (manual !== exercise.duration) return true;
     }
+    if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
+    if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, showComposer, schemaLevels, fragStart, fragEnd]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
+  const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
 
   const handleSave = () => {
     if (!canSave) return;
@@ -6469,9 +6821,12 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
         duration: effDuration,
         model,                     // modelo primario (backward compat)
         models: selectedModels,    // array completo de modelos
-        audioUrl:     audioUrl     || null,
-        audioName:    audioName    || null,
-        waveformData: waveformData || null,
+        audioUrl:            audioUrl     || null,
+        audioName:           audioName    || null,
+        waveformData:        waveformData || null,
+        audioFragmentStart:  fragStart    ?? null,
+        audioFragmentEnd:    fragEnd      ?? null,
+        audioTotalDuration:  totalAudioDuration || null,
         showHint: false,
         categories: hasInteractivo ? safe : [],
         answers:    {},
@@ -6494,14 +6849,18 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       patch.categories = [];
       patch.answers    = {};
     }
-    patch.audioUrl     = audioUrl     || null;
-    patch.audioName    = audioName    || null;
-    patch.waveformData = waveformData || null;
+    patch.audioUrl            = audioUrl     || null;
+    patch.audioName           = audioName    || null;
+    patch.waveformData        = waveformData || null;
+    patch.audioFragmentStart  = fragStart    ?? null;
+    patch.audioFragmentEnd    = fragEnd      ?? null;
+    patch.audioTotalDuration  = totalAudioDuration || null;
     if (hasEsquema) { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
     patch.showComposer = showComposer;
     patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
+      patch.audioFragmentStart = null; patch.audioFragmentEnd = null;
     }
     onUpdate(patch);
   };
@@ -6514,9 +6873,10 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <div style={{ marginBottom: 24 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 16 }}>← Ejercicios</button>
-          <div style={{ paddingBottom: 18, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        {/* Cabecera */}
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 14 }}>← Ejercicios</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
             <h1 style={{ ...S.h1 }}>{isCreating ? "Nuevo ejercicio" : title || "Sin título"}</h1>
             {(isCreating || isDirty) && (
               <CtaButton onClick={handleSave} disabled={!canSave}>
@@ -6526,169 +6886,214 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
           </div>
         </div>
 
-        <p style={SECTION_STYLE}>Información</p>
+        {/* ══ 1. INFORMACIÓN ══════════════════════════════════════════════════ */}
+        <section style={SEC}>
+          <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Información</p>
 
-        <label style={S.label}>Nombre del ejercicio</label>
-        <input style={{ ...S.input, marginBottom: 18, fontSize: 15, fontWeight: 500 }}
-          value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" />
+          <label style={S.label}>Nombre del ejercicio</label>
+          <input style={{ ...S.input, marginBottom: 14, fontSize: 15, fontWeight: 500 }}
+            value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" />
 
-        <label style={S.label}>{hasExistingAudio ? "Audio" : "Audio del ejercicio"}</label>
-        {hasExistingAudio && (
-          <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, ...S.row, gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: C.ink, flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              🎵 {audioName}
-            </span>
-            {!isCreating && <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(exercise.duration)}</span>}
-            <button type="button" onClick={clearAudio} style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 12 }}>Quitar</button>
-          </div>
-        )}
-
-        {audioLibrary.length > 0 && (
-          <button type="button" onClick={() => setShowLibraryPicker(true)}
-            style={{ ...S.btn, width: "100%", marginBottom: 10, fontSize: 13, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>🎵 {hasExistingAudio ? "Cambiar desde el almacén" : "Elegir del almacén de audios"}</span>
-            <span style={{ color: C.muted2, fontSize: 18, fontWeight: 300, lineHeight: 1 }}>›</span>
-          </button>
-        )}
-
-        <label style={{ ...S.label, marginBottom: 4 }}>{audioLibrary.length > 0 ? "O pega una URL directamente" : "Enlace de audio (URL)"}</label>
-        <input type="url" style={{ ...S.input, marginBottom: 4, fontSize: 13 }}
-          value={audioUrl || ""} onChange={(e) => handleUrlInput(e.target.value)}
-          placeholder="https://res.cloudinary.com/… o cualquier URL pública de audio" />
-        {hasExistingAudio && audioDuration !== null && (
-          <p style={{ fontSize: 12, color: C.fnT, margin: "4px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>
-        )}
-        {hasExistingAudio && audioDuration === null && (
-          <p style={{ fontSize: 12, color: C.muted, margin: "4px 0 0" }}>Duración no detectada — se usará la actual o la manual.</p>
-        )}
-        {!hasExistingAudio && (
-          <div style={{ marginTop: 10 }}>
-            <label style={S.label}>Duración manual (segundos)</label>
-            <input type="number" min={1} style={S.input}
-              value={manualDuration} onChange={(e) => setManualDuration(e.target.value)} placeholder="Ej: 30" />
-          </div>
-        )}
-        <div style={{ marginBottom: 18 }} />
-
-        <label style={S.label}>Modelo de ejercicio</label>
-        {/* Fila 1: modelos individuales */}
-        <div style={{ ...S.row, gap: 8, marginBottom: 6 }}>
-          {MODEL_COMBOS.slice(0, 3).map((c) => {
-            const isActive = comboId === c.id;
-            const dotColor = MODEL_META[c.models[0]]?.color || C.muted;
-            return (
-              <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
-                style={{
-                  ...S.btn, flex: 1, fontSize: 13, padding: "8px 10px",
-                  background: isActive ? C.ink : C.paper,
-                  color:      isActive ? C.paper : C.ink2,
-                  border:     `1px solid ${isActive ? C.ink : C.line}`,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "rgba(255,255,255,0.55)" : dotColor, flexShrink: 0 }} />
-                {c.name}
+          <label style={S.label}>Audio</label>
+          {hasExistingAudio ? (
+            /* Fila única cuando ya hay audio */
+            <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 4 }}>
+              <AudioWaveIcon size={15} color={C.ink2} />
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {audioName}
+              </span>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>
+                {fmt(effDuration)}
+              </span>
+              {audioLibrary.length > 0 && (
+                <button type="button" onClick={() => setShowLibraryPicker(true)}
+                  style={{ ...S.btn, padding: "3px 10px", fontSize: 12, flexShrink: 0 }}>
+                  Cambiar
+                </button>
+              )}
+              <button type="button" onClick={clearAudio}
+                style={{ ...S.btnDanger, padding: "3px 10px", fontSize: 12, flexShrink: 0 }}>
+                Quitar
               </button>
-            );
-          })}
-        </div>
-        {/* Fila 2: combos dobles */}
-        <div style={{ ...S.row, gap: 8, marginBottom: 10 }}>
-          {MODEL_COMBOS.slice(3).map((c) => {
-            const isActive = comboId === c.id;
-            return (
-              <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
-                style={{
-                  ...S.btn, flex: 1, fontSize: 12, padding: "8px 10px",
-                  background: isActive ? C.ink : C.paper,
-                  color:      isActive ? C.paper : C.ink2,
-                  border:     `1px solid ${isActive ? C.ink : C.line}`,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                }}>
-                {/* Doble pastilla de color */}
-                <span style={{ display: "flex", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
-                  <span style={{ width: 8, height: 8, background: MODEL_META[c.models[0]]?.color || C.muted }} />
-                  <span style={{ width: 8, height: 8, background: MODEL_META[c.models[1]]?.color || C.muted }} />
-                </span>
-                {c.name}
-              </button>
-            );
-          })}
-        </div>
-        {selectedModels.includes("cuestionario") && (
-          <p style={{ fontSize: 11, color: C.quiz, margin: "0 0 4px", padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
-            {selectedModels.length > 1
-              ? "Incluye cuestionario: las preguntas se gestionan desde la sección de abajo."
-              : "Las preguntas se gestionan desde la sección de abajo."}
-          </p>
-        )}
-        {selectedModels.length > 1 && (
-          <p style={{ fontSize: 11, color: C.muted, margin: "4px 0 0", padding: "6px 10px", background: C.paper2, borderRadius: 8, lineHeight: 1.5 }}>
-            El alumno podrá alternar entre los dos modos durante la práctica del ejercicio.
-          </p>
-        )}
-
-        {selectedModels.includes("interactivo") && (
-          <div style={{ marginTop: 18 }}>
-            <label style={S.label}>Categorías y botones del ejercicio</label>
-            <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 8, maxHeight: 320, overflowY: "auto" }}>
-              {categories.map((cat) => {
-                const checked  = selectedCategoryIds.has(cat.id);
-                const isLast   = checked && selectedCategoryIds.size === 1;
-                const selBtns  = selectedButtonIds.get(cat.id) || new Set();
-                const allCount = cat.buttons.length;
-                const selCount = checked ? [...cat.buttons].filter((b) => selBtns.has(b.id)).length : 0;
-                return (
-                  <div key={cat.id} style={{ marginBottom: checked ? 6 : 2 }}>
-                    <label style={{ ...S.row, gap: 10, padding: "6px 8px", borderRadius: 6, cursor: isLast ? "not-allowed" : "pointer", background: checked ? "rgba(26,25,21,0.04)" : "transparent" }}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat.id)}
-                        style={{ cursor: isLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, fontWeight: 500, color: checked ? C.ink : C.muted2, flex: 1 }}>{cat.name}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
-                        {checked ? `${selCount}/${allCount}` : `${allCount} btn`}
-                      </span>
-                    </label>
-
-                    {checked && (
-                      <div style={{ paddingLeft: 28, paddingBottom: 4, paddingTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
-                        {cat.buttons.map((btn) => {
-                          const bChecked = selBtns.has(btn.id);
-                          const bIsLast  = bChecked && selCount === 1;
-                          return (
-                            <label key={btn.id} style={{ ...S.row, gap: 8, padding: "4px 8px", borderRadius: 6, cursor: bIsLast ? "not-allowed" : "pointer", opacity: bChecked ? 1 : 0.45 }}>
-                              <input type="checkbox" checked={bChecked} onChange={() => toggleButton(cat.id, btn.id)}
-                                style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
-                              <span style={{
-                                width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0,
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO,
-                              }}>{btn.id}</span>
-                              <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
-                              <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{btn.key.toUpperCase()}]</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
             </div>
+          ) : (
+            /* Selección cuando no hay audio: almacén + URL en una fila */
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ ...S.row, gap: 8, marginBottom: 0 }}>
+                {audioLibrary.length > 0 && (
+                  <button type="button" onClick={() => setShowLibraryPicker(true)}
+                    style={{ ...S.btn, padding: "8px 12px", fontSize: 13, flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <AudioWaveIcon size={13} color="#555" />
+                    Almacén
+                  </button>
+                )}
+                <input type="url" style={{ ...S.input, fontSize: 13 }}
+                  value={audioUrl || ""} onChange={(e) => handleUrlInput(e.target.value)}
+                  placeholder={audioLibrary.length > 0 ? "O pega una URL de audio" : "URL pública de audio"} />
+              </div>
+              <div style={{ ...S.row, gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                <label style={{ ...S.label, margin: 0, whiteSpace: "nowrap" }}>Sin audio · duración manual (s)</label>
+                <input type="number" min={1} style={{ ...S.input, width: 90, flex: "0 0 auto" }}
+                  value={manualDuration} onChange={(e) => setManualDuration(e.target.value)} placeholder="30" />
+              </div>
+            </div>
+          )}
+          {hasExistingAudio && audioDuration !== null && (
+            <p style={{ fontSize: 11, color: C.fnT, margin: "2px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>
+          )}
+          {hasExistingAudio && audioDuration === null && (
+            <p style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>Duración no detectada — se usará la actual.</p>
+          )}
+
+          {/* Fragmento — separado por un divisor interno */}
+          {hasExistingAudio && totalAudioDuration && (
+            selectedModels.includes("cuestionario") || selectedModels.includes("interactivo")
+          ) && (
+            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 14, paddingTop: 14 }}>
+              <p style={{ ...SECTION_STYLE, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                Fragmento
+                {fragStart !== null && (
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.quiz, fontWeight: 600,
+                    textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
+                    padding: "1px 6px", borderRadius: 4 }}>
+                    {fmt(fragStart)} – {fmt(fragEnd)}
+                  </span>
+                )}
+              </p>
+              <FragmentRangeSelector
+                totalDuration={totalAudioDuration}
+                start={fragStart}
+                end={fragEnd}
+                onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
+                onClear={() => { setFragStart(null); setFragEnd(null); }}
+                onDefine={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
+                audioUrl={audioUrl}
+              />
+              {fragStart === null && (
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0", lineHeight: 1.5 }}>
+                  Escucha el audio y define un fragmento para que el ejercicio use solo ese tramo.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ══ 2. MODELO ═══════════════════════════════════════════════════════ */}
+        <section style={SEC}>
+          <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Modelo de ejercicio</p>
+
+          {/* Fila 1: modelos individuales */}
+          <div style={{ ...S.row, gap: 8, marginBottom: 6 }}>
+            {MODEL_COMBOS.slice(0, 3).map((c) => {
+              const isActive = comboId === c.id;
+              const dotColor = MODEL_META[c.models[0]]?.color || C.muted;
+              return (
+                <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                  style={{
+                    ...S.btn, flex: 1, fontSize: 13, padding: "8px 10px",
+                    background: isActive ? C.ink : C.paper2,
+                    color:      isActive ? C.paper : C.ink2,
+                    border:     `1px solid ${isActive ? C.ink : C.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "rgba(255,255,255,0.55)" : dotColor, flexShrink: 0 }} />
+                  {c.name}
+                </button>
+              );
+            })}
           </div>
-        )}
+          {/* Fila 2: combos dobles */}
+          <div style={{ ...S.row, gap: 8, marginBottom: 10 }}>
+            {MODEL_COMBOS.slice(3).map((c) => {
+              const isActive = comboId === c.id;
+              return (
+                <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                  style={{
+                    ...S.btn, flex: 1, fontSize: 12, padding: "8px 10px",
+                    background: isActive ? C.ink : C.paper2,
+                    color:      isActive ? C.paper : C.ink2,
+                    border:     `1px solid ${isActive ? C.ink : C.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>
+                  <span style={{ display: "flex", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
+                    <span style={{ width: 8, height: 8, background: MODEL_META[c.models[0]]?.color || C.muted }} />
+                    <span style={{ width: 8, height: 8, background: MODEL_META[c.models[1]]?.color || C.muted }} />
+                  </span>
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+          {selectedModels.includes("cuestionario") && (
+            <p style={{ fontSize: 11, color: C.quiz, margin: "0 0 4px", padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
+              {selectedModels.length > 1
+                ? "Incluye cuestionario: las preguntas se configuran en la sección de abajo."
+                : "Las preguntas se configuran en la sección de abajo."}
+            </p>
+          )}
+          {selectedModels.length > 1 && (
+            <p style={{ fontSize: 11, color: C.muted, margin: "4px 0 0", padding: "6px 10px", background: C.paper2, borderRadius: 8, lineHeight: 1.5 }}>
+              El alumno podrá alternar entre los dos modos durante la práctica del ejercicio.
+            </p>
+          )}
 
-        <hr style={{ ...S.divider, margin: "28px 0" }} />
+          {/* Categorías — solo interactivo */}
+          {selectedModels.includes("interactivo") && (
+            <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+              <label style={{ ...S.label, marginBottom: 8 }}>Categorías y botones</label>
+              <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 8, maxHeight: 300, overflowY: "auto" }}>
+                {categories.map((cat) => {
+                  const checked  = selectedCategoryIds.has(cat.id);
+                  const isLast   = checked && selectedCategoryIds.size === 1;
+                  const selBtns  = selectedButtonIds.get(cat.id) || new Set();
+                  const allCount = cat.buttons.length;
+                  const selCount = checked ? [...cat.buttons].filter((b) => selBtns.has(b.id)).length : 0;
+                  return (
+                    <div key={cat.id} style={{ marginBottom: checked ? 6 : 2 }}>
+                      <label style={{ ...S.row, gap: 10, padding: "6px 8px", borderRadius: 6, cursor: isLast ? "not-allowed" : "pointer", background: checked ? "rgba(26,25,21,0.04)" : "transparent" }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat.id)}
+                          style={{ cursor: isLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: checked ? C.ink : C.muted2, flex: 1 }}>{cat.name}</span>
+                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
+                          {checked ? `${selCount}/${allCount}` : `${allCount} btn`}
+                        </span>
+                      </label>
+                      {checked && (
+                        <div style={{ paddingLeft: 28, paddingBottom: 4, paddingTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+                          {cat.buttons.map((btn) => {
+                            const bChecked = selBtns.has(btn.id);
+                            const bIsLast  = bChecked && selCount === 1;
+                            return (
+                              <label key={btn.id} style={{ ...S.row, gap: 8, padding: "4px 8px", borderRadius: 6, cursor: bIsLast ? "not-allowed" : "pointer", opacity: bChecked ? 1 : 0.45 }}>
+                                <input type="checkbox" checked={bChecked} onChange={() => toggleButton(cat.id, btn.id)}
+                                  style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
+                                <span style={{ width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO }}>{btn.id}</span>
+                                <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
+                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{btn.key.toUpperCase()}]</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
 
-        {/* Clave · Interactivo */}
+        {/* ══ 3. CLAVE DE CORRECCIÓN (interactivo) ════════════════════════════ */}
         {selectedModels.includes("interactivo") && (
-          <>
-            <p style={SECTION_STYLE}>Clave de corrección</p>
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Clave de corrección</p>
             {isCreating ? (
               <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: 0 }}>
                 Crea el ejercicio para poder grabar la clave de corrección.
               </p>
             ) : (
               <>
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 14 }}>
                   {categoriesOf(exercise).map((cat) => {
                     const hasKey = answerFor(exercise, cat.id).length > 0;
                     return (
@@ -6714,18 +7119,16 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                 </button>
               </>
             )}
-          </>
+          </section>
         )}
 
-        {/* Esquema · info + botones grabar/probar */}
+        {/* ══ 4. ESQUEMA FORMAL ═══════════════════════════════════════════════ */}
         {selectedModels.includes("esquema") && !isCreating && (
-          <>
-            <p style={SECTION_STYLE}>Esquema formal</p>
-            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía, texto) sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Esquema formal</p>
+            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+              El alumno dibuja bloques de forma musical sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo durante la corrección.
             </div>
-
-            {/* Selección de niveles activos */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ ...S.label, marginBottom: 8 }}>Niveles que verá el alumno</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -6736,15 +7139,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                     <button key={lv.id} type="button"
                       onClick={() => !isLast && toggleSchemaLevel(lv.id)}
                       title={isLast ? "Debe haber al menos un nivel activo" : undefined}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 7,
-                        padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer",
-                        border: `1.5px solid ${active ? lv.color : C.line}`,
-                        background: active ? lv.color + "18" : C.paper2,
-                        transition: "all .12s",
-                        opacity: isLast ? 0.6 : 1,
-                        fontFamily: FONT_SANS,
-                      }}>
+                      style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer", border: `1.5px solid ${active ? lv.color : C.line}`, background: active ? lv.color + "18" : C.paper2, transition: "all .12s", opacity: isLast ? 0.6 : 1, fontFamily: FONT_SANS }}>
                       <span style={{ width: 10, height: 10, borderRadius: 2, background: active ? lv.color : C.muted2, flexShrink: 0, transition: "background .12s" }} />
                       <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? lv.color : C.muted, transition: "all .12s" }}>{lv.sub}</span>
                       {active && <span style={{ fontSize: 10, color: lv.color, opacity: 0.7, marginLeft: 1 }}>✓</span>}
@@ -6753,34 +7148,23 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                 })}
               </div>
               {schemaLevels.size < SCHEMA_LEVELS.length && (
-                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>
-                  Solo se mostrarán las pistas seleccionadas. Los niveles desactivados no aparecen al alumno.
-                </p>
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>Los niveles desactivados no aparecen al alumno.</p>
               )}
             </div>
-
-            {/* Toggle: reproducción sin navegación */}
             <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${listenOnly ? C.fnD + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-                <input type="checkbox" checked={listenOnly}
-                  onChange={e => setListenOnly(e.target.checked)}
+                <input type="checkbox" checked={listenOnly} onChange={e => setListenOnly(e.target.checked)}
                   style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Reproducción sin navegación</div>
-                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>
-                    El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo. Activa una barra de marcas donde se pueden colocar, mover y borrar puntos de referencia a los que los bloques se imantan.
-                  </div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo.</div>
                 </div>
               </label>
             </div>
-
-            {/* Estado de la clave */}
             {(() => {
               const key = exercise.schemaKey;
               const hasKey = Array.isArray(key) && key.length > 0;
-              const keyLevels = SCHEMA_LEVELS.filter(lv =>
-                !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
-              );
+              const keyLevels = SCHEMA_LEVELS.filter(lv => !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id));
               const byLevel = hasKey ? keyLevels.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
               return (
                 <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
@@ -6809,124 +7193,79 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                 </div>
               );
             })()}
-
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => onRecord(exercise)} style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: !exercise.schemaKey?.length ? C.ink : C.paper2,
-                color:      !exercise.schemaKey?.length ? C.paper : C.ink,
-                border:     !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
-                borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
-              }}>
+              <button onClick={() => onRecord(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !exercise.schemaKey?.length ? C.ink : C.paper2, color: !exercise.schemaKey?.length ? C.paper : C.ink, border: !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                 <span>{exercise.schemaKey?.length ? "Regrabar clave" : "Grabar clave"}</span>
                 <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
               </button>
               {onPreview && (
-                <button onClick={() => onPreview(exercise)} style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: C.paper2, color: C.ink,
-                  border: `1.5px solid ${C.line}`,
-                  borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
-                }}>
+                <button onClick={() => onPreview(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                   <span>Probar ejercicio</span>
                   <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>›</span>
                 </button>
               )}
             </div>
-          </>
+          </section>
         )}
 
-        {/* Preguntas · Cuestionario */}
+        {/* ══ 5. PREGUNTAS (cuestionario) ══════════════════════════════════════ */}
         {selectedModels.includes("cuestionario") && !isCreating && (
-          <>
-            <p style={SECTION_STYLE}>Preguntas</p>
-            <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 16 }}>
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Preguntas</p>
+            <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 14 }}>
               <span style={{ fontSize: 13, color: C.ink2, fontWeight: 500 }}>Preguntas configuradas</span>
               <span style={{ fontSize: 12, fontWeight: 600, color: exQs.length > 0 ? C.quiz : C.muted }}>
                 {exQs.length > 0 ? `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}` : "Ninguna todavía"}
               </span>
             </div>
-            <button onClick={() => (onManageQuestions || onRecord)(exercise)} style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: exQs.length === 0 ? C.ink : C.paper2,
-              color:      exQs.length === 0 ? C.paper : C.ink,
-              border:     exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
-              borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600,
-            }}>
+            <button onClick={() => (onManageQuestions || onRecord)(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: exQs.length === 0 ? C.ink : C.paper2, color: exQs.length === 0 ? C.paper : C.ink, border: exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
               <span>{exQs.length === 0 ? "Crear preguntas" : "Editar preguntas"}</span>
               <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
             </button>
-            {/* Para ejercicios híbridos, ofrecer previsualización con el toggle */}
             {selectedModels.length > 1 && onPreview && (
-              <button onClick={() => onPreview(exercise)} style={{
-                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: "transparent", color: C.ink2,
-                border: `1px solid ${C.line}`,
-                borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13,
-                fontWeight: 500, marginTop: 8,
-              }}>
+              <button onClick={() => onPreview(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", color: C.ink2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13, fontWeight: 500, marginTop: 8 }}>
                 <span>Probar ejercicio completo</span>
                 <span style={{ fontSize: 16, opacity: 0.45, fontWeight: 300 }}>→</span>
               </button>
             )}
-          </>
+          </section>
         )}
 
-        {/* Opciones para el alumno (solo interactivo, tras crear) */}
-        {!isCreating && selectedModels.includes("interactivo") && (
-          <>
-            <hr style={{ ...S.divider, margin: "28px 0" }} />
-            <p style={SECTION_STYLE}>Opciones para el alumno</p>
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-              <input type="checkbox" checked={!!exercise.showHint}
-                onChange={(e) => onUpdate({ showHint: e.target.checked })}
-                style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar guía de tiempo</div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-                  Muestra los bloques de función como barras apagadas — una pista sin revelar la solución.
+        {/* ══ 6. OPCIONES PARA EL ALUMNO ══════════════════════════════════════ */}
+        {(!isCreating && selectedModels.includes("interactivo")) || activeComposer ? (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Opciones para el alumno</p>
+            {!isCreating && selectedModels.includes("interactivo") && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none", marginBottom: activeComposer ? 14 : 0 }}>
+                <input type="checkbox" checked={!!exercise.showHint}
+                  onChange={(e) => onUpdate({ showHint: e.target.checked })}
+                  style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar guía de tiempo</div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Muestra los bloques de función como barras apagadas — una pista sin revelar la solución.</div>
                 </div>
-              </div>
-            </label>
+              </label>
+            )}
             {activeComposer && (
-              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none", marginTop: 14 }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
                 <input type="checkbox" checked={showComposer}
                   onChange={(e) => setShowComposer(e.target.checked)}
                   style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar nombre del compositor</div>
                   <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-                    Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título del ejercicio en la vista del alumno.
+                    Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título en la vista del alumno.
                   </div>
                 </div>
               </label>
             )}
-          </>
-        )}
-
-        {/* Toggle compositor para modelos no interactivos o en creación */}
-        {activeComposer && (isCreating || !selectedModels.includes("interactivo")) && (
-          <>
-            <hr style={{ ...S.divider, margin: "28px 0" }} />
-            <p style={SECTION_STYLE}>Opciones para el alumno</p>
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-              <input type="checkbox" checked={showComposer}
-                onChange={(e) => setShowComposer(e.target.checked)}
-                style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar nombre del compositor</div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-                  Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título del ejercicio en la vista del alumno.
-                </div>
-              </div>
-            </label>
-          </>
-        )}
+          </section>
+        ) : null}
 
         {/* Zona de peligro */}
         {!isCreating && (
-          <div style={{ marginTop: 40, paddingTop: 20, borderTop: `1px solid ${C.line}` }}>
-            <button onClick={() => setShowConfirmDel(true)} style={{ ...S.btnDanger, width: "100%", padding: "10px", fontSize: 13, textAlign: "center" }}>
+          <div style={{ marginTop: 8, textAlign: "center" }}>
+            <button onClick={() => setShowConfirmDel(true)} style={{ ...S.btnDanger, padding: "8px 20px", fontSize: 12 }}>
               Eliminar ejercicio
             </button>
           </div>
