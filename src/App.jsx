@@ -1904,13 +1904,16 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
   const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
   const teacherCourses = useMemo(() => {
-    const studentGroups = groups.filter((g) => g.studentIds?.includes(user.id));
-    if (studentGroups.length > 0) {
-      const allowed = new Set(studentGroups.flatMap((g) => g.allowedCourseIds || []));
-      return courses.filter((c) => !c.hidden && allowed.has(c.id));
-    }
-    if (!user.teacherId) return courses.filter((c) => !c.hidden);
-    return courses.filter((c) => (!c.ownerId || c.ownerId === user.teacherId) && !c.hidden);
+    const studentGroupIds = new Set(groups.filter((g) => g.studentIds?.includes(user.id)).map((g) => g.id));
+    return courses.filter((c) => {
+      if (c.hidden) return false;
+      const vis = c.visibility ?? "teacher";
+      if (vis === "public")  return true;
+      if (vis === "group")   return studentGroupIds.has(c.visibilityGroupId);
+      // "teacher" (default): cursos del profesor asignado
+      if (!c.ownerId) return true;
+      return c.ownerId === user.teacherId;
+    });
   }, [courses, groups, user.id, user.teacherId]);
 
   const filteredExercises = useMemo(() => {
@@ -6138,7 +6141,7 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
 
 // ── Pestaña: Cursos ────────────────────────────────────────────────────────
 function CoursesTab({
-  courses, units, exercises,
+  courses, units, exercises, groups = [],
   openUnitIds, setOpenUnitIds,
   onCreateCourse, onEditCourse, onDeleteCourse, onUpdateCourse,
   onCreateUnit, onEditUnit, onDeleteUnit, onUpdateUnit,
@@ -6168,9 +6171,18 @@ function CoursesTab({
                 <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0, flexWrap: "wrap" }}>
                         <span style={{ fontFamily: F.serif, fontSize: 28, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>{course.name}</span>
                         <Chevron open={courseOpen} rotate90WhenClosed size={14} />
+                        {(() => {
+                          const vis = course.visibility || "teacher";
+                          if (vis === "public")  return <span style={{ ...S.badge, background: "rgba(63,155,91,0.12)", color: C.fnT, fontSize: 10 }}>Público</span>;
+                          if (vis === "group") {
+                            const g = groups.find((x) => x.id === course.visibilityGroupId);
+                            return <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, fontSize: 10 }}>{g ? g.name : "Grupo"}</span>;
+                          }
+                          return <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>Mis alumnos</span>;
+                        })()}
                       </div>
                       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                     </div>
@@ -6267,7 +6279,7 @@ function CoursesTab({
 }
 
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
-function StudentsTab({ students, exercises, results, groups, courses, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
+function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
   const [expandedStudents, setExpandedStudents] = useState(new Set());
   const toggleExpand = (id) =>
     setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -6349,20 +6361,12 @@ function StudentsTab({ students, exercises, results, groups, courses, onAddStude
       )}
 
       {groups.map((group) => {
-        const groupStudents  = students.filter((s) => (group.studentIds || []).includes(s.id));
-        const allowedNames   = (group.allowedCourseIds || []).map((id) => courses.find((c) => c.id === id)?.name).filter(Boolean);
+        const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap" }}>
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
               <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
-              {allowedNames.length > 0 && (
-                <div style={{ ...S.row, gap: 4, flexWrap: "wrap" }}>
-                  {allowedNames.map((n) => (
-                    <span key={n} style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, fontSize: 10 }}>{n}</span>
-                  ))}
-                </div>
-              )}
               <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
               <button onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))} style={{ ...S.btnDanger, fontSize: 12, padding: "4px 10px" }}>Eliminar</button>
             </div>
@@ -6830,7 +6834,7 @@ function TeacherDash({
 
         {tab === "courses" && (
           <CoursesTab
-            courses={courses} units={units} exercises={exercises}
+            courses={courses} units={units} exercises={exercises} groups={teacherGroups}
             openUnitIds={openUnitIds} setOpenUnitIds={setOpenUnitIds}
             onCreateCourse={() => setEditingCourse("new")}
             onEditCourse={(c) => setEditingCourse(c)}
@@ -6851,7 +6855,7 @@ function TeacherDash({
         {tab === "students" && (
           <StudentsTab
             students={students} exercises={exercises} results={results}
-            groups={teacherGroups} courses={courses}
+            groups={teacherGroups}
             onAddStudent={() => { setAddingUserRole("student"); setShowAddUser(true); }}
             onResetCred={(s) => { setResetCredTarget(s); setShowResetCred(true); }}
             onRemove={onRemoveUser} askConfirm={askConfirm}
@@ -6900,6 +6904,7 @@ function TeacherDash({
         {editingCourse !== null && (
           <CourseFormModal
             initial={editingCourse === "new" ? null : editingCourse}
+            groups={teacherGroups}
             onSave={(c) => { if (editingCourse === "new") onAddCourse({ ...c, ownerId: currentUser.id }); else onUpdateCourse(c); setEditingCourse(null); }}
             onClose={() => setEditingCourse(null)} />
         )}
@@ -6949,7 +6954,6 @@ function TeacherDash({
           <GroupEditorModal
             initial={editingGroup}
             students={students}
-            courses={courses}
             currentUserId={currentUser.id}
             onSave={(g) => {
               if (editingGroup === null) onAddGroup(g); else onUpdateGroup(g);
@@ -7966,29 +7970,26 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
 }
 
 // Formulario de curso
-function GroupEditorModal({ initial, students, courses, currentUserId, onSave, onClose }) {
-  const [name,             setName]             = useState(initial?.name || "");
-  const [studentIds,       setStudentIds]       = useState(() => new Set(initial?.studentIds || []));
-  const [allowedCourseIds, setAllowedCourseIds] = useState(() => new Set(initial?.allowedCourseIds || []));
+function GroupEditorModal({ initial, students, currentUserId, onSave, onClose }) {
+  const [name,       setName]       = useState(initial?.name || "");
+  const [studentIds, setStudentIds] = useState(() => new Set(initial?.studentIds || []));
 
   const toggleStudent = (id) => setStudentIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleCourse  = (id) => setAllowedCourseIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const canSave = name.trim().length > 0;
 
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:               initial?.id || uid("group"),
-      name:             name.trim(),
-      teacherId:        currentUserId,
-      studentIds:       [...studentIds],
-      allowedCourseIds: [...allowedCourseIds],
-      createdAt:        initial?.createdAt || Date.now(),
+      id:         initial?.id || uid("group"),
+      name:       name.trim(),
+      teacherId:  currentUserId,
+      studentIds: [...studentIds],
+      createdAt:  initial?.createdAt || Date.now(),
     });
   };
 
   return (
-    <ModalShell width={520} align="top">
+    <ModalShell width={480} align="top">
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>
         {initial ? "Editar grupo" : "Nuevo grupo"}
       </h3>
@@ -8000,30 +8001,13 @@ function GroupEditorModal({ initial, students, courses, currentUserId, onSave, o
       {students.length > 0 && (
         <>
           <label style={{ ...S.label, marginBottom: 8 }}>Alumnos del grupo</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 200, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 240, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
             {students.map((s) => (
               <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 13, color: C.ink }}>
                 <input type="checkbox" checked={studentIds.has(s.id)} onChange={() => toggleStudent(s.id)}
                   style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
                 <span style={{ flex: 1 }}>{s.displayName}</span>
                 <span style={{ color: C.muted, fontSize: 11, fontFamily: FONT_MONO }}>@{s.username}</span>
-              </label>
-            ))}
-          </div>
-        </>
-      )}
-
-      {courses.length > 0 && (
-        <>
-          <label style={{ ...S.label, marginBottom: 4 }}>Cursos con acceso</label>
-          <p style={{ fontSize: 12, color: C.muted, margin: "0 0 8px" }}>Los alumnos de este grupo solo verán los cursos marcados.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 180, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
-            {courses.map((c) => (
-              <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 13, color: C.ink }}>
-                <input type="checkbox" checked={allowedCourseIds.has(c.id)} onChange={() => toggleCourse(c.id)}
-                  style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
-                <span style={{ flex: 1 }}>{c.name}</span>
-                {c.hidden && <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>oculto</span>}
               </label>
             ))}
           </div>
@@ -8040,31 +8024,72 @@ function GroupEditorModal({ initial, students, courses, currentUserId, onSave, o
   );
 }
 
-function CourseFormModal({ initial, onSave, onClose }) {
-  const [name, setName] = useState(initial?.name || "");
-  const [desc, setDesc] = useState(initial?.description || "");
-  const canSave = name.trim().length > 0;
+function CourseFormModal({ initial, groups = [], onSave, onClose }) {
+  const [name,              setName]              = useState(initial?.name || "");
+  const [desc,              setDesc]              = useState(initial?.description || "");
+  const [visibility,        setVisibility]        = useState(initial?.visibility || "teacher");
+  const [visibilityGroupId, setVisibilityGroupId] = useState(initial?.visibilityGroupId || "");
+
+  const canSave = name.trim().length > 0 && (visibility !== "group" || visibilityGroupId !== "");
 
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:          initial?.id || uid("course"),
-      name:        name.trim(),
-      description: desc.trim(),
-      unitIds:     initial?.unitIds || [],
-      createdAt:   initial?.createdAt || Date.now(),
+      id:                initial?.id || uid("course"),
+      name:              name.trim(),
+      description:       desc.trim(),
+      unitIds:           initial?.unitIds || [],
+      visibility,
+      visibilityGroupId: visibility === "group" ? visibilityGroupId : null,
+      createdAt:         initial?.createdAt || Date.now(),
     });
   };
 
+  const VIS_OPTIONS = [
+    { id: "teacher", label: "Mis alumnos",      desc: "Solo los alumnos asignados a ti" },
+    { id: "public",  label: "Público",           desc: "Todos los alumnos de la aplicación" },
+    { id: "group",   label: "Grupo específico",  desc: "Solo los alumnos de un grupo" },
+  ];
+
   return (
-    <ModalShell width={440}>
+    <ModalShell width={480}>
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar curso" : "Nuevo curso"}</h3>
+
       <label style={S.label}>Nombre del curso</label>
       <input style={{ ...S.input, marginBottom: 14 }} value={name} autoFocus
         onChange={(e) => setName(e.target.value)} placeholder="Ej: 2º Bachillerato — Armonía" />
+
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 18, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
         value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Breve descripción del curso…" />
+
+      <label style={{ ...S.label, marginBottom: 8 }}>Visibilidad</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: visibility === "group" ? 10 : 20 }}>
+        {VIS_OPTIONS.map((opt) => (
+          <label key={opt.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${visibility === opt.id ? C.ink : C.line}`, background: visibility === opt.id ? C.paper2 : "transparent", fontFamily: FONT_SANS }}>
+            <input type="radio" name="visibility" value={opt.id} checked={visibility === opt.id} onChange={() => setVisibility(opt.id)}
+              style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer", flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{opt.label}</div>
+              <div style={{ fontSize: 11, color: C.muted }}>{opt.desc}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {visibility === "group" && (
+        <div style={{ marginBottom: 18 }}>
+          {groups.length === 0
+            ? <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>Aún no tienes grupos. Créalos desde la pestaña Alumnos.</p>
+            : <select value={visibilityGroupId} onChange={(e) => setVisibilityGroupId(e.target.value)}
+                style={{ ...S.input, cursor: "pointer" }}>
+                <option value="">— Selecciona un grupo —</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+          }
+        </div>
+      )}
+
       <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
         <button onClick={onClose} style={S.btn}>Cancelar</button>
         <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
