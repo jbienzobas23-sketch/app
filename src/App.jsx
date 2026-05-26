@@ -7079,7 +7079,7 @@ function QuestionManagerView({ exercise, onSave, onBack }) {
                 </div>
               );
             })}
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 2.5, background: C.ink, opacity: 0.75, pointerEvents: "none", zIndex: 5 }} />
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 2, background: C.ink, opacity: 0.75, pointerEvents: "none", zIndex: 5 }} />
           </div>
 
           {selectedQId && (() => {
