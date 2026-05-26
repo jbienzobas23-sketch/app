@@ -6219,8 +6219,39 @@ function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleG
 
 // ── Pestaña: Audios (almacén) ─────────────────────────────────────────────
 function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }) {
-  const [openId,    setOpenId]    = useState(null);
-  const [previewId, setPreviewId] = useState(null);
+  const [openId,          setOpenId]          = useState(null);
+  const [previewId,       setPreviewId]       = useState(null);
+  const [filterComposers, setFilterComposers] = useState([]);
+  const [filterTags,      setFilterTags]      = useState([]);
+
+  // Opciones únicas para los dropdowns
+  const allComposers = useMemo(() =>
+    [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  const allTags = useMemo(() =>
+    [...new Set(audioLibrary.flatMap((a) => a.tags || []))].sort(),
+    [audioLibrary]
+  );
+
+  // Lista filtrada
+  const filtered = useMemo(() => {
+    if (filterComposers.length === 0 && filterTags.length === 0) return audioLibrary;
+    return audioLibrary.filter((a) => {
+      if (filterComposers.length > 0 && !filterComposers.includes(a.composer)) return false;
+      if (filterTags.length > 0) {
+        const aTags = a.tags || [];
+        if (!filterTags.every((t) => aTags.includes(t))) return false;
+      }
+      return true;
+    });
+  }, [audioLibrary, filterComposers, filterTags]);
+
+  const hasFilters = filterComposers.length > 0 || filterTags.length > 0;
+
+  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+
   return (
     <>
       {isAdmin && (
@@ -6230,6 +6261,34 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
         <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios del almacén.</p>
       )}
 
+      {/* ── Barra de filtros ── */}
+      {audioLibrary.length > 0 && (
+        <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <FilterDropdown
+            label="Compositor"
+            options={allComposers}
+            selected={filterComposers}
+            onToggle={toggleComposer}
+            onClear={() => setFilterComposers([])}
+            accent="#2F6FB8"
+          />
+          <FilterDropdown
+            label="Etiquetas"
+            options={allTags}
+            selected={filterTags}
+            onToggle={toggleTag}
+            onClear={() => setFilterTags([])}
+            accent={C.fnI}
+          />
+          {hasFilters && (
+            <button
+              onClick={() => { setFilterComposers([]); setFilterTags([]); }}
+              style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}
+            >✕ Limpiar</button>
+          )}
+        </div>
+      )}
+
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
           <div>El almacén está vacío.</div>
@@ -6237,8 +6296,14 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
         </div>
       )}
 
+      {audioLibrary.length > 0 && filtered.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem" }}>
+          No hay audios que coincidan con los filtros seleccionados.
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {audioLibrary.map((audio) => {
+        {filtered.map((audio) => {
           const isOpen = openId === audio.id;
           const isPrev = previewId === audio.id;
           return (
