@@ -6154,7 +6154,7 @@ function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, 
 }
 
 // ── Pestaña: Categorías ───────────────────────────────────────────────────
-function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
+function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }) {
   return (
     <>
       <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Crear categoría</button>
@@ -6162,31 +6162,57 @@ function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
         Las categorías definen los botones del modelo Interactivo. Editar o eliminar una categoría no afecta a los ejercicios ya creados.
       </p>
 
-      {categories.map((m) => (
-        <div key={m.id} style={S.card}>
-          <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-              <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 600 }}>{m.name}</span>
-                {m.builtIn && <span style={{ ...S.badge, background: C.line, color: C.muted }}>Predeterminada</span>}
+      {categories.map((m) => {
+        const isGlobal = m.builtIn || m.global;
+        const canEdit  = isAdmin || !isGlobal;
+        const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
+        return (
+          <div key={m.id} style={S.card}>
+            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{m.name}</span>
+                  {isGlobal && (
+                    <span style={{ ...S.badge, background: "#e8f0fe", color: "#1a56db", border: "1px solid #bfcfef" }}>
+                      ⭐ Predeterminada
+                    </span>
+                  )}
+                </div>
+                <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+                  {m.buttons.map((b) => (
+                    <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
+                      {b.id} · {b.name} [{b.key.toUpperCase()}]
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                {m.buttons.map((b) => (
-                  <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
-                    {b.id} · {b.name} [{b.key.toUpperCase()}]
-                  </span>
-                ))}
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {isAdmin && !m.builtIn && (
+                  <button
+                    onClick={() => onToggleGlobal(m.id)}
+                    title={m.global ? "Quitar de predeterminadas" : "Establecer como predeterminada para todos los profesores"}
+                    style={{ ...S.btn, fontSize: 12, color: m.global ? "#1a56db" : C.muted }}
+                  >
+                    {m.global ? "⭐ Predeterminada" : "☆ Predeterminar"}
+                  </button>
+                )}
+                {canEdit && (
+                  <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
+                )}
+                {canDel && (
+                  <button
+                    onClick={() => askConfirm(
+                      `¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`,
+                      () => onDelete(m.id)
+                    )}
+                    style={S.btnDanger}
+                  >Eliminar</button>
+                )}
               </div>
             </div>
-            {!m.builtIn && (
-              <div style={{ ...S.row, gap: 6 }}>
-                <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
-                <button onClick={() => askConfirm(`¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`, () => onDelete(m.id))} style={S.btnDanger}>Eliminar</button>
-              </div>
-            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -6343,7 +6369,7 @@ function TeacherDash({
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
   onRecord, onPreview, onManageQuestions, onAdd, onLogout,
-  categories, onAddCategory, onUpdateCategory, onDeleteCategory,
+  categories, onAddCategory, onUpdateCategory, onDeleteCategory, onToggleGlobalCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
   onAddUnit, onUpdateUnit, onDeleteUnit,
@@ -6526,9 +6552,11 @@ function TeacherDash({
 
         {tab === "categories" && (
           <CategoriesTab categories={categories}
+            isAdmin={isAdmin}
             onAdd={() => setEditingCategory("new")}
             onEdit={(m) => setEditingCategory(m)}
             onDelete={onDeleteCategory}
+            onToggleGlobal={onToggleGlobalCategory}
             askConfirm={askConfirm} />
         )}
 
@@ -7559,9 +7587,10 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:   initialCategory?.id || uid("cat"),
-      name: name.trim(),
-      builtIn: false,
+      id:      initialCategory?.id || uid("cat"),
+      name:    name.trim(),
+      builtIn: initialCategory?.builtIn ?? false,
+      global:  initialCategory?.global  ?? false,
       buttons: buttons.map((b) => ({ ...b, id: b.id.trim().toUpperCase(), name: b.name.trim(), key: b.key.trim().toLowerCase() })),
     });
   };
@@ -8451,6 +8480,14 @@ export default function App() {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     dbDeleteCategory(id);
   };
+  const toggleGlobalCategory = (id) => {
+    setCategories((prev) => {
+      const updated = prev.map((c) => c.id === id ? { ...c, global: !c.global } : c);
+      const cat = updated.find((c) => c.id === id);
+      if (cat) dbUpsertCategory(cat);
+      return updated;
+    });
+  };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
   const addCourse = (newCourse) => {
@@ -8838,6 +8875,7 @@ export default function App() {
       onAddCategory={addCategory}
       onUpdateCategory={updateCategory}
       onDeleteCategory={deleteCategory}
+      onToggleGlobalCategory={toggleGlobalCategory}
       courses={courses} units={units}
       onAddCourse={addCourse} onUpdateCourse={updateCourse} onDeleteCourse={deleteCourse}
       onAddUnit={addUnit} onUpdateUnit={updateUnit} onDeleteUnit={deleteUnit}
