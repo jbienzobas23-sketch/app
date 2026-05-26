@@ -1844,19 +1844,106 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
   const dur      = exercise.duration;
-  const hasAudio = false;  // Preview: siempre modo sin audio
+  const hasAudio = !!exercise.audioUrl;
+  const audioDuration = dur;
 
-  const [time,          setTime]          = useState(0);
-  const [playing,       setPlaying]       = useState(false);
-  const audioDuration                     = dur;
+  const [time,       setTime]       = useState(0);
+  const [playing,    setPlaying]    = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
+  const [audioError, setAudioError] = useState(null);
 
-  const timeRef        = useRef(0);
-  const playingRef     = useRef(false);
-  const scrubbingRef   = useRef(false);
-  playingRef.current   = playing;
-  timeRef.current      = time;
+  const timeRef      = useRef(0);
+  const playingRef   = useRef(false);
+  const scrubbingRef = useRef(false);
+  const audioRef     = useRef(null);
+  playingRef.current = playing;
+  timeRef.current    = time;
 
-  // Timer simulado (idéntico a la rama sin-audio de AppV2)
+  // ── Elemento de audio real ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!hasAudio) return;
+
+    const audio = new window.Audio();
+    audioRef.current = audio;
+    setAudioReady(false);
+    setAudioError(null);
+
+    const onCanPlay    = () => setAudioReady(true);
+    const onError      = () => { setAudioError("No se pudo cargar el audio."); setAudioReady(false); };
+    const onTimeUpdate = () => {
+      if (scrubbingRef.current) return;
+      const t = audio.currentTime;
+      const lq = loopRegionRef?.current;
+      if (lq && t >= lq.audioEnd) {
+        audio.currentTime = lq.audioStart;
+        timeRef.current   = lq.audioStart;
+        setTime(lq.audioStart);
+        return;
+      }
+      timeRef.current = t;
+      setTime(t);
+    };
+    const onEnded = () => {
+      const lq = loopRegionRef?.current;
+      if (lq) {
+        audio.currentTime = lq.audioStart;
+        audio.play().catch(() => {});
+      } else {
+        setPlaying(false);
+        timeRef.current = dur;
+        setTime(dur);
+      }
+    };
+
+    audio.addEventListener("canplay",    onCanPlay);
+    audio.addEventListener("error",      onError);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("ended",      onEnded);
+    audio.src = exercise.audioUrl;
+    audio.load();
+
+    // Decodificar waveform real desde los datos PCM
+    if (onWaveform) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        fetchAudioBuffer(exercise.audioUrl)
+          .then((buf) => ctx.decodeAudioData(buf))
+          .then((decoded) => {
+            ctx.close();
+            onWaveform(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
+          })
+          .catch(() => { try { ctx.close(); } catch (_) {} });
+      }
+    }
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("canplay",    onCanPlay);
+      audio.removeEventListener("error",      onError);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("ended",      onEnded);
+      audio.src = "";
+      audioRef.current = null;
+      setAudioReady(false);
+      setTime(0);
+      timeRef.current = 0;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercise.audioUrl]);
+
+  // Sincronizar estado playing → elemento de audio
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.play().catch(() => setPlaying(false));
+    } else {
+      audio.pause();
+    }
+  }, [playing]);
+
+  // ── Timer simulado (solo cuando no hay audio real) ──────────────────────
   const timerRef = useRef(null);
   useEffect(() => {
     if (playing && !hasAudio) {
@@ -1884,18 +1971,30 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   }, [playing, dur]);
 
   const togglePlay = () => setPlaying((p) => !p);
-  const seekTo     = (t) => {
+  const seekTo = (t) => {
     const c = Math.max(0, Math.min(dur, t));
-    timeRef.current = c; setTime(c);
+    timeRef.current = c;
+    setTime(c);
+    if (audioRef.current) audioRef.current.currentTime = c;
   };
   const playFrom   = (t) => { seekTo(t); setPlaying(true); };
-  const scrubBegin = () => { scrubbingRef.current = true; };
-  const scrubTo    = (t) => { const c = Math.max(0, Math.min(dur, t)); timeRef.current = c; setTime(c); };
-  const scrubEnd   = () => { scrubbingRef.current = false; };
+  const scrubBegin = () => { scrubbingRef.current = true; if (audioRef.current) audioRef.current.pause(); };
+  const scrubTo    = (t) => {
+    const c = Math.max(0, Math.min(dur, t));
+    timeRef.current = c;
+    setTime(c);
+    if (audioRef.current) audioRef.current.currentTime = c;
+  };
+  const scrubEnd = () => {
+    scrubbingRef.current = false;
+    if (playing && audioRef.current) audioRef.current.play().catch(() => {});
+  };
 
   return {
     time, setTime, playing, setPlaying,
-    audioReady: false, audioError: null, hasAudio,
+    audioReady: hasAudio ? audioReady : false,
+    audioError: hasAudio ? audioError : null,
+    hasAudio,
     timeRef, playOffsetRef: { current: time },
     audioDuration,
     togglePlay, seekTo, playFrom,
