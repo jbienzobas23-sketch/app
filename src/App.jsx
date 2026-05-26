@@ -5621,7 +5621,7 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
 
     // ── Vista del profesor ────────────────────────────────────────────────────
     if (isTeacherMode) {
-      const handleSave = () => onSaveCorrection?.({
+      const handleSave = () => onSaveCorrection?.(student?.id, exercise.id, {
         levelComments: lvComments,
         blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
         globalComment: schemaGlobal.trim(),
