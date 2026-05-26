@@ -2181,7 +2181,7 @@ function WaveformDisplay({
 
       rafId = requestAnimationFrame(draw);
     };
-    rafId = requestAnimationFrame(draw);
+    draw();  // primer frame síncrono: evita el destello blanco al montar
 
     return () => { cancelAnimationFrame(rafId); if (ro) ro.disconnect(); window.removeEventListener("resize", resize); };
   }, []);
