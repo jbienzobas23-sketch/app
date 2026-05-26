@@ -2089,10 +2089,58 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
 
 // Selector visual de fragmento (barra de rango con handles arrastrables)
-function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear }) {
-  const barRef = useRef(null);
-  const startPct = (start / totalDuration) * 100;
-  const endPct   = (end   / totalDuration) * 100;
+function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }) {
+  const barRef    = useRef(null);
+  const audioRef  = useRef(null);
+  const rafRef    = useRef(null);
+  const [playing,     setPlaying]     = useState(false);
+  const [currentTime, setCurrentTime] = useState(start ?? 0);
+
+  // Refs para acceder a valores actuales dentro del RAF sin causar re-renders
+  const startRef = useRef(start);
+  const endRef   = useRef(end);
+  startRef.current = start;
+  endRef.current   = end;
+
+  // RAF: actualiza el playhead y para al llegar al fin del fragmento
+  useEffect(() => {
+    if (!playing) { cancelAnimationFrame(rafRef.current); return; }
+    const tick = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const t = audio.currentTime;
+      setCurrentTime(t);
+      const e = endRef.current;
+      const s = startRef.current;
+      if (e != null && t >= e) {
+        audio.pause();
+        audio.currentTime = s ?? 0;
+        setCurrentTime(s ?? 0);
+        setPlaying(false);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [playing]);
+
+  // Cleanup: parar audio al desmontar el componente
+  useEffect(() => () => {
+    cancelAnimationFrame(rafRef.current);
+    if (audioRef.current) audioRef.current.pause();
+  }, []);
+
+  // Si el fragmento cambia y el cursor queda fuera, recolocarlo
+  useEffect(() => {
+    if (audioRef.current && !playing) {
+      if (start != null && (currentTime < start || (end != null && currentTime > end))) {
+        audioRef.current.currentTime = start;
+        setCurrentTime(start);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end]);
 
   const getT = (clientX) => {
     const r = barRef.current?.getBoundingClientRect();
@@ -2100,11 +2148,29 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear })
     return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
   };
 
+  // Clic/arrastre en la barra para seek
+  const beginSeek = (e) => {
+    e.preventDefault();
+    const t = getT(e.clientX);
+    if (audioRef.current) { audioRef.current.currentTime = t; }
+    setCurrentTime(t);
+    const onMove = (ev) => {
+      const tv = getT(ev.clientX);
+      if (audioRef.current) audioRef.current.currentTime = tv;
+      setCurrentTime(tv);
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+  };
+
+  // Arrastre de handles de fragmento
   const beginDrag = (e, which) => {
     e.preventDefault();
+    e.stopPropagation();
     const onMove = (ev) => {
       const raw = Math.round(getT(ev.clientX) * 10) / 10;
-      if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)),   end });
+      if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
       else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
     };
     const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
@@ -2112,76 +2178,176 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear })
     window.addEventListener("mouseup",   onUp);
   };
 
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      // Imantarse al inicio del fragmento si el cursor está fuera o al límite
+      const s = start ?? 0;
+      const e = end   ?? totalDuration;
+      if (start != null && (currentTime < s || currentTime >= e)) {
+        audio.currentTime = s;
+        setCurrentTime(s);
+      }
+      audio.play().catch(() => {});
+      setPlaying(true);
+    }
+  };
+
+  const startPct    = start != null ? (start / totalDuration) * 100 : null;
+  const endPct      = end   != null ? (end   / totalDuration) * 100 : null;
+  const playheadPct = Math.min(100, (currentTime / totalDuration) * 100);
+
   const HANDLE_W = 12;
   const handleStyle = (pct) => ({
     position: "absolute", top: 0, bottom: 0,
     left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
     background: C.quiz, borderRadius: 3, cursor: "ew-resize",
-    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
   });
+
+  // Formato M:SS.d para mayor precisión en el contador
+  const fmtP = (s) => {
+    const m  = Math.floor(s / 60);
+    const ss = (s % 60).toFixed(1).padStart(4, "0");
+    return `${m}:${ss}`;
+  };
 
   return (
     <div>
-      {/* Barra de rango */}
-      <div style={{ position: "relative", paddingTop: 20, marginBottom: 10, userSelect: "none" }}>
-        {/* Etiquetas de tiempo sobre los handles */}
-        <div style={{ position: "absolute", top: 0, left: `calc(${startPct}% - 22px)`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
-          {fmt(start)}
-        </div>
-        <div style={{ position: "absolute", top: 0, left: `calc(${endPct}% - 22px)`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
-          {fmt(end)}
-        </div>
-        {/* La barra */}
-        <div ref={barRef} style={{ position: "relative", height: 28, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6 }}>
-          {/* Región seleccionada */}
+      {/* Audio element oculto */}
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: "none" }} />}
+
+      {/* Fila de controles: play + tiempo + acción principal */}
+      <div style={{ ...S.row, gap: 10, marginBottom: 10, alignItems: "center" }}>
+        <button type="button" onClick={togglePlay} disabled={!audioUrl}
+          style={{
+            ...S.btn, width: 36, height: 36, padding: 0, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 15, borderRadius: "50%",
+            background: playing ? C.ink : C.paper,
+            color:      playing ? C.paper : C.ink2,
+            border: `1px solid ${playing ? C.ink : C.line}`,
+          }}>
+          {playing ? "⏸" : "▶"}
+        </button>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2 }}>
+          {fmtP(currentTime)}
+          {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
+        </span>
+        {start === null ? (
+          <button type="button" onClick={onDefine}
+            style={{ ...S.btn, marginLeft: "auto", fontSize: 12, padding: "5px 12px", flexShrink: 0 }}>
+            + Definir fragmento
+          </button>
+        ) : (
+          <span style={{ fontSize: 11, color: C.quiz, marginLeft: "auto", fontFamily: FONT_MONO }}>
+            {fmt(start)} – {fmt(end)} · {fmt(end - start)}
+          </span>
+        )}
+      </div>
+
+      {/* Barra integrada: seek + región de fragmento + handles + playhead */}
+      <div style={{ position: "relative", paddingTop: start != null ? 20 : 6, marginBottom: 12, userSelect: "none" }}>
+        {/* Etiquetas sobre los handles */}
+        {start != null && startPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(start)}
+          </div>
+        )}
+        {end != null && endPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(end)}
+          </div>
+        )}
+
+        {/* La barra principal (clicable para seek) */}
+        <div ref={barRef} onMouseDown={beginSeek}
+          style={{ position: "relative", height: 32, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+
+          {/* Región del fragmento */}
+          {start != null && startPct != null && endPct != null && (
+            <div style={{
+              position: "absolute", top: 3, bottom: 3,
+              left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%`,
+              background: "rgba(47,111,184,0.18)", border: "1px solid rgba(47,111,184,0.4)", borderRadius: 3, pointerEvents: "none",
+            }} />
+          )}
+
+          {/* Zona fuera del fragmento (oscurecida) */}
+          {start != null && startPct != null && startPct > 0 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${startPct}%`, background: "rgba(26,25,21,0.07)", borderRadius: "6px 0 0 6px", pointerEvents: "none" }} />
+          )}
+          {end != null && endPct != null && endPct < 100 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${endPct}%`, right: 0, background: "rgba(26,25,21,0.07)", borderRadius: "0 6px 6px 0", pointerEvents: "none" }} />
+          )}
+
+          {/* Playhead */}
           <div style={{
-            position: "absolute", top: 3, bottom: 3,
-            left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%`,
-            background: "rgba(47,111,184,0.18)", border: "1px solid rgba(47,111,184,0.4)", borderRadius: 3,
-          }} />
+            position: "absolute", top: -3, bottom: -3,
+            left: `${playheadPct}%`, width: 2, marginLeft: -1,
+            background: C.fnT, borderRadius: 1, pointerEvents: "none", zIndex: 4,
+          }}>
+            <div style={{ position: "absolute", top: 0, left: -3, width: 8, height: 8, borderRadius: "50%", background: C.fnT }} />
+          </div>
+
           {/* Handle izquierdo */}
-          <div onMouseDown={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
-            <span style={{ width: 2, height: 12, background: "rgba(255,255,255,0.65)", borderRadius: 1, display: "block" }} />
-          </div>
+          {start != null && startPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
           {/* Handle derecho */}
-          <div onMouseDown={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
-            <span style={{ width: 2, height: 12, background: "rgba(255,255,255,0.65)", borderRadius: 1, display: "block" }} />
-          </div>
+          {end != null && endPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Inputs numéricos */}
-      <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
-          <input type="number" min={0} max={end - 0.5} step={0.1} style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
-            value={start}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) onChange({ start: Math.max(0, Math.min(v, end - 0.5)), end });
-            }} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
-          <input type="number" min={start + 0.5} max={totalDuration} step={0.1} style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
-            value={end}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) onChange({ start, end: Math.max(start + 0.5, Math.min(v, totalDuration)) });
-            }} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
-          <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
-            {fmt(Math.max(0, end - start))}
+      {/* Inputs numéricos (solo cuando hay fragmento) */}
+      {start != null && (
+        <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
+            <input type="number" min={0} max={end - 0.5} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={start}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start: Math.max(0, Math.min(v, end - 0.5)), end });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
+            <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={end}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start, end: Math.max(start + 0.5, Math.min(v, totalDuration)) });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
+            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
+              {fmt(Math.max(0, end - start))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <button type="button" onClick={onClear}
-        style={{ ...S.btn, width: "100%", fontSize: 12, color: C.muted, padding: "6px 10px" }}>
-        Usar audio completo
-      </button>
+      {/* Botón quitar fragmento */}
+      {start !== null && (
+        <button type="button" onClick={onClear}
+          style={{ ...S.btn, width: "100%", fontSize: 12, color: C.muted, padding: "6px 10px" }}>
+          Usar audio completo
+        </button>
+      )}
     </div>
   );
 }
@@ -6716,32 +6882,26 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
           selectedModels.includes("cuestionario") || selectedModels.includes("interactivo")
         ) && (
           <div style={{ marginBottom: 22 }}>
-            <label style={S.label}>Fragmento del ejercicio</label>
-            {fragStart === null ? (
-              <button type="button"
-                onClick={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
-                style={{ ...S.btn, width: "100%", fontSize: 13, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>Definir fragmento <span style={{ color: C.muted, fontWeight: 400 }}>(usar solo una parte del audio)</span></span>
-                <span style={{ color: C.muted2, fontSize: 18, fontWeight: 300, lineHeight: 1 }}>+</span>
-              </button>
-            ) : (
-              <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 14px 10px" }}>
-                <p style={{ fontSize: 11, color: C.muted, margin: "0 0 12px", lineHeight: 1.5 }}>
-                  Arrastra los bordes para ajustar el fragmento o edita los valores directamente.
-                  El ejercicio solo reproducirá este tramo del audio.
-                </p>
-                <FragmentRangeSelector
-                  totalDuration={totalAudioDuration}
-                  start={fragStart}
-                  end={fragEnd}
-                  onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
-                  onClear={() => { setFragStart(null); setFragEnd(null); }}
-                />
-              </div>
-            )}
-            {fragStart !== null && (
-              <p style={{ fontSize: 11, color: C.quiz, margin: "6px 0 0" }}>
-                Fragmento activo: {fmt(fragStart)} – {fmt(fragEnd)} · duración {fmt(fragEnd - fragStart)}
+            <label style={S.label}>
+              Fragmento del ejercicio
+              {fragStart !== null && (
+                <span style={{ marginLeft: 8, fontSize: 11, color: C.quiz, fontWeight: 400 }}>activo</span>
+              )}
+            </label>
+            <div style={{ background: C.paper2, border: `1px solid ${fragStart !== null ? "rgba(47,111,184,0.4)" : C.line}`, borderRadius: 10, padding: "12px 14px", transition: "border-color .15s" }}>
+              <FragmentRangeSelector
+                totalDuration={totalAudioDuration}
+                start={fragStart}
+                end={fragEnd}
+                onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
+                onClear={() => { setFragStart(null); setFragEnd(null); }}
+                onDefine={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
+                audioUrl={audioUrl}
+              />
+            </div>
+            {fragStart === null && (
+              <p style={{ fontSize: 11, color: C.muted, margin: "5px 0 0", lineHeight: 1.5 }}>
+                Escucha el audio y define el fragmento que usará el ejercicio. Sin fragmento se usará el audio completo.
               </p>
             )}
           </div>
