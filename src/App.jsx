@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { supabase } from "./supabase.js";
-
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 /* ═══════════════════════════════════════════════════════════════════════════
    FUNCIONES ARMÓNICAS · APP ROOT
    ───────────────────────────────────────────────────────────────────────────
    Estructura del archivo:
+     0. Hash router (#/… → navegación por URL, atrás/adelante, enlaces)
      1. Design tokens (colores, fuentes, estilos base)
      2. Constantes de dominio (categorías por defecto, ejercicios iniciales…)
      3. Utilidades puras (audio, intervalos, scoring, criptografía)
@@ -22,39 +21,155 @@ import { supabase } from "./supabase.js";
     15. App root (estado global + Supabase + routing)
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// ═══ 0. HASH ROUTER ═════════════════════════════════════════════════════════
+// Enrutado por almohadilla (#/…). Funciona en cualquier hosting estático
+// (incluido Vercel) SIN configuración extra: todo lo que va detrás de "#" lo
+// gestiona el navegador en el cliente, así que recargar o pegar un enlace
+// profundo nunca da 404. La URL es la fuente de verdad de la navegación de alto
+// nivel; el contexto de ejercicio se reconstruye a partir del id de la URL.
+//
+// Mapa de rutas:
+//   /                                  → inicio (elegir rol)
+//   /entrar/profesor · /entrar/alumno  → login
+//   /configuracion                     → setup del primer admin
+//   /alumno                            → panel alumno · todos los ejercicios
+//   /alumno/cursos                     → panel alumno · por cursos
+//   /alumno/elegir-profesor            → selección de profesor
+//   /alumno/ejercicio/:id              → sesión de ejercicio (alumno)
+//   /alumno/ejercicio/:id/correccion   → corrección (alumno)
+//   /profesor                          → panel profesor · ejercicios
+//   /profesor/cursos|alumnos|categorias|audios|ajustes|usuarios → pestañas
+//   /profesor/ejercicio/nuevo          → crear ejercicio
+//   /profesor/ejercicio/:id            → detalle del ejercicio
+//   /profesor/ejercicio/:id/grabar     → grabar clave (interactivo/esquema)
+//   /profesor/ejercicio/:id/previsualizar → previsualizar esquema
+//   /profesor/ejercicio/:id/preguntas  → gestor de preguntas (cuestionario)
+//   /profesor/ejercicio/:id/correccion → corrección (previsualización)
+
+function parseHash() {
+  let h = (typeof window !== "undefined" && window.location.hash) || "";
+  if (h.startsWith("#")) h = h.slice(1);
+  const q = h.indexOf("?");
+  if (q >= 0) h = h.slice(0, q);
+  return h.split("/").filter(Boolean).map((s) => {
+    try { return decodeURIComponent(s); } catch { return s; }
+  });
+}
+
+// Segmentos de URL → ruta lógica { name, params }
+function routeFromSegments(segs) {
+  const [a, b, c, d] = segs;
+  if (!a) return { name: "home", params: {} };
+  if (a === "configuracion") return { name: "setup", params: {} };
+
+  if (a === "entrar") {
+    const role = b === "profesor" ? "teacher" : b === "alumno" ? "student" : null;
+    return role ? { name: "login", params: { role } } : { name: "home", params: {} };
+  }
+
+  if (a === "alumno") {
+    if (b === "elegir-profesor") return { name: "pick-teacher", params: {} };
+    if (b === "ejercicio" && c) {
+      if (d === "correccion") return { name: "correction", params: { exId: c, from: "student" } };
+      return { name: "session", params: { exId: c, mode: "student" } };
+    }
+    if (b === "cursos") return { name: "student", params: { tab: "courses" } };
+    return { name: "student", params: { tab: "all" } };
+  }
+
+  if (a === "profesor") {
+    if (b === "ejercicio" && c) {
+      if (d === "grabar")        return { name: "session", params: { exId: c, mode: "record" } };
+      if (d === "previsualizar") return { name: "session", params: { exId: c, mode: "preview" } };
+      if (d === "preguntas")     return { name: "question-manager", params: { exId: c } };
+      if (d === "correccion")    return { name: "correction", params: { exId: c, from: "teacher" } };
+      return { name: "teacher-detail", params: { exId: c } };
+    }
+    const TAB = {
+      cursos: "courses", alumnos: "students", categorias: "categories",
+      audios: "audios", ajustes: "settings", usuarios: "users",
+    };
+    return { name: "teacher", params: { tab: (b && TAB[b]) || "exercises" } };
+  }
+
+  return { name: "home", params: {} };
+}
+
+// Pestaña interna del profesor → ruta
+const TEACHER_TAB_PATH = {
+  exercises: "/profesor", courses: "/profesor/cursos", students: "/profesor/alumnos",
+  categories: "/profesor/categorias", audios: "/profesor/audios",
+  settings: "/profesor/ajustes", users: "/profesor/usuarios",
+};
+
+// Hook de enrutado: devuelve la ruta actual y un navegador.
+function useHashRoute() {
+  const [segs, setSegs] = useState(() => parseHash());
+
+  useEffect(() => {
+    const onChange = () => setSegs(parseHash());
+    window.addEventListener("hashchange", onChange);
+    if (!window.location.hash) { window.history.replaceState(null, "", "#/"); }
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+
+  const navigate = (path, opts = {}) => {
+    const next = path.startsWith("/") ? path : "/" + path;
+    const current = window.location.hash.replace(/^#/, "") || "/";
+    if (current === next) return;
+    if (opts.replace) {
+      window.history.replaceState(null, "", "#" + next);
+      setSegs(parseHash());
+    } else {
+      window.location.hash = next; // dispara "hashchange"
+    }
+  };
+
+  const route = useMemo(() => routeFromSegments(segs), [segs]);
+  return { route, navigate };
+}
+
 // ═══ 1. DESIGN TOKENS ═══════════════════════════════════════════════════════
 const C = {
-  bg: "#ECE7DA", paper: "#F5F0E5", paper2: "#EDE8DC",
-  ink: "#1C1A14", ink2: "#3D3A2F", muted: "#7A7460", muted2: "#B0AA96", line: "#D8D2C0",
+  // Base palette
+  bg: "#f8f8f6", paper: "#ffffff", paper2: "#f0f0ee",
+  ink: "#1a1a1a", ink2: "#555555", muted: "#b0b0a8", muted2: "#b0b0a8", line: "#e6e6e3",
+  // V0_9 aliases (usados por primitivos compartidos)
+  border: "#e6e6e3", rail: "#e0e0db", chevron: "#c0c0b8",
+  chipBg: "#f0f0ee", chipInk: "#888888", tabOff: "#aaaaaa",
+  noteBg: "#fffaeb", noteInk: "#c07427",
+  field: "#fcfcfb", fieldFocus: "#555",
+  // Colores funcionales — sin cambios
   fnT: "#3F9B5B", fnS: "#2F6FB8", fnD: "#C77A1A",
   fnI: "#9A4FB8", fnIV: "#3A8CA8", fnV: "#C9A33A",
   quiz: "#2F6FB8",
   danger: "#B84A3A",
 };
 
-const FONT_SANS  = "'Geist', 'Inter', system-ui, -apple-system, sans-serif";
-const FONT_SERIF = "'Fraunces', Georgia, 'Times New Roman', serif";
-const FONT_MONO  = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const FONT_SANS  = "'Outfit', system-ui, sans-serif";
+const FONT_SERIF = "'Cormorant Garamond', Georgia, serif";
+const FONT_MONO  = "'Outfit', system-ui, sans-serif";
+const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
   app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
-  page:       { maxWidth: 780, margin: "0 auto", padding: "1.5rem 1rem" },
-  card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, padding: "1.25rem 1.5rem", marginBottom: 14 },
-  h1:         { fontSize: 26, fontWeight: 600, margin: "0 0 4px", color: C.ink, letterSpacing: -0.8, fontFamily: FONT_SERIF },
-  h2:         { fontSize: 19, fontWeight: 600, margin: "0 0 12px", color: C.ink, fontFamily: FONT_SERIF },
-  label:      { fontSize: 11, color: C.muted, marginBottom: 5, display: "block", textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600 },
-  btn:        { background: C.paper, border: `1px solid ${C.line}`, color: C.ink2, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontSize: 13, transition: "all .15s", fontFamily: FONT_SANS },
-  btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: C.paper, borderRadius: 7, padding: "9px 18px", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_SANS },
-  btnDanger:  { background: "transparent", border: `1px solid ${C.danger}`, color: C.danger, borderRadius: 7, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS },
-  input:      { background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, padding: "9px 12px", fontSize: 14, width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS },
+  page:       { maxWidth: 740, margin: "0 auto", padding: "22px 24px 80px" },
+  card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
+  h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
+  h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
+  label:      { fontSize: 11, color: "#999", marginBottom: 6, display: "block", fontFamily: FONT_SANS, fontWeight: 500 },
+  btn:        { background: C.paper, border: `1px solid ${C.line}`, color: "#555", borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: FONT_SANS },
+  btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: "#fff", borderRadius: 7, padding: "7px 15px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
+  btnDanger:  { background: "transparent", border: `1px solid rgba(184,74,58,0.4)`, color: C.danger, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
+  input:      { background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, color: C.ink, padding: "9px 12px", fontSize: 13, width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS, outline: "none" },
   row:        { display: "flex", alignItems: "center", gap: 10 },
-  badge:      { fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, letterSpacing: 0.4 },
+  badge:      { fontSize: 11, padding: "2px 8px", borderRadius: 4, fontWeight: 600 },
   divider:    { border: "none", borderTop: `1px solid ${C.line}`, margin: "16px 0" },
 };
 
 const SECTION_STYLE = {
-  fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
-  textTransform: "uppercase", color: C.muted, margin: "0 0 14px",
+  fontSize: 10, fontWeight: 700, letterSpacing: "0.15em",
+  textTransform: "uppercase", color: C.chevron, margin: "0 0 14px",
   fontFamily: FONT_SANS,
 };
 
@@ -79,12 +194,31 @@ const EXERCISE_MODELS = [
 ];
 const DEFAULT_MODEL_ID = "interactivo";
 
+// Opciones de combinación de modelos para el editor (incluye modelos individuales + combos dobles)
+const MODEL_COMBOS = [
+  { id: "interactivo",              models: ["interactivo"],                name: "Interactivo",                description: "El alumno marca categorías en vivo durante el audio." },
+  { id: "cuestionario",             models: ["cuestionario"],               name: "Cuestionario",               description: "Preguntas ancladas a fragmentos concretos del audio." },
+  { id: "esquema",                  models: ["esquema"],                    name: "Esquema",                    description: "El alumno dibuja bloques de forma musical en una línea de tiempo." },
+  { id: "interactivo+cuestionario", models: ["interactivo","cuestionario"], name: "Interactivo + Cuestionario", description: "El alumno puede alternar entre marcado en vivo y cuestionario de preguntas." },
+  { id: "esquema+cuestionario",     models: ["esquema","cuestionario"],     name: "Esquema + Cuestionario",     description: "El alumno puede alternar entre el esquema formal y el cuestionario." },
+];
+
+// Devuelve el comboId a partir de un array de modelos (para inicializar el editor)
+function comboIdFromModels(models) {
+  if (!Array.isArray(models) || models.length === 0) return DEFAULT_MODEL_ID;
+  if (models.length === 1) return models[0];
+  const has = (m) => models.includes(m);
+  if (has("interactivo") && has("cuestionario")) return "interactivo+cuestionario";
+  if (has("esquema")     && has("cuestionario")) return "esquema+cuestionario";
+  return models[0];
+}
+
 // Constantes del modelo Esquema
 const SCHEMA_LEVELS = [
-  { id: 1, sub: "Partes",  color: "#C77A1A", bg: "rgba(199,122,26,0.10)" },
-  { id: 2, sub: "Frases",  color: "#2F6FB8", bg: "rgba(47,111,184,0.08)" },
-  { id: 3, sub: "Armonía", color: "#3F9B5B", bg: "rgba(63,155,91,0.08)"  },
-  { id: 4, sub: "Texto",   color: "#7A7460", bg: "rgba(122,116,96,0.09)" },
+  { id: 1, sub: "Partes",  color: "#B87850", bg: "rgba(184,120,80,0.10)" },
+  { id: 2, sub: "Frases",  color: "#5282AA", bg: "rgba(82,130,170,0.08)" },
+  { id: 3, sub: "Armonía", color: "#4A9068", bg: "rgba(74,144,104,0.08)" },
+  { id: 4, sub: "Texto",   color: "#8A8478", bg: "rgba(138,132,120,0.09)" },
 ];
 const SCHEMA_DEFAULT_LABELS = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
@@ -92,6 +226,18 @@ const SCHEMA_DEFAULT_LABELS = {
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
   4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
+// Calcula { bg, textColor } para cualquier bloque de esquema, replicando el sistema de colores del ejercicio real
+function schemaBlockColor(b, allBlocks) {
+  if (b.customColor) return harmonyBlockColors(null, b.customColor);
+  if (b.level === 3)  return harmonyBlockColors(b.label, SCHEMA_LEVELS[2].color);
+  if (b.level === 1)  return harmonyBlockColors(null, partBlockColor(b.label));
+  if (b.level === 2) {
+    const parent = allBlocks.find(p => p.level === 1 && p.start <= b.start + 0.01 && p.end > b.start + 0.01);
+    return harmonyBlockColors(null, lightenColor(parent ? (parent.customColor || partBlockColor(parent.label)) : SCHEMA_LEVELS[1].color, 18, -8));
+  }
+  return { bg: SCHEMA_LEVELS.find(l => l.id === b.level)?.color ?? "#999", textColor: "#fff" };
+}
+
 const SCHEMA_SNAP_THR       = 2.8;
 const SCHEMA_MIN_DUR        = 2;
 const SCHEMA_CLICK_MS       = 320;
@@ -188,6 +334,41 @@ function harmonyBlockColors(label, fallbackColor) {
   return { bg, textColor: L > 0.35 ? "#1C1A14" : "#FFFFFF" };
 }
 
+// ─── Utilidades de color para Partes y Frases ────────────────────────────────
+function _hexToHsl(hex) {
+  const r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b),l=(max+min)/2;
+  let h=0,s=0;
+  if(max!==min){const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;case b:h=((r-g)/d+4)/6;break;}}
+  return [h*360,s*100,l*100];
+}
+function _hslToHex(h,s,l) {
+  h/=360;s/=100;l/=100;
+  const hr=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+  let r,g,b;
+  if(s===0){r=g=b=l;}else{const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;r=hr(p,q,h+1/3);g=hr(p,q,h);b=hr(p,q,h-1/3);}
+  return '#'+[r,g,b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+}
+function lightenColor(hex,lAdd=18,sAdd=-8){const[h,s,l]=_hexToHsl(hex);return _hslToHex(h,Math.max(0,Math.min(100,s+sAdd)),Math.max(0,Math.min(100,l+lAdd)));}
+
+// Color de bloque para el nivel de Partes según la etiqueta
+function partBlockColor(label) {
+  const s=(label??'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if(/^reex|^recap/.test(s))          return '#C4A55E'; // casi igual a Exposición
+  if(/^expo/.test(s))                  return '#C4985A'; // ámbar cálido
+  if(/^desa/.test(s))                  return '#5C78A8'; // azul medio
+  if(/^intro/.test(s))                 return '#A88A80'; // neutral cálido ≈ A desaturado
+  if(/^coda/.test(s))                  return '#9898A8'; // neutral frío suave
+  if(/^puente|^trans|^brid/.test(s))   return '#8E9EAA'; // neutral
+  if(/^a[''`´'']?[\d''`´'']*$/.test(s)) return '#C47A72'; // rosa terracota
+  if(/^b[''`´'']?[\d''`´'']*$/.test(s)) return '#5E8FA8'; // azul pizarra
+  if(/^c[''`´'']?[\d''`´'']*$/.test(s)) return '#C05888'; // rosa-magenta (≈330°)
+  if(/^d[''`´'']?[\d''`´'']*$/.test(s)) return '#90B050'; // verde oliva (≈82°)
+  if(/^e[''`´'']?[\d''`´'']*$/.test(s)) return '#A87060'; // terracota oscuro
+  return '#9090A4'; // fallback neutro
+}
+
 const INIT_EXERCISES = [
   {
     id: 2, title: "Minueto – Mozart", duration: 24,
@@ -232,6 +413,90 @@ const INIT_EXERCISES = [
         options: [], correctOptionId: null,
       },
     ],
+  },
+];
+
+// ─── Biblioteca de audios inicial (datos de demostración) ───────────────────
+const INIT_AUDIO_LIBRARY = [
+  {
+    id: "audio-demo-01",
+    title: "Sinfonía nº 40 en sol menor – I. Molto allegro",
+    composer: "Wolfgang Amadeus Mozart",
+    description: "K. 550. Exposición con dos grupos temáticos contrastantes.",
+    tags: ["Forma sonata", "Clasicismo", "Modo menor", "Sinfonía"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_mozart_40.mp3",
+    duration: 186,
+    createdAt: 1700000001000,
+  },
+  {
+    id: "audio-demo-02",
+    title: "Sinfonía nº 5 en do menor – I. Allegro con brio",
+    composer: "Ludwig van Beethoven",
+    description: "Op. 67. Motivo de cuatro notas. Desarrollo con modulación a Mi♭ Mayor.",
+    tags: ["Forma sonata", "Clasicismo tardío", "Modo menor", "Sinfonía", "Modulación"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_beethoven_5.mp3",
+    duration: 220,
+    createdAt: 1700000002000,
+  },
+  {
+    id: "audio-demo-03",
+    title: "Preludio op. 28 nº 4 en mi menor",
+    composer: "Frédéric Chopin",
+    description: "Textura homofónica. Cromatismo descendente en el bajo.",
+    tags: ["Romanticismo", "Cromatismo", "Modo menor", "Piano"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_prelude4.mp3",
+    duration: 148,
+    createdAt: 1700000003000,
+  },
+  {
+    id: "audio-demo-04",
+    title: "Coral BWV 227 – Jesu, meine Freude",
+    composer: "Johann Sebastian Bach",
+    description: "Mi menor. Cuatro voces mixtas. Contrapunto imitativo.",
+    tags: ["Barroco", "Coral", "Contrapunto", "Modo menor"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_bach_bwv227.mp3",
+    duration: 134,
+    createdAt: 1700000004000,
+  },
+  {
+    id: "audio-demo-05",
+    title: "Cuarteto de cuerdas op. 76 nº 3 – II. Poco adagio",
+    composer: "Joseph Haydn",
+    description: "Do Mayor. Tema con variaciones. Conocido como «El Emperador».",
+    tags: ["Clasicismo", "Tema y variaciones", "Modo mayor", "Música de cámara"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_haydn_emperor.mp3",
+    duration: 272,
+    createdAt: 1700000005000,
+  },
+  {
+    id: "audio-demo-06",
+    title: "Nocturno op. 9 nº 2 en Mi♭ Mayor",
+    composer: "Frédéric Chopin",
+    description: "Melodía ornamentada sobre acompañamiento de vals. Cadencia libre.",
+    tags: ["Romanticismo", "Modo mayor", "Piano", "Ornamentación"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_nocturne.mp3",
+    duration: 244,
+    createdAt: 1700000006000,
+  },
+  {
+    id: "audio-demo-07",
+    title: "Tocata y Fuga en re menor BWV 565",
+    composer: "Johann Sebastian Bach",
+    description: "Re menor. Estructura libre en la tocata; fuga a cuatro voces.",
+    tags: ["Barroco", "Fuga", "Modo menor", "Órgano"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_bach_toccata.mp3",
+    duration: 198,
+    createdAt: 1700000007000,
+  },
+  {
+    id: "audio-demo-08",
+    title: "Sinfonía nº 9 en re menor – IV. Finale",
+    composer: "Ludwig van Beethoven",
+    description: "Op. 125. Estructura de variaciones. Coro y solistas vocales.",
+    tags: ["Clasicismo tardío", "Modo menor", "Sinfonía", "Modulación", "Vocal"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_beethoven_9.mp3",
+    duration: 310,
+    createdAt: 1700000008000,
   },
 ];
 
@@ -281,6 +546,19 @@ const calcQuestionnaireScore = (questions, answers) => {
   if (testQs.length === 0) return null;
   const correct = testQs.filter((q) => (answers || {})[q.id] === q.correctOptionId).length;
   return Math.round((correct / testQs.length) * 100);
+};
+
+const calcSchemaPlacementScore = (keyBlocks, studentBlocks, margin = 3) => {
+  if (!keyBlocks?.length) return null;
+  let correct = 0;
+  for (const kb of keyBlocks) {
+    if (studentBlocks.some((sb) =>
+      sb.level === kb.level &&
+      Math.abs(sb.start - kb.start) <= margin &&
+      Math.abs(sb.end - kb.end) <= margin
+    )) correct++;
+  }
+  return Math.round((correct / keyBlocks.length) * 100);
 };
 
 // ─── Colores derivados ─────────────────────────────────────────────────────
@@ -415,6 +693,15 @@ function buildWaveformFromPCM(channelData, duration) {
   return sm.map((v) => 0.08 + (v / mx) * 0.92);
 }
 
+function buildFragmentWaveform(channelData, totalDuration, fragStart, fragEnd) {
+  const s = fragStart ?? 0;
+  const e = fragEnd   ?? totalDuration;
+  if (s <= 0 && e >= totalDuration) return buildWaveformFromPCM(channelData, totalDuration);
+  const startIdx = Math.max(0, Math.floor((s / totalDuration) * channelData.length));
+  const endIdx   = Math.min(channelData.length, Math.ceil((e  / totalDuration) * channelData.length));
+  return buildWaveformFromPCM(channelData.slice(startIdx, endIdx), e - s);
+}
+
 function generateWaveform(seed, numSamples) {
   let s = (seed * 1664525 + 1013904223) >>> 0;
   const raw = new Array(numSamples);
@@ -477,6 +764,12 @@ const categoriesOf = (exercise) => {
 
 const modelOf = (exercise) => exercise?.model || DEFAULT_MODEL_ID;
 
+// Devuelve el array de modelos de un ejercicio (puede tener 1 ó 2 modelos)
+const modelsOf = (exercise) => {
+  if (Array.isArray(exercise?.models) && exercise.models.length > 0) return exercise.models;
+  return [modelOf(exercise)];
+};
+
 const answerFor = (exercise, categoryId) => {
   if (exercise?.answers && Array.isArray(exercise.answers[categoryId])) return exercise.answers[categoryId];
   if (Array.isArray(exercise?.answer)) {
@@ -500,13 +793,56 @@ const questionsOf = (exercise)      => (Array.isArray(exercise?.questions) ? exe
 // Inyecta Google Fonts una sola vez al montar la app
 function useInjectFonts() {
   useEffect(() => {
-    if (typeof document === "undefined" || document.querySelector('link[data-gf="fa-v2"]')) return;
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.setAttribute("data-gf", "fa-v2");
-    link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,400;9..144,0,600;9..144,0,700;9..144,1,400;9..144,1,600;9..144,1,700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap";
-    document.head.appendChild(link);
+    if (typeof document === "undefined") return;
+    if (!document.querySelector('link[data-gf="fa-v3"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.setAttribute("data-gf", "fa-v3");
+      link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@400;500;600;700&display=swap";
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('style[data-fa-anim]')) {
+      const style = document.createElement("style");
+      style.setAttribute("data-fa-anim", "1");
+      style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
+        + ".fa-noscroll::-webkit-scrollbar{display:none;height:0;width:0}"
+        + ".fa-noscroll{-ms-overflow-style:none}";
+      document.head.appendChild(style);
+    }
+    // Asegura el viewport responsive en móvil (si el HTML host no lo define)
+    if (!document.querySelector('meta[name="viewport"]')) {
+      const meta = document.createElement("meta");
+      meta.name = "viewport";
+      meta.content = "width=device-width, initial-scale=1, viewport-fit=cover";
+      document.head.appendChild(meta);
+    }
   }, []);
+}
+
+// Hook responsive: devuelve true cuando el viewport es estrecho (móvil).
+// La app usa estilos en línea (no CSS/media queries), así que las vistas
+// ramifican su layout leyendo este valor. Usa matchMedia y se resuscribe a
+// los cambios de tamaño/orientación.
+function useIsMobile(maxWidth = 640) {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia(query);
+    const onChange = (e) => setIsMobile(e.matches);
+    setIsMobile(mql.matches);
+    // addEventListener es el API moderno; addListener para Safari antiguo
+    if (mql.addEventListener) mql.addEventListener("change", onChange);
+    else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+  return isMobile;
 }
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
@@ -623,12 +959,23 @@ function CircleButton({ onClick, disabled, title, children, size = 42, primary =
 }
 
 // Botón submit grande con flecha (usado en ExerciseView y QuestionnaireView)
+function AudioLoadingOverlay() {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,21,0.52)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400 }}>
+      <div style={{ background: C.paper, borderRadius: 18, padding: "28px 36px", textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,0.20)", maxWidth: 280 }}>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 15, fontWeight: 600, color: C.ink, marginBottom: 6 }}>Cargando audio…</div>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Espera un momento antes de comenzar el ejercicio</div>
+      </div>
+    </div>
+  );
+}
+
 function PillSubmitButton({ onClick, children }) {
   return (
     <button onClick={onClick} style={{
       background: C.ink, color: C.paper, border: `1px solid ${C.ink}`,
       borderRadius: 999, padding: "10px 16px 10px 20px",
-      fontSize: 13, fontWeight: 600, cursor: "pointer",
+      fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_SANS,
       display: "inline-flex", alignItems: "center", gap: 10,
     }}>
       {children}
@@ -646,6 +993,450 @@ const disabledStyle = (canSave) => ({
   opacity: canSave ? 1 : 0.45,
   cursor:  canSave ? "pointer" : "not-allowed",
 });
+
+// ── Primitivos del sistema editorial V1 ──────────────────────────────────────
+
+function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed = false }) {
+  const deg = open ? 180 : rotate90WhenClosed ? -90 : 0;
+  return (
+    <svg width={size} height={size} viewBox="0 0 13 13" fill="none"
+      style={{ flexShrink: 0, transition: "transform 0.18s ease", transform: `rotate(${deg}deg)` }}>
+      <path d="M2.5 4.5L6.5 8.5L10.5 4.5" stroke={color} strokeWidth="1.4"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusCircle({ done, size = 14 }) {
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? C.ink : C.bg, border: done ? "none" : `1.5px solid ${C.chevron}`, flexShrink: 0 }}>
+      {done && (
+        <svg width={size * 0.5} height={size * 0.43} viewBox="0 0 7 6" fill="none">
+          <path d="M1 2.8L3 4.8L6 1" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function Chip({ children }) {
+  return <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, background: C.chipBg, color: C.chipInk, borderRadius: 4, padding: "2px 8px" }}>{children}</span>;
+}
+
+function CategoryDots({ buttons }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {buttons.map((b) => <span key={b.id} title={b.name} style={{ width: 9, height: 9, borderRadius: "50%", background: b.color, border: "1px solid rgba(0,0,0,0.08)" }} />)}
+    </span>
+  );
+}
+
+// ─── SuggestInput — campo de texto con desplegable de sugerencias ────────────
+function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocus, style }) {
+  const [show, setShow] = useState(false);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => s.toLowerCase().includes(value.toLowerCase()) && s !== value
+  );
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        ref={inputRef}
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(e) => { onChange(e.target.value); setShow(true); }}
+        onFocus={() => setShow(true)}
+        onBlur={() => setTimeout(() => setShow(false), 140)}
+        placeholder={placeholder}
+        style={style}
+      />
+      {show && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+          {filtered.map((s) => (
+            <div key={s} onMouseDown={() => { onChange(s); setShow(false); }}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, fontFamily: FONT_SANS, color: C.ink }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TagInput — editor de etiquetas con sugerencias de reutilización ─────────
+function TagInput({ tags = [], onChange, suggestions = [] }) {
+  const [input, setInput] = useState("");
+  const [showSug, setShowSug] = useState(false);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => s.toLowerCase().includes(input.toLowerCase()) && !tags.includes(s)
+  );
+
+  const addTag = (tag) => {
+    const t = tag.trim();
+    if (!t || tags.includes(t)) return;
+    onChange([...tags, t]);
+    setInput("");
+    setShowSug(false);
+    inputRef.current?.focus();
+  };
+
+  const removeTag = (t) => onChange(tags.filter((x) => x !== t));
+
+  const handleKey = (e) => {
+    if ((e.key === "Enter" || e.key === ",") && input.trim()) {
+      e.preventDefault();
+      addTag(input);
+    } else if (e.key === "Backspace" && !input && tags.length > 0) {
+      removeTag(tags[tags.length - 1]);
+    }
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onClick={() => inputRef.current?.focus()}
+        style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center", background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, padding: "6px 10px", minHeight: 40, cursor: "text" }}
+      >
+        {tags.map((t) => (
+          <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.ink, color: "#fff", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: FONT_SANS, fontWeight: 500 }}>
+            {t}
+            <span onClick={() => removeTag(t)} style={{ cursor: "pointer", opacity: 0.7, fontSize: 13, lineHeight: 1, marginLeft: 1 }}>×</span>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setShowSug(true); }}
+          onKeyDown={handleKey}
+          onFocus={() => setShowSug(true)}
+          onBlur={() => setTimeout(() => setShowSug(false), 140)}
+          placeholder={tags.length === 0 ? "Añadir etiqueta…" : ""}
+          style={{ border: "none", outline: "none", background: "transparent", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, minWidth: 90, flex: 1 }}
+        />
+      </div>
+      {showSug && (input.trim() || filtered.length > 0) && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+          {input.trim() && !tags.includes(input.trim()) && (
+            <div onMouseDown={() => addTag(input)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, display: "flex", alignItems: "center", gap: 8, borderBottom: filtered.length ? `1px solid ${C.line}` : "none" }}>
+              <span style={{ color: C.muted, fontSize: 11 }}>Crear:</span>
+              <strong>{input.trim()}</strong>
+            </div>
+          )}
+          {filtered.map((s) => (
+            <div key={s} onMouseDown={() => addTag(s)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── EyeIcon / EyeButton — visibilidad de ejercicios, cursos, unidades ────────
+function EyeIcon({ open = true, size = 15 }) {
+  return open ? (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="10" cy="10" rx="8" ry="5" />
+      <circle cx="10" cy="10" r="2.2" fill="currentColor" stroke="none" />
+    </svg>
+  ) : (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3l14 14" />
+      <path d="M6.5 6.5C4.5 7.6 3 9 3 10c0 2.8 3.1 5 7 5a9 9 0 0 0 3.5-.7" />
+      <path d="M10 5c3.9 0 7 2.2 7 5a6.3 6.3 0 0 1-1.5 2.5" />
+    </svg>
+  );
+}
+
+// Icono de onda de audio — barras verticales de altura variable, estética waveform
+function AudioWaveIcon({ size = 16, color = "currentColor" }) {
+  const bars = [0.35, 0.6, 0.85, 0.65, 1.0, 0.8, 0.5, 0.9, 0.55, 0.3];
+  return (
+    <svg width={size} height={size * 0.875} viewBox="0 0 20 14" fill="none" style={{ flexShrink: 0 }}>
+      {bars.map((h, i) => {
+        const bh = h * 12;
+        const y  = (14 - bh) / 2;
+        return <rect key={i} x={i * 2} y={y} width={1.2} height={bh} rx={0.6} fill={color} />;
+      })}
+    </svg>
+  );
+}
+
+function EyeButton({ visible, onClick, title }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title || (visible ? "Ocultar para alumnos" : "Mostrar a alumnos")}
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: `1px solid ${visible ? C.line : "rgba(184,74,58,0.35)"}`, background: "transparent", cursor: "pointer", color: visible ? C.muted : C.danger, flexShrink: 0, transition: "all .15s" }}
+    >
+      <EyeIcon open={visible} size={14} />
+    </button>
+  );
+}
+
+// ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
+function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const count = selected.length;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 20, border: `1.5px solid ${count > 0 ? accent : C.line}`, background: count > 0 ? accent : C.paper, color: count > 0 ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: count > 0 ? 600 : 400, transition: "all .15s", whiteSpace: "nowrap" }}
+      >
+        {label}
+        {count > 0 && (
+          <span style={{ background: "rgba(255,255,255,0.28)", borderRadius: 10, padding: "0px 6px", fontSize: 11, fontWeight: 700 }}>{count}</span>
+        )}
+        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ marginLeft: 1, opacity: 0.7, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .18s" }}>
+          <polyline points="2,3.5 5,6.5 8,3.5" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
+          {options.length === 0 ? (
+            <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
+          ) : (
+            <>
+              {options.map((opt) => {
+                const on = selected.includes(opt);
+                return (
+                  <div key={opt} onMouseDown={() => onToggle(opt)}
+                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", cursor: "pointer", background: on ? `${accent}10` : "transparent", transition: "background .1s" }}>
+                    <span style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${on ? accent : C.chevron}`, background: on ? accent : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {on && <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polyline points="1.5,5 4,7.5 8.5,2.5"/></svg>}
+                    </span>
+                    <span style={{ fontSize: 13, fontFamily: FONT_SANS, color: C.ink, lineHeight: 1.3 }}>{opt}</span>
+                  </div>
+                );
+              })}
+              {count > 0 && (
+                <div style={{ borderTop: `1px solid ${C.line}`, margin: "4px 0 0" }}>
+                  <div onMouseDown={onClear} style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: C.danger, fontFamily: FONT_SANS, fontWeight: 500 }}>✕ Limpiar selección</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pill select estilizado ────────────────────────────────────────────────────
+function PillSelect({ value, onChange, options, accent = C.ink }) {
+  const active = value !== options[0]?.id;
+  return (
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ appearance: "none", WebkitAppearance: "none", padding: "5px 28px 5px 12px", borderRadius: 20, border: `1.5px solid ${active ? accent : C.line}`, background: active ? accent : C.paper, color: active ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: active ? 600 : 400, outline: "none", transition: "all .15s" }}
+      >
+        {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke={active ? "#fff" : C.ink2} strokeWidth="1.8" strokeLinecap="round"
+        style={{ position: "absolute", right: 10, pointerEvents: "none", opacity: 0.7 }}>
+        <polyline points="2,3.5 5,6.5 8,3.5" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
+const MODEL_OPTIONS = [
+  { id: "all",          label: "Todos los modelos" },
+  { id: "interactivo",  label: "Interactivo" },
+  { id: "cuestionario", label: "Cuestionario" },
+  { id: "esquema",      label: "Esquema" },
+];
+
+function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags }) {
+  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
+
+  return (
+    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+
+      <FilterDropdown
+        label="Compositor"
+        options={allComposers}
+        selected={filterComposers}
+        onToggle={toggleComposer}
+        onClear={() => setFilterComposers([])}
+        accent="#2F6FB8"
+      />
+
+      <FilterDropdown
+        label="Etiquetas"
+        options={allTags}
+        selected={filterTags}
+        onToggle={toggleTag}
+        onClear={() => setFilterTags([])}
+        accent={C.fnI}
+      />
+
+      {active && (
+        <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); }}
+          style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
+          ✕ Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
+function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }) {
+  const active = filterModel !== "all" || filterDone !== "all";
+  const DONE_OPTIONS = [
+    { id: "all",     label: "Todos",     accent: C.ink  },
+    { id: "notdone", label: "Sin hacer", accent: C.fnD  },
+    { id: "done",    label: "Hechos",    accent: C.fnT  },
+  ];
+  return (
+    <div style={{ marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+
+      <div style={{ display: "flex", gap: 5, background: C.paper2, borderRadius: 20, padding: "3px 4px" }}>
+        {DONE_OPTIONS.map((opt) => {
+          const on = filterDone === opt.id;
+          return (
+            <button key={opt.id} onClick={() => setFilterDone(opt.id)}
+              style={{ padding: "4px 12px", borderRadius: 16, border: "none", background: on ? (opt.id === "all" ? C.ink : opt.accent) : "transparent", color: on ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {active && (
+        <button onClick={() => { setFilterModel("all"); setFilterDone("all"); }}
+          style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
+          ✕ Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Overline({ children, style }) {
+  return <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", color: C.chevron, textTransform: "uppercase", marginBottom: 6, ...style }}>{children}</div>;
+}
+
+function GhostButton({ children, onClick, full, lg, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ background: C.paper, border: `1px solid ${C.rail}`, borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 14px", fontFamily: F.sans, fontSize: lg ? 14 : 13, fontWeight: 500, color: "#555", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
+  );
+}
+
+function CtaButton({ children, onClick, disabled, full, lg }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 15px", fontFamily: F.sans, fontSize: lg ? 14 : 12, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
+  );
+}
+
+function DangerLink({ children, onClick, style }) {
+  return <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: F.sans, fontSize: 13, color: C.danger, ...style }}>{children}</button>;
+}
+
+function DangerOutlineButton({ children, onClick }) {
+  return <button onClick={onClick} style={{ background: C.paper, border: `1px solid rgba(184,74,58,0.4)`, borderRadius: 7, padding: "5px 12px", fontFamily: F.sans, fontSize: 12, fontWeight: 500, color: C.danger, cursor: "pointer" }}>{children}</button>;
+}
+
+function FieldLabel({ children }) {
+  return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#999", marginBottom: 6 }}>{children}</label>;
+}
+
+function TextInput({ value, onChange, placeholder, type = "text", big }) {
+  const [focus, setFocus] = useState(false);
+  return (
+    <input type={type} value={value} placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
+      style={{ width: "100%", boxSizing: "border-box", fontFamily: big ? F.serif : F.sans, fontSize: big ? 18 : 13, fontWeight: big ? 500 : 400, color: C.ink, background: C.field, border: `1px solid ${focus ? C.fieldFocus : C.border}`, borderRadius: 7, padding: big ? "10px 14px" : "9px 12px", outline: "none", transition: "border-color .15s" }} />
+  );
+}
+
+function RailStep({ num, title, last, children }) {
+  return (
+    <div style={{ display: "flex", marginBottom: last ? 0 : 30 }}>
+      <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{String(num).padStart(2, "0")}</div>
+        {!last && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, paddingTop: 6, paddingBottom: 4 }}>
+        <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", marginBottom: 14 }}>{title}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MetaItem({ label, children }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: F.sans, fontSize: 12, color: "#666" }}>{children}</span>
+    </div>
+  );
+}
+
+// Cabecera editorial para vistas de ejercicio
+function ExerciseViewHeader({ title, onBack }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 16 }}>← Volver</button>
+      <div style={{ paddingBottom: 18, borderBottom: `2px solid ${C.ink}` }}>
+        <h1 style={{ fontFamily: F.serif, fontSize: 32, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.1, margin: 0 }}>{title}</h1>
+      </div>
+    </div>
+  );
+}
+
+// Cabecera unificada para los tres tipos de vista de ejercicio en sesión
+function ExercisePageHeader({ exercise, onBack }) {
+  return (
+    <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
+      <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <button
+          onClick={onBack}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0,
+            flexShrink: 0, display: "flex", alignItems: "center", gap: 5,
+          }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
+          <span>Volver</span>
+        </button>
+        <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2,
+          }}>{exercise.title}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
@@ -682,46 +1473,46 @@ function SetupView({ onSetup }) {
   };
 
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
-          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 6 }}>Primera configuración</h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Crea tu cuenta de administrador para comenzar</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Primera configuración</Overline>
+          <h1 style={{ ...S.h1 }}>Crear cuenta de administrador</h1>
         </div>
 
-        <label style={S.label}>Tu nombre (visible para los alumnos)</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={displayName} autoFocus
-          onChange={(e) => setDisplayName(e.target.value)} placeholder="Ej: Prof. García" />
-
-        <label style={S.label}>Nombre de usuario (para el login)</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={username} autoComplete="username"
-          onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
-
-        <label style={S.label}>Contraseña (mínimo 6 caracteres)</label>
-        <input type="password" style={{ ...S.input, marginBottom: 14 }} value={pass}
-          onChange={(e) => setPass(e.target.value)} placeholder="••••••" autoComplete="new-password" />
-
-        <label style={S.label}>Confirmar contraseña</label>
-        <input type="password" autoComplete="new-password"
-          style={{ ...S.input, marginBottom: mismatch ? 6 : 22, borderColor: mismatch ? C.danger : undefined }}
-          value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••"
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Tu nombre (visible para los alumnos)</FieldLabel>
+          <TextInput value={displayName} onChange={setDisplayName} placeholder="Ej: Prof. García" />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <TextInput value={username} onChange={(v) => setUsername(v.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Contraseña (mínimo 6 caracteres)</FieldLabel>
+          <TextInput value={pass} onChange={setPass} placeholder="••••••" type="password" />
+        </div>
+        <div style={{ marginBottom: mismatch ? 6 : 24 }}>
+          <FieldLabel>Confirmar contraseña</FieldLabel>
+          <input type="password" autoComplete="new-password"
+            style={{ ...S.input, borderColor: mismatch ? C.danger : undefined }}
+            value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••"
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+        </div>
 
         {mismatch && <ErrorMsg style={{ marginBottom: 16 }}>Las contraseñas no coinciden</ErrorMsg>}
         <ErrorMsg>{error}</ErrorMsg>
 
-        <button onClick={handleSubmit} disabled={!canSave}
-          style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, fontSize: 15, ...disabledStyle(canSave) }}>
+        <CtaButton full lg onClick={handleSubmit} disabled={!canSave}>
           {loading ? "Configurando…" : "Crear cuenta y comenzar →"}
-        </button>
+        </CtaButton>
       </div>
     </div>
   );
 }
 
 // Pantalla de login (alumno/profesor/admin)
-function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
+function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onForgotPin }) {
   const [username,   setUsername]   = useState("");
   const [credential, setCredential] = useState("");
   const [loading,    setLoading]    = useState(false);
@@ -753,45 +1544,50 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
   };
 
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ ...S.card, maxWidth: 400, width: "90vw", marginBottom: 0 }}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>← Volver</button>
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 4 }}>Acceso {roleLabel}</h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Introduce tus credenciales</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 28 }}>← Inicio</button>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Acceso · {roleLabel}</Overline>
+          <h1 style={{ ...S.h1 }}>Iniciar sesión</h1>
         </div>
 
-        <label style={S.label}>Nombre de usuario</label>
-        <input style={{ ...S.input, marginBottom: 14 }} value={username} autoFocus autoComplete="username"
-          onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="usuario" />
+        <div style={{ marginBottom: 16 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <input style={{ ...S.input }} value={username} autoFocus autoComplete="username"
+            onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="usuario" />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>{credLabel}</FieldLabel>
+          <CredentialInput kind={isPin ? "pin" : "password"} value={credential}
+            onChange={(v) => { setCredential(v); setError(""); }} onSubmit={handleLogin} marginBottom={0} />
+        </div>
 
-        <label style={S.label}>{credLabel}</label>
-        <CredentialInput
-          kind={isPin ? "pin" : "password"}
-          value={credential}
-          onChange={(v) => { setCredential(v); setError(""); }}
-          onSubmit={handleLogin}
-          marginBottom={22}
-        />
-
-        {error && <ErrorMsg style={{ margin: "-14px 0 14px" }}>{error}</ErrorMsg>}
-
-        <button onClick={handleLogin} disabled={!canSubmit}
-          style={{ ...S.btnPrimary, width: "100%", padding: 13, borderRadius: 8, fontSize: 14, ...disabledStyle(canSubmit) }}>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleLogin} disabled={!canSubmit}>
           {loading ? "Verificando…" : "Entrar →"}
-        </button>
+        </CtaButton>
+
+        {onForgotPin && (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button
+              onClick={onForgotPin}
+              style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 12, color: C.muted, textDecoration: "underline", padding: 0 }}
+            >
+              He olvidado mi PIN
+            </button>
+          </div>
+        )}
 
         {onGuest && (
           <>
-            <div style={{ ...S.row, margin: "18px 0 14px", gap: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", margin: "22px 0 16px" }}>
               <div style={{ flex: 1, height: 1, background: C.line }} />
-              <span style={{ color: C.muted2, fontSize: 11, padding: "0 10px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>o sin cuenta</span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, padding: "0 12px", whiteSpace: "nowrap" }}>o sin cuenta</span>
               <div style={{ flex: 1, height: 1, background: C.line }} />
             </div>
-            <button onClick={onGuest} style={{ ...S.btn, width: "100%", padding: "11px 20px", borderRadius: 8, fontSize: 13, color: C.muted }}>
-              Entrar como invitado
-            </button>
-            <p style={{ fontSize: 11, color: C.muted2, textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>
+            <GhostButton full lg onClick={onGuest}>Entrar como invitado</GhostButton>
+            <p style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: "center", margin: "10px 0 0", lineHeight: 1.5 }}>
               Modo de prueba · los resultados no se guardan
             </p>
           </>
@@ -804,26 +1600,177 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest }) {
 // Pantalla inicial: selección de rol
 function HomeView({ onTeacher, onStudent }) {
   return (
-    <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-      <div style={{ textAlign: "center", maxWidth: 360, padding: "2.5rem 1.5rem", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: C.muted, marginBottom: 22 }}>
-          Análisis Musical Auditivo
-        </div>
-
-        <h1 style={{ ...S.h1, fontSize: 38, lineHeight: 1.08, marginBottom: 0, fontStyle: "italic", letterSpacing: -1.5 }}>
-          Funciones<br />Armónicas
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+        <h1 style={{ fontFamily: F.sans, fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1.0, margin: 0 }}>
+          Análisis<br />auditivo
         </h1>
-
-        <div style={{ width: 36, height: 1.5, background: C.line, margin: "22px 0 20px" }} />
-
-        <p style={{ color: C.muted, fontSize: 13, marginBottom: 40, lineHeight: 1.55, maxWidth: 260 }}>
-          Herramienta interactiva de análisis y escucha armónica para el aula
+        <div style={{ width: 40, height: 2, background: C.ink, margin: "26px auto 22px" }} />
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: "#888", lineHeight: 1.6, maxWidth: 270, margin: "0 auto 36px" }}>
+          Herramienta interactiva de análisis y escucha armónica para el aula.
         </p>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-          <button onClick={onStudent} style={{ ...S.btnPrimary, fontSize: 14, padding: "13px 24px", borderRadius: 8, letterSpacing: 0.1 }}>Acceso Alumno</button>
-          <button onClick={onTeacher} style={{ ...S.btn,        fontSize: 14, padding: "13px 24px", borderRadius: 8 }}>Acceso Profesor</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          <CtaButton full lg onClick={onStudent}>Acceso alumno</CtaButton>
+          <GhostButton full lg onClick={onTeacher}>Acceso profesor</GhostButton>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Vista para solicitar enlace de recuperación de PIN por correo
+function ForgotPinView({ users, supabaseRef, onBack }) {
+  const [username, setUsername] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [sent,     setSent]     = useState(false);
+  const [error,    setError]    = useState("");
+
+  const handleSend = async () => {
+    if (!username.trim() || loading) return;
+    setLoading(true); setError("");
+    try {
+      const found = (users || []).find(
+        (u) => u.role === "student" && u.username === username.trim().toLowerCase()
+      );
+      if (!found) { setError("Usuario no encontrado."); return; }
+      if (!found.recoveryEmail) {
+        setError("Este usuario no tiene correo de recuperación. Pide ayuda a tu profesor.");
+        return;
+      }
+      const sb = supabaseRef.current;
+      if (!sb) { setError("Sin conexión al servidor. Inténtalo más tarde."); return; }
+      const { error: sbErr } = await sb.auth.signInWithOtp({
+        email: found.recoveryEmail,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: window.location.origin + (window.location.pathname || "/"),
+        },
+      });
+      if (sbErr) throw sbErr;
+      setSent(true);
+    } catch { setError("No se pudo enviar el correo. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  if (sent) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 20 }}>✉</div>
+          <h1 style={{ ...S.h1, textAlign: "center" }}>Correo enviado</h1>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 28 }}>
+            Hemos enviado un enlace de acceso a tu correo de recuperación. Haz clic en él para configurar un nuevo PIN.
+          </p>
+          <GhostButton full lg onClick={onBack}>← Volver al inicio</GhostButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 28 }}>← Volver</button>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Recuperar acceso · Alumno</Overline>
+          <h1 style={{ ...S.h1 }}>He olvidado mi PIN</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
+          Introduce tu nombre de usuario. Te enviaremos un enlace a tu correo de recuperación.
+        </p>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>Nombre de usuario</FieldLabel>
+          <input
+            style={{ ...S.input }}
+            value={username}
+            autoFocus
+            autoComplete="username"
+            onChange={(e) => { setUsername(e.target.value); setError(""); }}
+            placeholder="usuario"
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleSend} disabled={!username.trim() || loading}>
+          {loading ? "Enviando…" : "Enviar enlace →"}
+        </CtaButton>
+      </div>
+    </div>
+  );
+}
+
+// Vista para configurar nuevo PIN tras llegar desde el enlace de correo
+function ResetPinView({ users, supabaseSession, onReset, onBack }) {
+  const [pin,     setPin]     = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+  const [done,    setDone]    = useState(false);
+
+  const email      = supabaseSession?.user?.email;
+  const targetUser = (users || []).find(
+    (u) => u.recoveryEmail?.toLowerCase() === email?.toLowerCase()
+  );
+
+  const canSave = pin.length >= 4 && !loading;
+
+  const handleReset = async () => {
+    if (!canSave || !targetUser) return;
+    setLoading(true); setError("");
+    try {
+      const salt = generateSalt();
+      const hash = await hashCredential(pin, salt);
+      await onReset({ ...targetUser, credType: "pin", passwordHash: hash, salt });
+      setDone(true);
+    } catch { setError("Error al actualizar el PIN. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  if (done) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 20 }}>✓</div>
+          <h1 style={{ ...S.h1, textAlign: "center" }}>PIN actualizado</h1>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 28 }}>
+            Tu PIN ha sido actualizado correctamente. Ya puedes iniciar sesión con tu nuevo PIN.
+          </p>
+          <CtaButton full lg onClick={onBack}>Ir al inicio →</CtaButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (!targetUser) {
+    return (
+      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 24 }}>
+            No se encontró ningún usuario asociado a este correo. Pide ayuda a tu profesor.
+          </p>
+          <GhostButton full lg onClick={onBack}>← Volver al inicio</GhostButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Recuperar acceso · {targetUser.displayName}</Overline>
+          <h1 style={{ ...S.h1 }}>Nuevo PIN de acceso</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
+          Elige un nuevo PIN de 4 a 6 dígitos.
+        </p>
+        <div style={{ marginBottom: 24 }}>
+          <FieldLabel>Nuevo PIN</FieldLabel>
+          <CredentialInput kind="pin" value={pin} onChange={setPin} onSubmit={handleReset} marginBottom={0} />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
+        <CtaButton full lg onClick={handleReset} disabled={!canSave}>
+          {loading ? "Guardando…" : "Guardar nuevo PIN →"}
+        </CtaButton>
       </div>
     </div>
   );
@@ -833,61 +1780,42 @@ function HomeView({ onTeacher, onStudent }) {
 function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
   const [hoverId, setHoverId] = useState(null);
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-      <div style={{ ...S.card, maxWidth: 440, width: "90vw", marginBottom: 0 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 14 }}>Selección de profesor</div>
-          <h1 style={{ ...S.h1, fontSize: 20, marginBottom: 4 }}>
-            {currentTeacherId ? "Cambiar profesor" : "Elige tu profesor"}
-          </h1>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Selecciona al profesor cuya clase sigues</p>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Selección de profesor</Overline>
+          <h1 style={{ ...S.h1 }}>{currentTeacherId ? "Cambiar profesor" : "Elige tu profesor"}</h1>
         </div>
 
         {teachers.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "1rem 0 1.5rem" }}>
-            <p style={{ color: C.muted, fontSize: 13 }}>Aún no hay profesores registrados.</p>
-            <button onClick={onLogout} style={{ ...S.btn, marginTop: 12 }}>Volver al inicio</button>
+          <div style={{ paddingTop: 8 }}>
+            <p style={{ color: C.muted, fontSize: 13, marginBottom: 14 }}>Aún no hay profesores registrados.</p>
+            <GhostButton onClick={onLogout}>Volver al inicio</GhostButton>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
             {teachers.map((t) => {
-              const isSelected = t.id === currentTeacherId;
-              const isHover    = hoverId === t.id;
+              const isSel   = t.id === currentTeacherId;
+              const isHover = hoverId === t.id;
               return (
                 <button key={t.id} onClick={() => onPick(t)}
-                  onMouseEnter={() => setHoverId(t.id)}
-                  onMouseLeave={() => setHoverId(null)}
-                  style={{
-                    background: isSelected ? C.ink : isHover ? C.paper2 : C.paper,
-                    border:     `1px solid ${isSelected ? C.ink : isHover ? C.ink2 : C.line}`,
-                    borderRadius: 10, padding: "14px 18px", cursor: "pointer",
-                    display: "flex", alignItems: "center", gap: 14,
-                    transition: "all .15s", textAlign: "left",
-                  }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: "50%",
-                    background: isSelected ? "rgba(251,250,246,0.18)" : C.line,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 17, fontWeight: 700, color: isSelected ? C.paper : C.ink2,
-                    flexShrink: 0, fontFamily: FONT_MONO,
-                  }}>
+                  onMouseEnter={() => setHoverId(t.id)} onMouseLeave={() => setHoverId(null)}
+                  style={{ background: isSel ? C.ink : isHover ? C.paper2 : C.paper, border: `1px solid ${isSel ? C.ink : isHover ? C.ink2 : C.line}`, borderRadius: 8, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: isSel ? "rgba(255,255,255,0.15)" : C.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: isSel ? "#fff" : C.ink, flexShrink: 0 }}>
                     {t.displayName[0].toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: isSelected ? C.paper : C.ink, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.displayName}</div>
-                    <div style={{ fontSize: 12, color: isSelected ? "rgba(251,250,246,0.6)" : C.muted, fontFamily: FONT_MONO }}>@{t.username}</div>
+                    <div style={{ fontFamily: F.sans, fontWeight: 600, fontSize: 14, color: isSel ? "#fff" : C.ink, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.displayName}</div>
+                    <div style={{ fontFamily: F.sans, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted }}>@{t.username}</div>
                   </div>
-                  {isSelected && <span style={{ fontSize: 16, color: C.paper, flexShrink: 0 }}>✓</span>}
+                  {isSel && <StatusCircle done size={18} />}
                 </button>
               );
             })}
           </div>
         )}
 
-        <button onClick={onLogout}
-          style={{ background: "none", border: "none", color: C.muted2, fontSize: 12, cursor: "pointer", width: "100%", fontFamily: FONT_SANS, padding: "4px 0" }}>
-          Salir
-        </button>
+        <button onClick={onLogout} style={{ background: "none", border: "none", color: C.muted, fontSize: 12, cursor: "pointer", fontFamily: F.sans, padding: 0 }}>Salir</button>
       </div>
     </div>
   );
@@ -895,168 +1823,298 @@ function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
 
 // ═══ 7. VISTAS DE ALUMNO ════════════════════════════════════════════════════
 
-// Tarjeta de ejercicio (compartida entre lista global y vista por curso/unidad)
-function StudentExerciseCard({ ex, result, onClick }) {
-  const isQuiz = modelOf(ex) === "cuestionario";
-  const exQs   = questionsOf(ex);
-  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
+// Metadatos por modelo de ejercicio (color de franja + etiqueta)
+const MODEL_META = {
+  interactivo:  { color: "#3F9B5B", label: "Interactivo"  },
+  cuestionario: { color: "#2F6FB8", label: "Cuestionario" },
+  esquema:      { color: "#C77A1A", label: "Esquema"      },
+};
+const modelMeta = (ex) => MODEL_META[modelOf(ex)] || MODEL_META.interactivo;
 
+// Barra de alternancia entre modelos (se inyecta entre título y waveform en sesiones con 2 modelos)
+function ModelToggleBar({ models, activeIdx, onSwitch }) {
+  if (!models || models.length < 2) return null;
   return (
-    <div style={{ ...S.card, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <div>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>{ex.title}</div>
-        <div style={{ ...S.row, gap: 8, flexWrap: "wrap" }}>
-          <span style={{ ...S.badge, background: C.line, color: C.muted }}>{fmt(ex.duration)}</span>
-
-          {isQuiz
-            ? <span style={{ ...S.badge, background: "rgba(47,111,184,0.14)", color: C.quiz }}>Cuestionario</span>
-            : total > 1 && <span style={{ ...S.badge, background: C.paper2, color: C.fnI }}>{total} categorías</span>}
-
-          {isQuiz
-            ? (exQs.length === 0
-                ? <span style={{ ...S.badge, background: "rgba(199,122,26,0.16)", color: C.fnD }}>Sin preguntas</span>
-                : <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{exQs.length} {exQs.length === 1 ? "pregunta" : "preguntas"}</span>)
-            : (recorded === 0 && <span style={{ ...S.badge, background: "rgba(199,122,26,0.16)", color: C.fnD }}>Sin clave</span>)}
-
-          {result && (
-            <ScoreBadge score={result.score} suffix="% acierto" emptyLabel="Enviado" />
-          )}
-        </div>
+    <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+      <div style={{
+        display: "inline-flex",
+        background: C.paper2,
+        border: `1px solid ${C.line}`,
+        borderRadius: 999,
+        padding: 3,
+        gap: 3,
+      }}>
+        {models.map((modelId, idx) => {
+          const meta = MODEL_META[modelId] || MODEL_META.interactivo;
+          const isActive = activeIdx === idx;
+          return (
+            <button
+              key={modelId}
+              type="button"
+              onClick={() => onSwitch(idx)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 16px",
+                borderRadius: 999,
+                border: "none",
+                background: isActive ? C.ink : "transparent",
+                color: isActive ? C.paper : C.ink2,
+                cursor: "pointer",
+                fontFamily: F.sans,
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 400,
+                transition: "background .15s, color .15s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: isActive ? "rgba(255,255,255,0.55)" : meta.color,
+                flexShrink: 0,
+                transition: "background .15s",
+              }} />
+              {meta.label}
+            </button>
+          );
+        })}
       </div>
-      <button onClick={onClick} style={S.btnPrimary}>{result ? "Repetir" : "Iniciar"} →</button>
     </div>
   );
 }
 
-// Dashboard del alumno
-function StudentDash({ user, exercises, results, courses, units, onExercise, onLogout, onChangeTeacher }) {
-  const [view,        setView]        = useState("all");
-  const [openUnitIds, setOpenUnitIds] = useState(new Set());
+// Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
+function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
+  const [open, setOpen] = useState(false);
+  const meta      = modelMeta(ex);
+  const exModels  = modelsOf(ex);
+  const isQuiz    = modelOf(ex) === "cuestionario";
+  const exQs      = questionsOf(ex);
+  const cats      = categoriesOf(ex);
+  const allBtns   = cats.flatMap((c) => c.buttons || []);
+  const isDone    = result != null;
+  const score     = result?.score ?? null;
+  const isCorrected = result?.teacherCorrection?.corrected;
+  const hasManualModel = exModels.includes("esquema") || (exModels.includes("cuestionario") && exQs.some((q) => q.type === "desarrollo"));
 
-  const toggleUnit = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
+  return (
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+      {exModels.length > 1 ? (
+        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
+          <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
+        </div>
+      ) : (
+        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div onClick={() => setOpen((o) => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+              {ex.title}
+            </span>
+            {ex.composerName && ex.showComposer !== false && (
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, display: "block", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {ex.composerName}
+              </span>
+            )}
+          </div>
+          <Chevron open={open} />
+          {isDone && onViewCorrection && (
+            <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }}
+              style={{ ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+              {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+            </button>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
+            style={isDone
+              ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
+              : { ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
+            {isDone ? "Repetir" : "Iniciar →"}
+          </button>
+        </div>
+        {open && (
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+            <MetaItem label="Tipo">
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+              {meta.label}
+            </MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+            {isQuiz
+              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            {isDone && (
+              <MetaItem label="Resultado">
+                <StatusCircle done />
+                {score != null ? `${score}%` : "Entregado"}
+              </MetaItem>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-  // Solo los cursos del profesor elegido (o legacy sin ownerId)
+// Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
+function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, tab = "all", onTab }) {
+  const isMobile = useIsMobile();
+  const view    = tab;             // controlado por la URL
+  const setView = onTab || (() => {});
+  const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
+  const [openUnitIds,   setOpenUnitIds]   = useState(new Set());
+  const [filterModel,   setFilterModel]   = useState("all");
+  const [filterDone,    setFilterDone]    = useState("all");
+  const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
+  const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
+
   const teacherCourses = useMemo(() => {
-    if (!user.teacherId) return courses;
-    return courses.filter((c) => !c.ownerId || c.ownerId === user.teacherId);
-  }, [courses, user.teacherId]);
+    const studentGroupIds = new Set(groups.filter((g) => g.studentIds?.includes(user.id)).map((g) => g.id));
+    return courses.filter((c) => {
+      if (c.hidden) return false;
+      const vis = c.visibility ?? "teacher";
+      if (vis === "public")  return true;
+      if (vis === "group")   return studentGroupIds.has(c.visibilityGroupId);
+      // "teacher" (default): cursos del profesor asignado
+      if (!c.ownerId) return true;
+      return c.ownerId === user.teacherId;
+    });
+  }, [courses, groups, user.id, user.teacherId]);
+
+  const filteredExercises = useMemo(() => {
+    return exercises.filter((ex) => {
+      if (ex.hidden) return false;
+      if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
+      if (filterDone === "done"    && !results[ex.id]) return false;
+      if (filterDone === "notdone" &&  results[ex.id]) return false;
+      return true;
+    });
+  }, [exercises, filterModel, filterDone, results]);
 
   return (
     <div style={S.app}>
-      <div style={S.page}>
+      <div style={{ ...S.page, padding: isMobile ? "18px 14px 80px" : S.page.padding }}>
         {user.isGuest && (
-          <div style={{ background: "rgba(199,122,26,0.10)", border: `1px solid rgba(199,122,26,0.25)`, borderRadius: 8, padding: "8px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 14 }}>👤</span>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.fnD }}>Modo invitado</span>
-              <span style={{ fontSize: 12, color: C.muted, marginLeft: 8 }}>Los resultados no se guardan al salir</span>
-            </div>
+          <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
+            <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>· Los resultados no se guardan al salir</span>
           </div>
         )}
 
-        {/* Cabecera */}
-        <div style={{ paddingBottom: 20, borderBottom: `1.5px solid ${C.line}`, marginBottom: 0 }}>
-          <div style={{ ...S.row, justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 5 }}>Alumno</div>
-              <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 0 }}>{user.displayName}</h1>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {!user.isGuest && onChangeTeacher && (
-                <button onClick={onChangeTeacher} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>🎓 Profesor</button>
-              )}
-              <button onClick={onLogout} style={S.btn}>Salir</button>
-            </div>
+        {/* Cabecera editorial */}
+        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <Overline>Alumno</Overline>
+            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {!user.isGuest && onChangeTeacher && (
+              <GhostButton onClick={onChangeTeacher}>{isMobile ? "Profesor" : "Cambiar profesor"}</GhostButton>
+            )}
+            <GhostButton onClick={onLogout}>Salir</GhostButton>
           </div>
         </div>
 
         {/* Pestañas */}
-        <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22 }}>
-          <TabBar
-            tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]}
-            value={view} onChange={setView}
-          />
+        <div className="fa-noscroll" style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22, overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+          <TabBar tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]} value={view} onChange={setView} />
         </div>
 
-        {view === "all" && exercises.map((ex) => (
-          <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} />
-        ))}
+        {/* ── Todos los ejercicios ── */}
+        {view === "all" && (
+          <>
+            <StudentFilterBar
+              filterModel={filterModel} setFilterModel={setFilterModel}
+              filterDone={filterDone}   setFilterDone={setFilterDone}
+            />
+            {filteredExercises.length === 0
+              ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
+                  {exercises.length === 0
+                    ? "Tu profesor aún no ha publicado ejercicios."
+                    : "Ningún ejercicio coincide con los filtros."}
+                </p>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {filteredExercises.map((ex) => (
+                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                  ))}
+                </div>
+            }
+          </>
+        )}
 
+        {/* ── Por cursos (riel tipográfico) ── */}
         {view === "courses" && (
           teacherCourses.length === 0
-            ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
-            : teacherCourses.map((course, courseIdx) => {
-                const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
-                const exCount     = courseUnits.reduce((sum, u) => sum + u.exerciseIds.length, 0);
-                const accent      = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
-
+            ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>El profesor aún no ha creado ningún curso.</p>
+            : teacherCourses.map((course) => {
+                const courseUnits = units.filter((u) => course.unitIds.includes(u.id) && !u.hidden);
+                const courseOpen  = openCourseIds.has(course.id);
                 return (
-                  <div key={course.id} style={{ marginBottom: 36 }}>
-                    {/* Cabecera del curso — estilo profesor */}
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 0, marginBottom: 10 }}>
-                      <div style={{ width: 3, alignSelf: "stretch", background: accent, borderRadius: 2, flexShrink: 0, marginRight: 14, marginTop: 3 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 18, color: C.ink, letterSpacing: -0.4, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {course.name}
-                        </div>
-                        {course.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{course.description}</div>}
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, background: accent + "18", color: accent }}>
-                            {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
-                          </span>
-                          <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>
-                            {exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}
-                          </span>
+                  <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                    <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: isMobile ? "16px 16px" : "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: F.serif, fontSize: isMobile ? 23 : 30, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.05, wordBreak: "break-word" }}>{course.name}</span>
+                            <Chevron open={courseOpen} rotate90WhenClosed size={14} />
+                          </div>
+                          {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                         </div>
                       </div>
                     </div>
 
-                    {/* Tabla de unidades — estilo profesor */}
-                    {courseUnits.length === 0 ? (
-                      <div style={{ paddingLeft: 17, color: C.muted, fontSize: 13 }}>Este curso no tiene unidades todavía.</div>
-                    ) : (
-                      <div style={{ paddingLeft: 17 }}>
-                        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "6px 12px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-                            {["", "Unidad", "Ejercicios"].map((h, i) => (
-                              <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
-                            ))}
-                          </div>
-
-                          {courseUnits.map((unit, unitIdx) => {
-                            const isUnitOpen = openUnitIds.has(unit.id);
-                            const isLast     = unitIdx === courseUnits.length - 1;
-
-                            return (
-                              <div key={unit.id}>
-                                <div onClick={() => toggleUnit(unit.id)}
-                                  style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px", alignItems: "center", padding: "11px 12px", cursor: "pointer", borderBottom: (!isLast || isUnitOpen) ? `1px solid ${C.line}` : "none", transition: "background .1s" }}
-                                  onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-                                  <span style={{ fontSize: 14, color: C.muted, display: "inline-block", transition: "transform .2s", transform: isUnitOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1, textAlign: "center" }}>›</span>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                    {unit.description && <div style={{ fontSize: 12, color: C.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
+                    {courseOpen && (
+                      <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
+                        {courseUnits.length === 0
+                          ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
+                          : courseUnits.map((unit, unitIdx) => {
+                              const isOpen     = openUnitIds.has(unit.id);
+                              const isLastUnit = unitIdx === courseUnits.length - 1;
+                              const unitNum    = String(unitIdx + 1).padStart(2, "0");
+                              const railW      = isMobile ? 40 : 52;
+                              const numW       = isMobile ? 30 : 36;
+                              return (
+                                <div key={unit.id} style={{ display: "flex", marginBottom: isLastUnit ? 0 : 28 }}>
+                                  {/* Riel */}
+                                  <div style={{ width: railW, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                    <div style={{ width: numW, height: numW, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: isMobile ? 14 : 17, fontWeight: 600 }}>{unitNum}</div>
+                                    {(!isLastUnit || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
                                   </div>
-                                  <div style={{ fontSize: 12, color: C.muted }}>
-                                    {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
+                                  {/* Contenido */}
+                                  <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
+                                    <div onClick={() => toggleUnit(unit.id)} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: isOpen ? 12 : 0, paddingRight: isMobile ? 12 : 20, cursor: "pointer", userSelect: "none" }}>
+                                      <span style={{ fontFamily: F.serif, fontSize: isMobile ? 18 : 23, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
+                                      <Chevron open={isOpen} rotate90WhenClosed />
+                                      <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2, flexShrink: 0 }}>
+                                        {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
+                                      </span>
+                                    </div>
+                                    {isOpen && (
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                        {unit.exerciseIds.length === 0
+                                          ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
+                                          : unit.exerciseIds.map((eid) => {
+                                              const ex = exercises.find((e) => e.id === eid);
+                                              if (!ex || ex.hidden) return null;
+                                              return (
+                                                <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -railW }}>
+                                                  <div style={{ width: railW, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                                    <StatusCircle done={results[ex.id] != null} />
+                                                  </div>
+                                                  <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                                                </div>
+                                              );
+                                            })}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-
-                                {isUnitOpen && (
-                                  <div style={{ borderBottom: !isLast ? `1px solid ${C.line}` : "none", background: C.bg, padding: "10px 12px 6px" }}>
-                                    {unit.exerciseIds.length === 0
-                                      ? <p style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: "6px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
-                                      : unit.exerciseIds.map((eid) => {
-                                          const ex = exercises.find((e) => e.id === eid);
-                                          return ex ? <StudentExerciseCard key={ex.id} ex={ex} result={results[ex.id]} onClick={() => onExercise(ex)} /> : null;
-                                        })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
                       </div>
                     )}
                   </div>
@@ -1075,9 +2133,11 @@ function StudentDash({ user, exercises, results, courses, units, onExercise, onL
 //   loopRegionRef:   ref con { audioStart, audioEnd } | null para bucle en
 //                    fragmentos (QuestionnaireView).
 function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
-  const dur      = exercise.duration;
-  const audioUrl = exercise.audioUrl;
-  const hasAudio = !!audioUrl;
+  const dur           = exercise.duration;
+  const audioUrl      = exercise.audioUrl;
+  const hasAudio      = !!audioUrl;
+  const fragmentStart = exercise.audioFragmentStart ?? 0;
+  const fragmentEnd   = exercise.audioFragmentEnd   ?? null;
 
   const [time,          setTime]          = useState(0);
   const [playing,       setPlaying]       = useState(false);
@@ -1085,25 +2145,28 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const [audioError,    setAudioError]    = useState(null);
   const [audioDuration, setAudioDuration] = useState(exercise.duration);
 
-  const ctxRef          = useRef(null);
-  const bufferRef       = useRef(null);
-  const sourceRef       = useRef(null);
-  const startCtxTimeRef = useRef(0);
-  const playOffsetRef   = useRef(0);
-  const playingRef      = useRef(false);
-  const timeRef         = useRef(0);
-  const scrubbingRef    = useRef(false);
-  // Cada fuente recibe un ID único; onended solo actúa si sigue siendo la fuente activa
-  const sourceIdRef     = useRef(0);
+  const ctxRef           = useRef(null);
+  const bufferRef        = useRef(null);
+  const sourceRef        = useRef(null);
+  const startCtxTimeRef  = useRef(0);
+  const playOffsetRef    = useRef(0);
+  const playingRef       = useRef(false);
+  const timeRef          = useRef(0);
+  const scrubbingRef     = useRef(false);
+  // Cada fuente recibe un ID único; onended sólo actúa si sigue siendo la fuente activa
+  const sourceIdRef      = useRef(0);
   // Evita que togglePlay sea llamado concurrentemente mientras ctx.resume() está pendiente
   const pendingToggleRef = useRef(false);
-  playingRef.current    = playing;
-  timeRef.current       = time;
+  // Throttle de setTime: el canvas lee timeRef directamente a 60 fps; React solo necesita
+  // ~10 fps para el contador de tiempo visible → mucho menos re-renders.
+  const lastSetTimeRef   = useRef(0);
+  playingRef.current     = playing;
+  timeRef.current        = time;
 
   const stopSource = () => {
     if (sourceRef.current) {
-      sourceIdRef.current += 1;           // invalida el onended de la fuente anterior
-      try { sourceRef.current.stop(); } catch {}
+      sourceIdRef.current += 1;            // invalida el onended de la fuente anterior
+      try { sourceRef.current.stop(); } catch (_) {}
       sourceRef.current = null;
     }
   };
@@ -1111,25 +2174,25 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   const startSource = (offset) => {
     const ctx = ctxRef.current;
     if (!ctx || !bufferRef.current) return;
-    const myId = ++sourceIdRef.current;   // captura el ID de ESTA fuente
-    const src = ctx.createBufferSource();
+    const myId = ++sourceIdRef.current;    // captura el ID de ESTA fuente
+    const src  = ctx.createBufferSource();
     src.buffer = bufferRef.current;
     src.connect(ctx.destination);
     src.onended = () => {
-      if (sourceIdRef.current !== myId) return;  // ya hay otra fuente activa → ignorar
+      if (sourceIdRef.current !== myId) return;   // ya hay otra fuente activa → ignorar
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
-        // Asegurar que el tiempo llega exactamente al final del audio antes de parar
-        const endT = bufferRef.current?.duration ?? dur;
-        timeRef.current = endT;
-        playOffsetRef.current = endT;
-        setTime(endT);
+        timeRef.current       = dur;
+        playOffsetRef.current = dur;
+        setTime(dur);
         setPlaying(false);
       }
     };
-    src.start(0, Math.min(offset, bufferRef.current.duration));
-    sourceRef.current     = src;
-    startCtxTimeRef.current = ctx.currentTime;
+    const absOffset = Math.min(bufferRef.current.duration, offset + fragmentStart);
+    const clipDur   = fragmentEnd != null ? Math.max(0, (fragmentEnd - fragmentStart) - offset) : undefined;
+    src.start(0, absOffset, clipDur);
+    sourceRef.current        = src;
+    startCtxTimeRef.current  = ctx.currentTime;
   };
 
   // Carga + decodificación cuando cambia el ejercicio
@@ -1148,19 +2211,19 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
     (async () => {
       try {
-        const buf = await fetchAudioBuffer(audioUrl);
+        const buf     = await fetchAudioBuffer(audioUrl);
         const decoded = await ctx.decodeAudioData(buf);
         if (cancelled) return;
         bufferRef.current = decoded;
         setAudioDuration(decoded.duration);
         setAudioReady(true);
-        onWaveform?.(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
-      } catch { if (!cancelled) setAudioError("Error al decodificar el audio"); }
+        onWaveform?.(buildFragmentWaveform(decoded.getChannelData(0), decoded.duration, fragmentStart, fragmentEnd));
+      } catch (_) { if (!cancelled) setAudioError("Error al decodificar el audio"); }
     })();
 
-    return () => { cancelled = true; stopSource(); ctx.close(); };
+    return () => { cancelled = true; stopSource(); try { ctx.close(); } catch (_) {} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exercise.id]);
+  }, [exercise.id, audioUrl]);
 
   // Timer simulado cuando no hay audio real
   const timerRef = useRef(null);
@@ -1189,7 +2252,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, dur, hasAudio]);
 
-  // RAF tick para audio real
+  // RAF tick para audio real — el canvas lee timeRef a 60 fps; React setState se
+  // throttlea a ~10 fps para no saturar el árbol de componentes con re-renders.
   useEffect(() => {
     if (!playing || !hasAudio) return;
     let raf;
@@ -1201,16 +2265,29 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         if (lq && rawT >= lq.audioEnd) {
           stopSource();
           playOffsetRef.current = lq.audioStart;
-          setTime(lq.audioStart);
+          timeRef.current = lq.audioStart;
+          setTime(lq.audioStart);          // loop reset: sin throttle
+          lastSetTimeRef.current = performance.now();
           startSource(lq.audioStart);
         } else {
-          const effectiveDur = bufferRef.current?.duration ?? dur;
+          // Techo de la línea de tiempo (0..dur). `dur` es la duración del
+          // ejercicio/fragmento que ve el alumno; el buffer puede contener más
+          // (archivo completo) o menos audio. El límite reproducible real desde
+          // el inicio del fragmento es (bufferDuration - fragmentStart); nunca
+          // debemos pasar de ahí ni de `dur`.
+          const bufDur      = bufferRef.current?.duration ?? dur;
+          const playable    = Math.max(0, bufDur - fragmentStart);
+          const effectiveDur = Math.min(dur, playable);
           const t = Math.min(effectiveDur, rawT);
-          timeRef.current = t;
-          setTime(t);
+          timeRef.current = t;             // siempre actualizar ref (canvas lo lee directo)
+          const now = performance.now();
+          if (now - lastSetTimeRef.current >= 100) {    // ~10 fps para React
+            lastSetTimeRef.current = now;
+            setTime(t);
+          }
           if (!lq && rawT >= effectiveDur) {
             timeRef.current = effectiveDur;
-            setTime(effectiveDur);
+            setTime(effectiveDur);         // fin de audio: sin throttle
             setPlaying(false);
             return;
           }
@@ -1225,9 +2302,9 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
 
   const togglePlay = () => {
     if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
-    if (pendingToggleRef.current) return;          // evita doble llamada mientras resume() está pendiente
+    if (pendingToggleRef.current) return;
     const ctx = ctxRef.current;
-    const wasPlaying = playingRef.current;         // captura síncrona antes del await
+    const wasPlaying = playingRef.current;
     pendingToggleRef.current = true;
     ctx.resume().then(() => {
       pendingToggleRef.current = false;
@@ -1236,7 +2313,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
         setPlaying(false);
       } else {
-        stopSource();                              // safety: matar cualquier fuente huérfana
+        stopSource();                        // safety: matar cualquier fuente huérfana
         startSource(playOffsetRef.current);
         setPlaying(true);
       }
@@ -1279,6 +2356,311 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   };
 }
 
+
+// Selector visual de fragmento (barra de rango con handles arrastrables)
+function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }) {
+  const barRef    = useRef(null);
+  const audioRef  = useRef(null);
+  const rafRef    = useRef(null);
+  const [playing,      setPlaying]      = useState(false);
+  const [currentTime,  setCurrentTime]  = useState(start ?? 0);
+  // fragPlayMode: si true, la reproducción se limita al fragmento; si false, reproduce libre
+  const [fragPlayMode, setFragPlayMode] = useState(false);
+
+  // Refs para acceder a valores actuales dentro del RAF sin causar re-renders
+  const startRef        = useRef(start);
+  const endRef          = useRef(end);
+  const fragPlayModeRef = useRef(false);
+  startRef.current        = start;
+  endRef.current          = end;
+  fragPlayModeRef.current = fragPlayMode;
+
+  // RAF: actualiza el playhead y, en modo fragmento, para al llegar al fin
+  useEffect(() => {
+    if (!playing) { cancelAnimationFrame(rafRef.current); return; }
+    const tick = () => {
+      const audio = audioRef.current;
+      if (!audio) { rafRef.current = requestAnimationFrame(tick); return; }
+      const t = audio.currentTime;
+      setCurrentTime(t);
+      const e = endRef.current;
+      const s = startRef.current;
+      // Parar al final del fragmento solo en fragPlayMode
+      if (fragPlayModeRef.current && e != null && t >= e) {
+        audio.pause();
+        audio.currentTime = s ?? 0;
+        setCurrentTime(s ?? 0);
+        setPlaying(false);
+        setFragPlayMode(false);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [playing]);
+
+  // Cleanup: parar audio al desmontar el componente
+  useEffect(() => () => {
+    cancelAnimationFrame(rafRef.current);
+    if (audioRef.current) audioRef.current.pause();
+  }, []);
+
+  // Si el fragmento cambia y el cursor queda fuera, recolocarlo
+  useEffect(() => {
+    if (audioRef.current && !playing) {
+      if (start != null && (currentTime < start || (end != null && currentTime > end))) {
+        audioRef.current.currentTime = start;
+        setCurrentTime(start);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end]);
+
+  const getT = (clientX) => {
+    const r = barRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return 0;
+    return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
+  };
+
+  // Clic/arrastre en la barra para seek (ratón + touch, con limpieza garantizada)
+  const beginSeek = (e) => {
+    startPointerDrag(e, {
+      onStart: (ev, getX) => {
+        const t = getT(getX(ev));
+        if (audioRef.current) audioRef.current.currentTime = t;
+        setCurrentTime(t);
+      },
+      onMove: (ev, getX) => {
+        const tv = getT(getX(ev));
+        if (audioRef.current) audioRef.current.currentTime = tv;
+        setCurrentTime(tv);
+      },
+    });
+  };
+
+  // Arrastre de handles de fragmento (ratón + touch, con limpieza garantizada)
+  const beginDrag = (e, which) => {
+    e.stopPropagation();
+    startPointerDrag(e, {
+      onMove: (ev, getX) => {
+        const raw = Math.round(getT(getX(ev)) * 10) / 10;
+        if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
+        else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
+      },
+    });
+  };
+
+  // Reproducción libre (sin límite de fragmento)
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+      setFragPlayMode(false);
+    } else {
+      setFragPlayMode(false);
+      // Si el audio llegó al final, rebobinar antes de reproducir de nuevo
+      if (audio.ended || audio.currentTime >= (audio.duration || totalDuration)) {
+        audio.currentTime = 0;
+        setCurrentTime(0);
+      }
+      audio.play().catch(() => {});
+      setPlaying(true);
+    }
+  };
+
+  // Reproducción solo del fragmento (fragStart → fragEnd)
+  const playFragment = () => {
+    const audio = audioRef.current;
+    if (!audio || start == null) return;
+    if (playing && fragPlayMode) {
+      audio.pause();
+      setPlaying(false);
+      setFragPlayMode(false);
+      return;
+    }
+    if (playing) audio.pause();
+    audio.currentTime = start;
+    setCurrentTime(start);
+    setFragPlayMode(true);
+    audio.play().catch(() => {});
+    setPlaying(true);
+  };
+
+  const startPct    = start != null ? (start / totalDuration) * 100 : null;
+  const endPct      = end   != null ? (end   / totalDuration) * 100 : null;
+  const playheadPct = Math.min(100, (currentTime / totalDuration) * 100);
+
+  const HANDLE_W = 12;
+  const handleStyle = (pct) => ({
+    position: "absolute", top: 0, bottom: 0,
+    left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
+    background: C.quiz, borderRadius: 3, cursor: "ew-resize",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
+  });
+
+  // Formato M:SS.d para mayor precisión en el contador
+  const fmtP = (s) => {
+    const m  = Math.floor(s / 60);
+    const ss = (s % 60).toFixed(1).padStart(4, "0");
+    return `${m}:${ss}`;
+  };
+
+  return (
+    <div>
+      {/* Audio element oculto */}
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: "none" }} />}
+
+      {/* Fila de controles: play + tiempo + botones de fragmento */}
+      <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "center" }}>
+        {/* ▶ Reproducir desde posición actual (libre) */}
+        <button type="button" onClick={togglePlay} disabled={!audioUrl}
+          title="Reproducir desde aquí"
+          style={{
+            ...S.btn, width: 34, height: 34, padding: 0, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, borderRadius: "50%",
+            background: (playing && !fragPlayMode) ? C.ink : C.paper,
+            color:      (playing && !fragPlayMode) ? C.paper : C.ink2,
+            border: `1px solid ${(playing && !fragPlayMode) ? C.ink : C.line}`,
+          }}>
+          {(playing && !fragPlayMode) ? "⏸" : "▶"}
+        </button>
+
+        {/* Contador de tiempo */}
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2, minWidth: 70 }}>
+          {fmtP(currentTime)}
+          {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* ▶ Solo fragmento (solo cuando fragmento definido) / + Definir */}
+        {start !== null ? (
+          <button type="button" onClick={playFragment} disabled={!audioUrl}
+            title="Reproducir solo el fragmento seleccionado"
+            style={{
+              ...S.btn, padding: "4px 10px", fontSize: 12, flexShrink: 0,
+              display: "flex", alignItems: "center", gap: 5,
+              background: fragPlayMode ? C.quiz : "rgba(47,111,184,0.08)",
+              color:      fragPlayMode ? "#fff"  : C.quiz,
+              border: `1px solid ${fragPlayMode ? C.quiz : "rgba(47,111,184,0.35)"}`,
+            }}>
+            <span style={{ fontSize: 11 }}>{fragPlayMode ? "⏸" : "▶"}</span>
+            <span>Solo fragmento</span>
+          </button>
+        ) : (
+          <button type="button" onClick={onDefine}
+            style={{ ...S.btn, padding: "4px 10px", fontSize: 12, flexShrink: 0 }}>
+            + Definir fragmento
+          </button>
+        )}
+      </div>
+
+      {/* Barra integrada: seek + región de fragmento + handles + playhead */}
+      <div style={{ position: "relative", paddingTop: start != null ? 20 : 6, marginBottom: 12, userSelect: "none" }}>
+        {/* Etiquetas sobre los handles */}
+        {start != null && startPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(start)}
+          </div>
+        )}
+        {end != null && endPct != null && (
+          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            {fmt(end)}
+          </div>
+        )}
+
+        {/* La barra principal (clicable para seek) */}
+        <div ref={barRef} onMouseDown={beginSeek} onTouchStart={beginSeek}
+          style={{ position: "relative", height: 32, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+
+          {/* Región del fragmento */}
+          {start != null && startPct != null && endPct != null && (
+            <div style={{
+              position: "absolute", top: 3, bottom: 3,
+              left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%`,
+              background: "rgba(47,111,184,0.18)", border: "1px solid rgba(47,111,184,0.4)", borderRadius: 3, pointerEvents: "none",
+            }} />
+          )}
+
+          {/* Zona fuera del fragmento (oscurecida) */}
+          {start != null && startPct != null && startPct > 0 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${startPct}%`, background: "rgba(26,25,21,0.07)", borderRadius: "6px 0 0 6px", pointerEvents: "none" }} />
+          )}
+          {end != null && endPct != null && endPct < 100 && (
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${endPct}%`, right: 0, background: "rgba(26,25,21,0.07)", borderRadius: "0 6px 6px 0", pointerEvents: "none" }} />
+          )}
+
+          {/* Playhead */}
+          <div style={{
+            position: "absolute", top: -3, bottom: -3,
+            left: `${playheadPct}%`, width: 2, marginLeft: -1,
+            background: C.fnT, borderRadius: 1, pointerEvents: "none", zIndex: 4,
+          }}>
+            <div style={{ position: "absolute", top: 0, left: -3, width: 8, height: 8, borderRadius: "50%", background: C.fnT }} />
+          </div>
+
+          {/* Handle izquierdo */}
+          {start != null && startPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "start")} onTouchStart={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
+          {/* Handle derecho */}
+          {end != null && endPct != null && (
+            <div onMouseDown={(e) => beginDrag(e, "end")} onTouchStart={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
+              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Inputs numéricos (solo cuando hay fragmento) */}
+      {start != null && (
+        <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
+            <input type="number" min={0} max={end - 0.5} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={start}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start: Math.max(0, Math.min(v, end - 0.5)), end });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
+            <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              value={end}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onChange({ start, end: Math.max(start + 0.5, Math.min(v, totalDuration)) });
+              }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
+            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
+              {fmt(Math.max(0, end - start))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botón quitar fragmento */}
+      {start !== null && (
+        <button type="button" onClick={onClear}
+          style={{ ...S.btn, width: "100%", fontSize: 12, color: C.muted, padding: "6px 10px" }}>
+          Usar audio completo
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Canvas con forma de onda + cursor central + intervalos coloreados
 function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
@@ -1298,11 +2680,11 @@ function WaveformDisplay({
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const NUM_BARS = 90;
+    const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
 
@@ -1320,6 +2702,8 @@ function WaveformDisplay({
     window.addEventListener("resize", resize);
 
     let rafId;
+    const FRAME_MS = 1000 / 75;          // cap a 75 fps
+    let lastFrameTime = -FRAME_MS;       // garantiza que el primer frame siempre dibuja
     const ctx = canvas.getContext("2d");
     const drawPill = (x, y, w, h) => {
       if (typeof ctx.roundRect === "function") {
@@ -1332,7 +2716,9 @@ function WaveformDisplay({
       }
     };
 
-    const draw = () => {
+    const draw = (ts = 0) => {
+      if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
+      lastFrameTime = ts;
       const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
@@ -1384,7 +2770,7 @@ function WaveformDisplay({
 
       rafId = requestAnimationFrame(draw);
     };
-    rafId = requestAnimationFrame(draw);
+    draw();  // primer frame síncrono: evita el destello blanco al montar
 
     return () => { cancelAnimationFrame(rafId); if (ro) ro.disconnect(); window.removeEventListener("resize", resize); };
   }, []);
@@ -1544,7 +2930,7 @@ function IntervalStrip({
   );
 }
 
-function ExerciseView({ exercise, mode, onSubmit, onBack }) {
+function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const dur          = exercise.duration;
   const exCategories = categoriesOf(exercise);
   const initialCategoryId = useMemo(() => {
@@ -1567,14 +2953,19 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
   const [intervalsByCategory, setIntervalsByCategory] = useState({});
   const [pressing,     setPressing]     = useState(null);
   const [selected,     setSelected]     = useState(null);
-  const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
-  // Reproductor compartido
-  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
+  // Cuando hay reproductor compartido, se omite la carga propia de audio
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform });
+  } = sharedAudioPlayer || localPlayer;
 
   const intervals    = intervalsByCategory[currentCategoryId] || [];
   const setIntervals = (updater) => setIntervalsByCategory((prev) => {
@@ -1734,18 +3125,16 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
-      <div style={{ ...S.page, paddingTop: "1.25rem" }}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ ...S.btn, padding: "6px 12px", fontSize: 12 }}>← Volver</button>
-          <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1, fontFamily: FONT_SERIF }}>{exercise.title}</div>
-          <div style={{ width: 70 }} />
-        </div>
+      <ExercisePageHeader exercise={exercise} onBack={onBack} />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
 
-        {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
+        {modelToggleNode}
+
+        {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
-          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}` }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn}
@@ -1790,17 +3179,15 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>−5s</CircleButton>
-              <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-                primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(dur, time + 5))}>+5s</CircleButton>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
         </section>
@@ -1830,7 +3217,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack }) {
             Mantén pulsado el botón (o tecla) mientras suena · Espacio = Play/Pausa
           </div>
           <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar como respuesta correcta" : "Corregir ejercicio"}
+            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
           </PillSubmitButton>
         </div>
       </div>
@@ -2141,15 +3528,21 @@ function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
 
 // ═══ 9b. SCHEMA EXERCISE VIEW (modelo Esquema) ══════════════════════════════
 
-function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
+function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const duration = exercise.duration;
-  const [waveformData, setWaveformData] = useState(exercise.waveformData || null);
-  const onWaveform = exercise.waveformData ? null : wd => setWaveformData(wd);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
+
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? wd => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd,
     timeRef: audioTimeRef, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform });
+  } = sharedAudioPlayer || localPlayer;
 
   const timeRef = useRef(0);
   timeRef.current = time;
@@ -2157,6 +3550,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   const [blocks,       setBlocks]       = useState(exercise.blocks || []);
   const [history,      setHistory]      = useState([]);
   const [selected,     setSelected]     = useState(null);
+  const [selectedRepId, setSelectedRepId] = useState(null); // rep seleccionada en la banda
   const [editId,       setEditId]       = useState(null);
   const [editVal,      setEditVal]      = useState("");
   const [guides,       setGuides]       = useState([]);
@@ -2460,16 +3854,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     window.addEventListener("touchend",  up);
   };
 
-  // Añadir repetición programáticamente tras la última existente
+  // Añadir repetición programáticamente: usa el siguiente bloque de nivel 1 si existe,
+  // o un tamaño por defecto si no hay ninguna parte delimitada todavía.
   const handleAddNextRep = e => {
     e.stopPropagation();
     const sorted  = [...localRepsRef.current].sort((a, b) => a.second.end - b.second.end);
     const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
-    const avail   = duration - lastEnd;
-    if (avail < SCHEMA_MIN_DUR * 2) return;
-    const d  = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
-    const fs = lastEnd, fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
-    const se = Math.min(duration, fe + d);
+    // Intentar anclar a la siguiente Parte disponible
+    const nextParte = blocksRef.current
+      .filter(b => b.level === 1 && !b.isPreview && b.start >= lastEnd - 0.5)
+      .sort((a, b) => a.start - b.start)[0];
+    let fs, fe;
+    if (nextParte) {
+      fs = nextParte.start; fe = nextParte.end;
+    } else {
+      // Sin partes: tamaño por defecto
+      const avail = duration - lastEnd;
+      if (avail < SCHEMA_MIN_DUR * 2) return;
+      const d = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
+      fs = lastEnd; fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
+    }
+    const se = Math.min(duration, fe + (fe - fs));
     handleSaveRepetitions([
       ...localRepsRef.current,
       { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
@@ -2597,6 +4002,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [!!repDraw]);
+
+  // Delete / Backspace — borrar bloque o repetición seleccionada
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (selected) {
+        setHistory(prev => [...prev, blocksRef.current]);
+        setBlocks(prev => prev.filter(b => b.id !== selected));
+        setSelected(null);
+        e.preventDefault();
+      } else if (selectedRepId) {
+        deleteRepeat(selectedRepId);
+        setSelectedRepId(null);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, selectedRepId]);
 
   // ── Resize de barras de repetición arrastrando en la regla ─────────────
   const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
@@ -2737,6 +4163,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   // se pueda mover de forma continua a través de todos los segmentos sin pararse
   // en los bordes de cada uno.
   const handleSegRulerDown = (e, seg, pass) => {
+    if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (listenOnly) return;
     e.preventDefault();
     const containerEl = rulerContainerRef.current; if (!containerEl) return;
@@ -2744,8 +4171,24 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       const r = containerEl.getBoundingClientRect();
       return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
     };
-    seekTo(containerXToRecForPass(getFrac(e), pass));
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seekTo(containerXToRecForPass(getFrac(ev), pass)); };
+    // Al entrar en la zona de repetición (vista resumida), determinar la fila
+    // por la posición vertical del puntero, no por el pass inicial.
+    const resolvePass = (xFrac, ev) => {
+      for (const sg of segmentsRef.current) {
+        if (sg.type === "repeat" && xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
+          const r = containerEl.getBoundingClientRect();
+          const y = ev.touches?.[0]?.clientY ?? ev.changedTouches?.[0]?.clientY ?? ev.clientY;
+          return (y - r.top) > r.height / 2 ? "second" : "first";
+        }
+      }
+      return pass;
+    };
+    seekTo(containerXToRecForPass(getFrac(e), resolvePass(getFrac(e), e)));
+    const mv = ev => {
+      if (ev.cancelable) ev.preventDefault();
+      const f = getFrac(ev);
+      seekTo(containerXToRecForPass(f, resolvePass(f, ev)));
+    };
     const up = () => {
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
@@ -2813,6 +4256,18 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     };
 
     const onMove = e => {
+      // Si el usuario junta un segundo dedo (pinch) durante el drag, abortar
+      if (e.touches && e.touches.length > 1) {
+        const d = dragRef.current;
+        if (d) {
+          if (d.type === "create") {
+            setHistory(prev => prev.slice(0, -1));
+            setBlocks(prev => prev.filter(b => b.id !== d.pid));
+          }
+          setGuides([]); dragRef.current = null;
+        }
+        return;
+      }
       const d = dragRef.current; if (!d) return;
       const t   = pixToTime(e);
       const all = blocksRef.current;
@@ -2831,6 +4286,30 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         let best = v, bd = SCHEMA_SNAP_THR + 0.01;
         for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
         return best;
+      };
+      // Para resize y shared-edge: snap a puntos estructurales + otros niveles fijos (imantación vertical)
+      // Se excluyen: mismo nivel (evita cuadrícula) y bloques en cascada (se mueven junto al drag)
+      const snapBounds = v => {
+        const cascadedIds = new Set((d.cascadeIds ?? []).map(c => c.id));
+        const pts = [d.segMin, d.segMax,
+          ...repBounds.filter(p => p >= d.segMin - 0.1 && p <= d.segMax + 0.1),
+          ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
+          ...ctx.filter(b => b.level !== d.level && !cascadedIds.has(b.id))
+                .flatMap(b => [b.start, b.end]),
+          ph,
+        ];
+        let best = v, bd = SCHEMA_SNAP_THR + 0.01;
+        for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
+        return best;
+      };
+      // Cascada vertical: aplica los bloques pre-identificados al inicio del drag
+      const cascadeBoundary = (arr, newT) => {
+        if (!d.cascadeIds?.length) return arr;
+        return arr.map(b => {
+          const ci = d.cascadeIds.find(c => c.id === b.id);
+          if (!ci) return b;
+          return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
+        });
       };
       const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -2871,27 +4350,33 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
         const minNs  = leftNb ? leftNb.end : d.segMin;
-        const ns = cl(snap(t), minNs, d.oe - SCHEMA_MIN_DUR);
+        const ns = cl(snapBounds(t), minNs, d.oe - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, start: ns } : b),
+          ns));
         return;
       }
 
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
         const maxNe   = rightNb ? rightNb.start : d.segMax;
-        const ne = cl(snap(t), d.os + SCHEMA_MIN_DUR, maxNe);
+        const ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
         setGuides([ne]);
-        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, end: ne } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, end: ne } : b),
+          ne));
         return;
       }
 
       if (d.type === "shared-edge") {
-        const ns = cl(snap(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
+        const ns = cl(snapBounds(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
         setGuides([ns]);
-        setBlocks(prev => prev.map(b =>
-          b.id === d.leftId  ? { ...b, end:   ns } :
-          b.id === d.rightId ? { ...b, start: ns } : b));
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b =>
+            b.id === d.leftId  ? { ...b, end:   ns } :
+            b.id === d.rightId ? { ...b, start: ns } : b),
+          ns));
       }
     };
 
@@ -2980,6 +4465,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
   // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
   const handleTrackSegDown = (e, lvId, seg, pass) => {
+    if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (editId) commitEdit();
     if (e.target.closest("[data-block]")) return;
     const sk = `${lvId}_${seg.index}_${pass}`;
@@ -3039,10 +4525,26 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       const ln = ctx.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
       extra = { leftId: ln?.id, leftStart: ln?.start };
     }
+    const cascadeLvs = block.level === 1 ? [2, 3] : block.level === 2 ? [3] : [];
+    let cascadeIds = [];
+    if (cascadeLvs.length > 0 && (type === "resize-r" || type === "resize-l")) {
+      const boundaryT = type === "resize-r" ? block.end : block.start;
+      const EPS = 0.05;
+      cascadeIds = blocksRef.current
+        .filter(b => cascadeLvs.includes(b.level) && !b.isPreview &&
+          (b.repeatId ?? null) === (block.repeatId ?? null) &&
+          (b.pass    ?? null) === (block.pass    ?? null))
+        .flatMap(b => {
+          const hits = [];
+          if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
+          if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
+          return hits;
+        });
+    }
     dragRef.current = {
       type, level: block.level, bid: block.id, anchor: t, os: block.start, oe: block.end,
       segKey: sk, segMin: bounds.min, segMax: bounds.max,
-      repeatId: block.repeatId, pass: block.pass, ...extra,
+      repeatId: block.repeatId, pass: block.pass, cascadeIds, ...extra,
     };
     e.preventDefault();
   };
@@ -3065,6 +4567,22 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
     const r = el.getBoundingClientRect();
     const bounds = getSegBounds(seg, pass);
     const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
+    const cascadeLvs2 = leftBlock.level === 1 ? [2, 3] : leftBlock.level === 2 ? [3] : [];
+    let cascadeIds2 = [];
+    if (cascadeLvs2.length > 0) {
+      const boundaryT = leftBlock.end;
+      const EPS = 0.05;
+      cascadeIds2 = blocksRef.current
+        .filter(b => cascadeLvs2.includes(b.level) && !b.isPreview &&
+          (b.repeatId ?? null) === (leftBlock.repeatId ?? null) &&
+          (b.pass    ?? null) === (leftBlock.pass    ?? null))
+        .flatMap(b => {
+          const hits = [];
+          if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
+          if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
+          return hits;
+        });
+    }
     dragRef.current = {
       type: "shared-edge", level: leftBlock.level,
       leftId: leftBlock.id, rightId: rightBlock.id,
@@ -3072,6 +4590,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       anchor: t, os: leftBlock.end,
       segKey: sk, segMin: bounds.min, segMax: bounds.max,
       repeatId: leftBlock.repeatId, pass: leftBlock.pass,
+      cascadeIds: cascadeIds2,
     };
     e.preventDefault();
   };
@@ -3103,7 +4622,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
     const segBlocks = blocks.filter(b => {
       if (b.level !== lvId) return false;
-      if (seg.type === "normal") return !b.repeatId && b.start >= bounds.min - 0.01 && b.start < bounds.max + 0.01;
+      if (seg.type === "normal") return !b.repeatId && b.end > bounds.min - 0.01 && b.start < bounds.max + 0.01;
       if (seg.type === "repeat-first")  return b.repeatId === seg.rep.id && b.pass === "first";
       if (seg.type === "repeat-second") return b.repeatId === seg.rep.id && b.pass === "second";
       return b.repeatId === seg.rep.id && b.pass === pass;
@@ -3128,14 +4647,27 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         phPct = ((time - seg.rep.second.start) / (seg.rep.second.end - seg.rep.second.start)) * 100;
     }
 
-    const hStyle = { position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
+    const _blockH    = lvId >= 3 ? 32 : 50;
+    const _hndH      = Math.round(_blockH * 2 / 3);
+    const _hndTop    = 6 + Math.round((_blockH - _hndH) / 2);
+    const hStyle = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
     const vis    = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
 
     return (<>
-      {/* Cuadrícula de fondo */}
-      {Array.from({ length: 13 }, (_, i) => i / 12).map((f, i) => (
-        <div key={i} style={{ position: "absolute", top: 0, left: `${f * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
-      ))}
+      {/* Cuadrícula de fondo — paso fijo global para que la densidad
+          sea la misma en todos los segmentos independientemente de su duración */}
+      {(() => {
+        const GRID_STEPS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300];
+        const gridTarget = duration / 10; // ~10 divisiones en toda la pieza
+        const step = GRID_STEPS.find(s => s >= gridTarget) ?? GRID_STEPS[GRID_STEPS.length - 1];
+        const lines = [];
+        const t0 = Math.ceil(bounds.min / step) * step;
+        for (let t = t0; t < bounds.max - step * 0.05; t += step)
+          lines.push((t - bounds.min) / segDur);
+        return lines.map((f, i) => (
+          <div key={i} style={{ position: "absolute", top: 0, left: `${f * 100}%`, width: 1, height: "100%", background: "rgba(0,0,0,0.04)", pointerEvents: "none" }} />
+        ));
+      })()}
       {/* Marcas listen-only */}
       {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, i) => (
         <div key={i} style={{ position: "absolute", top: 0, left: `${((mt - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(184,74,58,0.28)", pointerEvents: "none", zIndex: 7 }} />
@@ -3169,7 +4701,92 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           ? { bg: lv.color, textColor: "#FFFFFF" }
           : block.customColor ? harmonyBlockColors(null, block.customColor)
           : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
+          : lv.id === 1 ? harmonyBlockColors(null, partBlockColor(block.label))
+          : lv.id === 2 ? (() => {
+              const partB = blocks.find(b => b.level === 1 && !b.isPreview &&
+                b.start <= block.start + 0.01 && b.end > block.start + 0.01 &&
+                (block.repeatId ? b.repeatId === block.repeatId && b.pass === block.pass : !b.repeatId));
+              return harmonyBlockColors(null, lightenColor(partB ? partBlockColor(partB.label) : lv.color, 18, -8));
+            })()
           : { bg: lv.color, textColor: "#FFFFFF" };
+
+        // ── Nivel 3 (Armonía): píldora de color + línea horizontal ─────────
+        if (lvId === 3) {
+          const pillBg = block.isPreview ? `${bBg}60` : bBg;
+          return (
+            <div key={block.id} data-block="true" style={{
+              position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+              background: "transparent",
+              borderRadius: 999,
+              boxShadow: "none",
+              display: "flex", alignItems: "center",
+              overflow: "hidden",
+              cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+              zIndex: isSel ? 7 : isActive ? 4 : 3,
+              boxSizing: "border-box",
+            }}
+              onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              {/* Píldora izquierda */}
+              {editId === block.id ? (
+                <div style={{ alignSelf: "center", background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", padding: "5px 8px", flexShrink: 0 }}>
+                  <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: 60, background: "transparent", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.8)", color: bTx, fontSize: 11, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 2px", fontFamily: FONT_SANS, borderRadius: 2 }} />
+                </div>
+              ) : (
+                <div style={{ alignSelf: "center", background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "5px 11px", flexShrink: 0, boxSizing: "border-box" }}>
+                  {wPct >= 2 && (
+                    <span style={{ fontSize: wPct < 5 ? 9 : 11, fontWeight: 700, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>
+                      {block.label}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Línea horizontal hasta el borde derecho */}
+              {wPct >= 3 && (
+                <div style={{ flex: 1, minWidth: 0, height: 2.5, background: pillBg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5, flexShrink: 1 }} />
+              )}
+            </div>
+          );
+        }
+
+        // ── Nivel 4 (Texto): píldora de ancho completo, sin línea ───────────
+        if (lvId === 4) {
+          const pillBg = block.isPreview ? `${bBg}60` : bBg;
+          return (
+            <div key={block.id} data-block="true" style={{
+              position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+              display: "flex", alignItems: "stretch",
+              overflow: "hidden",
+              cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+              zIndex: isSel ? 7 : isActive ? 4 : 3,
+              boxSizing: "border-box",
+            }}
+              onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              {editId === block.id ? (
+                <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 11px", overflow: "hidden" }}>
+                  <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: "82%", background: "transparent", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.8)", color: bTx, fontSize: 11, fontWeight: 500, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SANS, borderRadius: 2 }} />
+                </div>
+              ) : (
+                <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "5px 11px", overflow: "hidden" }}>
+                  <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 11, fontWeight: 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
+                    {block.label}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // ── Resto de niveles: rectángulo relleno (estilo original) ──────────
         return (
           <div key={block.id} data-block="true" style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
@@ -3187,9 +4804,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                 onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
                 onClick={e => e.stopPropagation()}
-                style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SERIF, borderRadius: 2 }} />
+                style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: lvId === 1 ? 700 : 500, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SANS, borderRadius: 2 }} />
             ) : (
-              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: 700, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SERIF, pointerEvents: "none" }}>
+              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: lvId === 1 ? 700 : 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
                 {block.label}
               </span>
             )}
@@ -3226,7 +4843,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
         const pct = ((left.end - bounds.min) / segDur) * 100;
         return (
           <div key={`sh-${left.id}-${right.id}`} data-block="true"
-            style={{ position: "absolute", top: SCHEMA_HND_TOP, width: SCHEMA_HND_W, height: SCHEMA_HND_H, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
             onMouseDown={e => handleSharedHandleDown(e, left, right)}
             onTouchStart={e => handleSharedHandleDown(e, left, right)}>
             <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
@@ -3285,21 +4902,17 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
   return (
     <div style={S.app}>
       {/* Cabecera */}
-      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-        <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }}>{"<-"} Volver</button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FONT_SERIF, fontSize: 18, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exercise.title}</div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-            Esquema formal{hasRepeats ? ` · ${localReps.length} repetición${localReps.length !== 1 ? "es" : ""}` : ""}
+      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
+        <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
+            <span>Volver</span>
+          </button>
+          <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{exercise.title}</div>
           </div>
         </div>
-        <span style={{ ...S.badge, background: `${C.fnD}1C`, color: C.fnD, border: `1px solid ${C.fnD}45`, padding: "4px 12px", fontSize: 11, fontWeight: 700, letterSpacing: 0.9, flexShrink: 0 }}>ESQUEMA</span>
-        {hasRepeats && (
-          <button onClick={() => setShowRepModal(true)}
-            style={{ ...S.btn, fontSize: 11, padding: "5px 10px", color: C.muted, flexShrink: 0 }}>
-            Ajustar tiempos
-          </button>
-        )}
       </div>
 
       {showRepModal && (
@@ -3311,12 +4924,14 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
       )}
 
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
-        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}
-        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) setSelected(null); }}>
+        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
+        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
+
+        {modelToggleNode}
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
-          {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio...</div>}
+          {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={audioTimeRef} duration={duration} waveformDuration={audioDuration} allIntervals={[]} exerciseId={exercise.id}
@@ -3327,58 +4942,56 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           </div>
           {listenOnly ? (
             <div style={{ paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                <CircleButton onClick={togglePlay} primary size={52} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausa" : "Reproducir"}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <CircleButton onClick={() => { seekTo(0); setPlayCount(p => p + 1); }} title="Volver al inicio">⏮</CircleButton>
+                </div>
+                <CircleButton onClick={togglePlay} primary size={48} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausa" : "Reproducir"}>
                   {playing ? "❚❚" : "▶"}
                 </CircleButton>
-                <button onClick={() => { seekTo(0); setPlayCount(p => p + 1); if (!playing) togglePlay(); }}
-                  disabled={hasAudio && !audioReady && !audioError}
-                  style={{ ...S.btn, padding: "9px 18px", fontSize: 13, fontWeight: 600, opacity: (hasAudio && !audioReady && !audioError) ? 0.4 : 1 }}>
-                  Empezar de nuevo
-                </button>
+                <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                  {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
+                </div>
               </div>
-              <div style={{ textAlign: "center", marginTop: 10, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
-                <span style={{ fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                  {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
-                </span>
-                {playCount > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
-              </div>
+              {playCount > 0 && <div style={{ textAlign: "center", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-              {/* Switch completa / resumida — estilo interruptor de categorías */}
-              {hasRepeats ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                  <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
-                  <div role="tablist"
-                    style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
-                    {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
-                      <button key={v} type="button" role="tab" aria-selected={viewMode === v}
-                        onClick={() => setViewMode(v)}
-                        title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
-                        style={{
-                          flex: "1 1 0", border: "none", borderRadius: 999,
-                          background: viewMode === v ? C.ink : "transparent",
-                          color: viewMode === v ? C.paper : C.muted,
-                          padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
-                          cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
-                          whiteSpace: "nowrap",
-                        }}>
-                        {label}
-                      </button>
-                    ))}
+              {/* Columna izq: switch (si hay repeticiones) + ⏮ a la derecha */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                {hasRepeats ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                    <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div role="tablist"
+                        style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
+                        {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
+                          <button key={v} type="button" role="tab" aria-selected={viewMode === v}
+                            onClick={() => setViewMode(v)}
+                            title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
+                            style={{
+                              flex: "1 1 0", border: "none", borderRadius: 999,
+                              background: viewMode === v ? C.ink : "transparent",
+                              color: viewMode === v ? C.paper : C.muted,
+                              padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
+                              cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
+                              whiteSpace: "nowrap",
+                            }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : <div />}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <CircleButton onClick={() => seekTo(Math.max(0, time - 5))}>-5s</CircleButton>
-                <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
-                  {playing ? "❚❚" : "▶"}
-                </CircleButton>
-                <CircleButton onClick={() => seekTo(Math.min(duration, time + 5))}>+5s</CircleButton>
+                ) : <div />}
+                <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
               </div>
-              <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(duration)}</span>
+              {/* Columna central: ▶ centrado */}
+              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+                {playing ? "❚❚" : "▶"}
+              </CircleButton>
+              <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+                {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
               </div>
             </div>
           )}
@@ -3403,10 +5016,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           {/* ── BANDA DE REPETICIÓN — dentro del wrapper de zoom para que
                las marcas estén siempre alineadas con la regla y las pistas ── */}
           {viewMode === "completa" && (
-            <div style={{ borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
+            <div style={{ borderTop: `1px solid rgba(47,111,184,0.18)`, borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
               <div
                 ref={bandRef}
-                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: C.paper2 }}
+                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: "rgba(47,111,184,0.055)" }}
                 onMouseDown={handleBandCreateDown}
                 onTouchStart={handleBandCreateDown}>
 
@@ -3419,13 +5032,19 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   const sW  = sE - fE;
                   return (
                     <React.Fragment key={rep.id}>
-                      {/* Zona "original" */}
-                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: `${C.fnS}28`, borderRadius: 4, border: `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>original</span>
+                      {/* Zona "original" — clicable para seleccionar la repetición */}
+                      <div
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: selectedRepId === rep.id ? `${C.fnS}45` : `${C.fnS}28`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnS}` : `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>original</span>
                       </div>
-                      {/* Zona "repetición" */}
-                      <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: `${C.fnT}22`, borderRadius: 4, border: `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>repetición</span>
+                      {/* Zona "repetición" — clicable para seleccionar la repetición */}
+                      <div
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: selectedRepId === rep.id ? `${C.fnT}38` : `${C.fnT}22`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnT}` : `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>repetición</span>
                       </div>
                       {/* Asa: inicio del original */}
                       <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
@@ -3467,21 +5086,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   ) : null;
                 })()}
 
-                {/* Botón añadir repetición siguiente */}
-                {localReps.length > 0 && (
-                  <button data-band-handle="true"
-                    onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-                    onClick={handleAddNextRep}
-                    title="Añadir otra repetición a continuación"
-                    style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.88)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 7px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1.6, fontWeight: 700 }}>
-                    +
-                  </button>
-                )}
-
                 {/* Hint cuando no hay repetición */}
                 {localReps.length === 0 && !bandDrag && (
                   <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para marcar el original →</span>
+                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para crear una repetición</span>
                   </div>
                 )}
               </div>
@@ -3501,27 +5109,31 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
             {!listenOnly && (() => {
               // Determinar posición horizontal y vertical de la bola
               let xPct = recToVisX(time) * 100;
-              let yPct = 50; // centro por defecto (sección de altura uniforme)
+              // En resumida: bola en fila superior (y=25%) durante la 1ª vez,
+              // y en fila inferior (y=75%) durante la 2ª vez y en secciones normales.
+              // La x se calcula dentro del rango insetado por REPEAT_BARLINE_W en
+              // ambos extremos, igual que la línea vertical del esquema.
+              let yPct = viewMode === "resumida" && hasRepeats ? 75 : 50;
               for (const sg of segments) {
-                if (sg.type === "repeat") {
-                  const fp = sg.rep.first, sp = sg.rep.second;
-                  const fd = (fp.end - fp.start) || 1;
-                  const sd = (sp.end - sp.start) || 1;
-                  if (time >= fp.start && time < fp.end) {
-                    xPct = (sg.vStart + (time - fp.start) / fd * (sg.vEnd - sg.vStart)) * 100;
-                    yPct = 25; // fila superior (1ª vez)
-                  } else if (time >= sp.start && time < sp.end) {
-                    xPct = (sg.vStart + (time - sp.start) / sd * (sg.vEnd - sg.vStart)) * 100;
-                    yPct = 75; // fila inferior (2ª vez)
-                  }
-                  break;
+                if (sg.type !== "repeat") continue;
+                const fp = sg.rep.first, sp = sg.rep.second;
+                if (time < fp.start || time >= sp.end) continue; // este segmento no contiene el tiempo actual
+                const fd = (fp.end - fp.start) || 1;
+                const sd = (sp.end - sp.start) || 1;
+                const barFrac = rulerW > 0 ? REPEAT_BARLINE_W / rulerW : 0;
+                const segVW   = sg.vEnd - sg.vStart;
+                const innerVW = segVW - 2 * barFrac;
+                if (time >= fp.start && time < fp.end) {
+                  xPct = (sg.vStart + barFrac + (time - fp.start) / fd * innerVW) * 100;
+                  yPct = 25; // centro de la fila 1ª (14 px de 57 px = 24.6 %)
+                } else if (time >= sp.start && time < sp.end) {
+                  xPct = (sg.vStart + barFrac + (time - sp.start) / sd * innerVW) * 100;
+                  yPct = 75; // centro de la fila 2ª
                 }
+                break; // segmento encontrado
               }
               return (
-                <>
-                  <div style={{ position: "absolute", top: 0, bottom: 0, left: `${xPct}%`, width: 1.5, background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 30 }} />
-                  <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
-                </>
+                <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
               );
             })()}
 
@@ -3541,17 +5153,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 return (
                   <div key={si}
                     ref={el => trackSegRefs.current[`ruler_${si}_normal`] = el}
-                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
+                    style={{ flex: seg.canonDur, position: "relative", height: viewMode === "resumida" && hasRepeats ? 57 : 28, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? { onMouseDown: e => handleSegRulerDown(e, seg, "normal"), onTouchStart: e => handleSegRulerDown(e, seg, "normal") } : {})}>
-                    {/* Relleno de progreso */}
-                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
-                    {/* Marcas de tiempo */}
-                    {ticks.map(({ t, frac }, i) => (
-                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
-                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
-                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                      </div>
-                    ))}
+                    {/* Pista horizontal — en resumida alineada con el centro de la 2ª vez */}
+                    <div style={{ position: "absolute", top: viewMode === "resumida" && hasRepeats ? "75%" : "50%", left: 0, right: 0, height: 2.5, background: `${C.muted}55`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3 }} />
                     {/* Marcas listen-only */}
                     {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, mi) => {
                       const pct = ((mt - bounds.min) / segDur) * 100;
@@ -3566,10 +5171,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                         </div>
                       );
                     })}
-                    {/* Cursor de reproducción — solo línea de fondo; la bola se pinta en el overlay global */}
-                    {phPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                     {/* Ayuda listen-only (en el último segmento normal) */}
                     {listenOnly && si === segments.length - 1 && (
                       <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 6, pointerEvents: "none", zIndex: 12 }}>
@@ -3591,26 +5192,17 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 const isActive = time >= bounds.min && time < bounds.max;
                 const phPct   = isActive ? ((time - bounds.min) / segDur) * 100 : null;
                 // Tinte muy sutil para info visual: azul claro en 1ª vez, verde claro en 2ª vez
-                const zoneBg  = isFirst ? C.paper2 : `${C.fnT}0A`;
+                const zoneBg  = C.paper2;
                 return (
                   <div key={si}
                     ref={el => trackSegRefs.current[`ruler_${si}_${pass}`] = el}
-                    style={{ flex: seg.canonDur, position: "relative", height: 36, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flex: seg.canonDur, position: "relative", height: 28, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? {
                       onMouseDown:  e => handleSegRulerDown(e, seg, pass),
                       onTouchStart: e => handleSegRulerDown(e, seg, pass),
                     } : {})}>
-                    {phPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${phPct}%`, background: `${C.ink}0A`, pointerEvents: "none" }} />}
-                    {ticks.map(({ t, frac }, i) => (
-                      <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 5px", pointerEvents: "none", gap: 3 }}>
-                        <div style={{ width: 1, height: 7, background: C.muted2 }} />
-                        <span style={{ fontSize: 10, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                      </div>
-                    ))}
-                    {/* Línea de fondo (bola en overlay global) */}
-                    {phPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
+                    {/* Pista horizontal continua */}
+                    <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2.5, background: isActive ? `${isFirst ? C.fnS : C.fnT}55` : `${C.muted}40`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3, transition: "background .15s" }} />
                   </div>
                 );
               }
@@ -3629,7 +5221,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               const repLabel = rep.label ? ` — ${rep.label}` : "";
 
               return (
-                <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column", minHeight: 72 }}>
+                <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column" }}>
                   {/* Sin barras SVG aquí: el overlay del card exterior las pinta de forma continua */}
 
                   {/* Overlay de navegación continua (resumida): cubre ambas filas,
@@ -3640,83 +5232,103 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                       onTouchStart={e => handleDoubleRowRulerDown(e, seg, e.currentTarget.parentElement)} />
                   )}
 
-                  {/* Fila 1ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  {/* ── Fila 1ª vez ── */}
                   <div ref={el => trackSegRefs.current[`ruler_${si}_first`] = el}
-                    style={{ flexShrink: 0, height: 36, position: "relative", background: isFA ? `${C.fnS}1A` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flexShrink: 0, height: 28, position: "relative", background: isFA ? `${C.fnS}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
                     onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_first`])) : undefined}
                     onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_first`]; if (el) el.style.cursor = ""; }) : undefined}>
-                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnS, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
-                      1ª vez{repLabel}
+                    {/* Franja + etiqueta + línea en flex */}
+                    <div style={{ display: "flex", alignItems: "center", position: "absolute", inset: 0, pointerEvents: "none", zIndex: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, fontFamily: FONT_SANS, color: isFA ? C.fnS : `${C.fnS}80`, paddingLeft: 8, paddingRight: 3, flexShrink: 0, letterSpacing: -0.3, lineHeight: 1, transition: "color .15s" }}>1ª</span>
+                      <div style={{ flex: 1, height: 2.5, marginRight: 18, background: isFA ? `${C.fnS}55` : `${C.muted}40`, transition: "background .15s" }} />
                     </div>
-                    {fPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${fPct}%`, background: `${C.fnS}12`, pointerEvents: "none" }} />}
+                    {/* Barra de repetición de cierre — alineada con la de las pistas */}
                     {(() => {
-                      const segW = rulerW * (seg.vEnd - seg.vStart);
-                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
-                      return fTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
-                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
-                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
-                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
+                      const THICK = 3.5, THIN = 1.3, GAP = 2.5, DOT_R = 1.3;
+                      const col = isFA ? C.fnS : `${C.fnS}88`;
+                      return (
+                        <div style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: REPEAT_BARLINE_W, pointerEvents: "none", zIndex: 6 }}>
+                          {/* Dots */}
+                          <div style={{ position: "absolute", top: "33%", left: 1.5, width: DOT_R * 2, height: DOT_R * 2, borderRadius: "50%", background: col, transform: "translateY(-50%)", transition: "background .15s" }} />
+                          <div style={{ position: "absolute", top: "67%", left: 1.5, width: DOT_R * 2, height: DOT_R * 2, borderRadius: "50%", background: col, transform: "translateY(-50%)", transition: "background .15s" }} />
+                          {/* Barra fina */}
+                          <div style={{ position: "absolute", top: 0, bottom: 0, right: THICK + GAP + 0.5, width: THIN, background: col, opacity: 0.55, transition: "background .15s" }} />
+                          {/* Barra gruesa */}
+                          <div style={{ position: "absolute", top: 0, bottom: 0, right: 0.5, width: THICK, background: col, opacity: 0.9, transition: "background .15s" }} />
                         </div>
-                      ));
+                      );
                     })()}
-                    {/* Línea de fondo — bola gestionada por overlay global */}
-                    {fPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${fPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                   </div>
 
-                  {/* Separador entre filas: no cruza las barras de repetición */}
-                  <div style={{ position: "absolute", left: REPEAT_BARLINE_W + 1, right: REPEAT_BARLINE_W + 1, top: 36, height: 1, background: `${C.muted2}55`, borderTop: `1px dashed ${C.muted2}55`, pointerEvents: "none", zIndex: 5 }} />
+                  {/* ── Separador entre filas ─────────────────────────────────── */}
+                  <div style={{ flexShrink: 0, height: 1, background: C.line, marginLeft: 8, pointerEvents: "none", zIndex: 6 }} />
 
-                  {/* Fila 2ª vez — altura fija para que no colapse cuando es el único segmento */}
+                  {/* ── Fila 2ª vez ── */}
                   <div ref={el => trackSegRefs.current[`ruler_${si}_second`] = el}
-                    style={{ flexShrink: 0, height: 36, position: "relative", background: isSA ? `${C.fnT}1A` : `${C.paper2}`, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
+                    style={{ flexShrink: 0, height: 28, position: "relative", background: isSA ? `${C.fnT}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
                     onMouseMove={!listenOnly && viewMode !== "resumida" ? (e => handleRepRowMouseMove(e, trackSegRefs.current[`ruler_${si}_second`])) : undefined}
                     onMouseLeave={!listenOnly && viewMode !== "resumida" ? (() => { const el = trackSegRefs.current[`ruler_${si}_second`]; if (el) el.style.cursor = ""; }) : undefined}>
-                    <div style={{ position: "absolute", top: 3, left: REPEAT_BARLINE_W + 4, fontSize: 8, fontWeight: 700, color: C.fnT, letterSpacing: 0.5, pointerEvents: "none", opacity: 0.85 }}>
-                      2ª vez{repLabel}
+                    {/* Franja + etiqueta + línea en flex */}
+                    <div style={{ display: "flex", alignItems: "center", position: "absolute", inset: 0, pointerEvents: "none", zIndex: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, fontFamily: FONT_SANS, color: isSA ? C.fnT : `${C.fnT}80`, paddingLeft: 8, paddingRight: 3, flexShrink: 0, letterSpacing: -0.3, lineHeight: 1, transition: "color .15s" }}>2ª</span>
+                      <div style={{ flex: 1, height: 2.5, background: isSA ? `${C.fnT}55` : `${C.muted}40`, transition: "background .15s" }} />
                     </div>
-                    {sPct !== null && <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${sPct}%`, background: `${C.fnT}12`, pointerEvents: "none" }} />}
-                    {(() => {
-                      const segW = rulerW * (seg.vEnd - seg.vStart);
-                      const minFrac = segW > 0 ? (REPEAT_BARLINE_W + 6) / segW : 0.08;
-                      return sTicks.filter(({ frac }) => frac > minFrac && frac < 1 - minFrac).map(({ t, frac }, i) => (
-                        <div key={i} style={{ position: "absolute", top: 0, height: "100%", left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none" }}>
-                          <div style={{ width: 1, height: 6, background: C.muted2 }} />
-                          <span style={{ fontSize: 9, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: FONT_MONO, whiteSpace: "nowrap" }}>{fmt(t)}</span>
-                        </div>
-                      ));
-                    })()}
-                    {/* Línea de fondo — bola gestionada por overlay global */}
-                    {sPct !== null && (
-                      <div style={{ position: "absolute", top: 0, left: `${sPct}%`, width: 1.5, height: "100%", background: C.danger, transform: "translateX(-50%)", pointerEvents: "none", zIndex: 10 }} />
-                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* ── PISTAS POR NIVEL con barras de repetición únicas y continuas ── */}
+          {/* ── Separador visual entre regla de navegación y pistas del esquema ── */}
+          <div style={{ height: 6, background: C.bg, flexShrink: 0 }} />
+
+          {/* ── Fila de timestamps — solo en vista completa ── */}
+          {viewMode !== "resumida" && (
+            <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, background: C.paper, height: 18, flexShrink: 0, overflow: "hidden", userSelect: "none", pointerEvents: "none" }}>
+              {segments.map((seg, si) => {
+                const pass = seg.type === "repeat-second" ? "second" : "normal";
+                const bounds = seg.type === "repeat-first" ? { min: seg.rep.first.start, max: seg.rep.first.end }
+                             : seg.type === "repeat-second" ? { min: seg.rep.second.start, max: seg.rep.second.end }
+                             : { min: 0, max: duration };
+                const segDur = (bounds.max - bounds.min) || 1;
+                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
+                const ticks = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
+                return (
+                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: "100%", borderRight: si < segments.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    {ticks.map(({ t, frac }) => (
+                      <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_MONO, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1 }}>{fmt(t)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── PISTAS POR NIVEL con barras de repetición por nivel ── */}
           <div style={{ position: "relative" }}>
           {activeLevels.map((lv, li) => (
-            <div key={lv.id} style={{ display: "flex", position: "relative", borderLeft: `3px solid ${lv.color}`, borderBottom: li < activeLevels.length - 1 ? `1px solid ${C.line}` : "none" }}>
+            <div key={lv.id} style={{ display: "flex", position: "relative", borderBottom: li < activeLevels.length - 1 ? `2px solid ${C.line}` : "none" }}>
+              {/* Franja de color del nivel — posición absoluta para no afectar al layout flex */}
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 3, background: lv.color, zIndex: 2, pointerEvents: "none" }} />
               {segments.map((seg, si) => {
                 if (seg.type === "normal") {
                   return (
                     <div key={si}
                       ref={el => trackSegRefs.current[`${lv.id}_${si}_normal`] = el}
-                      style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
+                      style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
                       onMouseDown={e => handleTrackSegDown(e, lv.id, seg, "normal")}
                       onTouchStart={e => handleTrackSegDown(e, lv.id, seg, "normal")}>
                       {/* Etiqueta del nivel (solo en el primer segmento) */}
                       {si === 0 && (
-                        <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        <div style={{ position: "absolute", top: 4, left: 6, zIndex: 1, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                         </div>
                       )}
                       {renderSegBlocks(seg, "normal", lv.id)}
@@ -3734,15 +5346,15 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   // Fondo: 2ª vez levemente diferente para info visual (sin barras de repetición)
                   const zoneBg = isFirst ? lv.bg : `${lv.bg.replace(")", ", 0.6)").replace("rgba(", "rgba(").replace("0.08)", "0.12)").replace("0.10)", "0.15)").replace("0.09)", "0.13)")}`;
                   return (
-                    <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                    <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
                       <div
                         ref={el => trackSegRefs.current[`${lv.id}_${si}_${pass}`] = el}
                         style={{ position: "absolute", inset: 0 }}
                         onMouseDown={e => handleTrackSegDown(e, lv.id, seg, pass)}
                         onTouchStart={e => handleTrackSegDown(e, lv.id, seg, pass)}>
                         {si === 0 && (
-                          <div style={{ position: "absolute", top: 4, left: 6, zIndex: 5, pointerEvents: "none" }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                          <div style={{ position: "absolute", top: 4, left: 6, zIndex: 1, pointerEvents: "none" }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                           </div>
                         )}
                         {/* Indicador visual sutil de zona de repetición en 2ª vez */}
@@ -3762,24 +5374,25 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                 // Qué vez mostrar: la que suena, o la seleccionada manualmente
                 const displayPass = isFA ? "first" : isSA ? "second" : (selectedPass[rep.id] || "first");
                 const isActiveInThis = isFA || isSA;
+                // Barlines en todos los niveles del esquema
+                const barInset = REPEAT_BARLINE_W;
 
                 return (
-                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: 62, background: lv.bg, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
-                    {/* Zona de interacción — insetada REPEAT_BARLINE_W px para que
-                        los bloques nunca solapen con las barras de repetición del overlay */}
+                  <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
+                    {/* Zona de interacción — insetada barInset px para los niveles que llevan barras */}
                     <div
                       ref={el => {
                         trackSegRefs.current[`${lv.id}_${si}_first`]  = el;
                         trackSegRefs.current[`${lv.id}_${si}_second`] = el;
                       }}
-                      style={{ position: "absolute", top: 0, bottom: 0, left: REPEAT_BARLINE_W, right: REPEAT_BARLINE_W }}
+                      style={{ position: "absolute", top: 0, bottom: 0, left: barInset, right: barInset }}
                       {...(viewMode !== "resumida" ? {
                         onMouseDown:  e => handleTrackSegDown(e, lv.id, seg, displayPass),
                         onTouchStart: e => handleTrackSegDown(e, lv.id, seg, displayPass),
                       } : {})}>
                       {si === 0 && (
-                        <div style={{ position: "absolute", top: 4, left: 4, zIndex: 5, pointerEvents: "none" }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.8, fontFamily: FONT_SANS }}>{lv.sub}</span>
+                        <div style={{ position: "absolute", top: 4, left: 4, zIndex: 1, pointerEvents: "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: lv.color, letterSpacing: 0.3, opacity: 0.35, fontFamily: FONT_SANS }}>{lv.sub}</span>
                         </div>
                       )}
                       {renderSegBlocks(seg, displayPass, lv.id)}
@@ -3789,37 +5402,37 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               })}
             </div>
           ))}
-          </div>
 
-          {/* ── Barras de repetición continuas (solo vista resumida) ─────────
-               position:absolute top:0/bottom:0 relativo al contenedor de escala
-               (que tiene position:relative), por lo que abarcan REGLA + NIVELES.  ── */}
+          {/* ── Barras de repetición — solo niveles 1 y 2, condicionadas por tamaño ──
+               position:absolute relativo al contenedor PISTAS (position:relative).
+               Si la sección repetida coincide con un bloque de nivel 1 (Parte),
+               la barra abarca niveles 1+2. Si solo coincide con frases, solo nivel 2. ── */}
           {viewMode === "resumida" && (() => {
-            const zones = segments
-              .filter(s => s.type === "repeat")
-              .map(s => ({ startV: s.vStart, endV: s.vEnd }));
-            // Geometría:
-            //  Barra simple inicio:  [THICK outer][GAP][THIN inner][SPACE][·dots·]
-            //  Barra simple fin:     [·dots·][SPACE][THIN inner][GAP][THICK outer]
-            //  Barra acoplada:       [·dots·][SPACE][THIN][GAP][THICK][GAP][THIN][SPACE][·dots·]
-            const THICK=4, THIN=1.5, GAP=2, SPACE=3, DOT_R=2.3, DOT_GAP=8;
+            const THICK=3, THIN=1, GAP=2, SPACE=3, DOT_R=2.3, DOT_GAP=8;
             const DW = DOT_R*2;
             const BW_S = THICK + GAP + THIN + SPACE + DW + 1;
             const BW_C = DW + SPACE + THIN + GAP + THICK + GAP + THIN + SPACE + DW;
-            // Mapa posición→{isStart,isEnd} para detectar barras acopladas
-            const ev = new Map();
-            const kv = v => v.toFixed(5);
-            zones.forEach(({ startV, endV }) => {
-              const ks=kv(startV); if(!ev.has(ks)) ev.set(ks,{v:startV,isStart:false,isEnd:false}); ev.get(ks).isStart=true;
-              const ke=kv(endV);   if(!ev.has(ke)) ev.set(ke,{v:endV,  isStart:false,isEnd:false}); ev.get(ke).isEnd=true;
-            });
             const dt1=`calc(50% - ${DOT_GAP+DOT_R}px)`, dt2=`calc(50% + ${DOT_GAP-DOT_R}px)`;
             const D=(extra)=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
-            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.65)",...extra});
-            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.40)",...extra});
+            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.72)",...extra});
+            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.28)",...extra});
+            const LH = 62; // altura de cada nivel
+
+            // Todas las repeticiones cubren todos los niveles activos.
+            // top=0, bottom=0 → span completo del contenedor PISTAS.
+            const ev = new Map();
+            const kv = v => v.toFixed(5);
+            segments.filter(s => s.type === "repeat").forEach(seg => {
+              const ks = kv(seg.vStart);
+              if (!ev.has(ks)) ev.set(ks, { v: seg.vStart, isStart: false, isEnd: false });
+              ev.get(ks).isStart = true;
+              const ke = kv(seg.vEnd);
+              if (!ev.has(ke)) ev.set(ke, { v: seg.vEnd, isStart: false, isEnd: false });
+              ev.get(ke).isEnd = true;
+            });
+
             return [...ev.values()].map(({ v, isStart, isEnd }, bi) => {
               if (isStart && isEnd) {
-                // ── Barra acoplada: ·thin║thin· ──────────────────────────
                 const cx = BW_C/2;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_C, transform:"translateX(-50%)", pointerEvents:"none", zIndex:18 }}>
@@ -3831,7 +5444,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </div>
                 );
               } else if (isStart) {
-                // ── Barra inicio: THICK | thin | dots ────────────────────
                 const dL = THICK+GAP+THIN+SPACE;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, pointerEvents:"none", zIndex:18 }}>
@@ -3841,7 +5453,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   </div>
                 );
               } else {
-                // ── Barra fin: dots | thin | THICK ───────────────────────
                 const dR = THICK+GAP+THIN+SPACE;
                 return (
                   <div key={bi} style={{ position:"absolute", top:0, bottom:0, left:`${v*100}%`, width:BW_S, transform:"translateX(-100%)", pointerEvents:"none", zIndex:18 }}>
@@ -3853,6 +5464,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               }
             });
           })()}
+          </div>
           </div>{/* /contenedor de escala */}
         </div>
 
@@ -3883,10 +5495,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
                   ×{schemaZoom.toFixed(1)}
                 </div>
               </div>
-              {/* Ayuda */}
-              <div style={{ fontSize: 10, color: C.muted2, marginTop: 4, textAlign: "center", fontFamily: FONT_SANS, letterSpacing: 0.2 }}>
-                Arrastra para desplazar · Rueda del ratón para hacer zoom · Pellizca en móvil
-              </div>
+
             </div>
           );
         })()}
@@ -3936,7 +5545,28 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
               <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }}
                 style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
-          ) : (
+          ) : selectedRepId ? (() => {
+            const rep = localReps.find(r => r.id === selectedRepId);
+            if (!rep) return null;
+            return (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "4px 0" }}
+                onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>Repetición</span>
+                  <span style={{ fontSize: 11, color: C.muted }}>
+                    {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: C.muted2, flex: 1 }}>Supr o ⌫ para borrar</span>
+                <button
+                  onClick={() => { deleteRepeat(selectedRepId); setSelectedRepId(null); }}
+                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>
+                  Eliminar
+                </button>
+              </div>
+            );
+          })() : (
             <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
               {blocks.filter(b => !b.isPreview).length === 0
                 ? "Arrastra en cualquier pista para crear un bloque. Doble clic para renombrar."
@@ -3985,29 +5615,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
           )}
         </div>
 
-        {/* Leyenda */}
-        <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
-          {activeLevels.map(lv => (
-            <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: lv.color }} />
-              <span style={{ fontSize: 11, color: C.muted }}>{lv.sub}{lv.id === 4 ? " (selecciona el bloque para ver/editar texto)" : ""}</span>
-            </div>
-          ))}
-          {hasRepeats ? (
-            <span style={{ fontSize: 11, color: C.fnS, marginLeft: 4 }}>
-              ♩ La pista muestra la vez que suena · si no hay reproducción, usa los botones <b>1ª / 2ª</b> para cambiar · ✕ en la regla para borrar
-            </span>
-          ) : (
-            <span style={{ fontSize: 11, color: C.muted2, marginLeft: 4 }}>
-              ♩ Repeticiones — pulsa "Añadir repetición" en la cabecera y arrastra en la regla para marcarlas
-            </span>
-          )}
-          <span style={{ fontSize: 11, color: C.muted2 }}>
-            {listenOnly
-              ? "Modo escucha · Clic en la barra = añadir marca · Arrastra = mover · Clic en marca = borrar · Los bloques se imanan a las marcas"
-              : "Arrastra para crear · Doble clic para renombrar · Asa de borde = redimensiona · Asa central = mueve el límite entre dos bloques"}
-          </span>
-        </div>
+
       </div>
     </div>
   );
@@ -4015,93 +5623,320 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack }) {
 
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
 
-function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios" }) {
+// Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
+function SchemaPlayhead({ timeRef, duration }) {
+  const lineRef = useRef(null);
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      if (lineRef.current && duration > 0) {
+        const pct = Math.min(100, (timeRef.current / duration) * 100);
+        lineRef.current.style.left = `${pct}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [timeRef, duration]);
+  return (
+    <div ref={lineRef} style={{
+      position: "absolute", top: 0, left: 0, width: 2, height: "100%",
+      background: C.danger, opacity: 0.75, pointerEvents: "none", zIndex: 10,
+      transform: "translateX(-50%)", borderRadius: 1,
+    }} />
+  );
+}
+
+function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }) {
   const dur = exercise.duration;
+  const tc  = result.teacherCorrection;
 
-  // Modelo esquema — sin puntuación automática
+  // Hooks siempre en el mismo orden (reglas de React)
+  const [lvComments,   setLvComments]   = useState(() => tc?.levelComments   || {});
+  const [blkComments,  setBlkComments]  = useState(() => tc?.blockComments   || {});
+  const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
+  const [schemaScore,  setSchemaScore]  = useState(tc?.totalScore ?? "");
+  const [showBlkForm,  setShowBlkForm]  = useState(false);
+  const [qComments,    setQComments]    = useState(() => tc?.questionComments || {});
+  const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
+  const [quizScore,    setQuizScore]    = useState(tc?.totalScore ?? "");
+
+  // Audio — siempre incondicional (reglas de hooks)
+  const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
+
+  // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
-    const blocks    = result.blocks || [];
-    const schemaKey = exercise.schemaKey || [];
-    const hasKey    = schemaKey.length > 0;
+    const blocks      = result.blocks || [];
+    const schemaKey   = exercise.schemaKey || [];
+    const hasKey      = schemaKey.length > 0;
+    const ps          = result.placementScore ?? null;
+    const activeLevels = SCHEMA_LEVELS.filter((lv) =>
+      !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+    );
 
-    const SchemaStrip = ({ title: stripTitle, bks, accent }) => {
-      const corrLevels = SCHEMA_LEVELS.filter(lv =>
-        !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
-      );
-      return (
+    const handleTimelineClick = (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      seekTo(((e.clientX - rect.left) / rect.width) * exercise.duration);
+    };
+
+    const SchemaStrip = ({ title: stripTitle, bks }) => (
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>{stripTitle}</div>
-        {corrLevels.map(lv => {
-          const lvBlocks = bks.filter(b => b.level === lv.id);
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
+        {activeLevels.map((lv) => {
+          const lvBlocks = bks.filter((b) => b.level === lv.id).sort((a, b) => a.start - b.start);
           if (lvBlocks.length === 0) return null;
           return (
-            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 10 : 5 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: lv.id === 4 ? 6 : 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                {lv.id !== 4 && (
-                  <div style={{ flex: 1, position: "relative", height: 24, background: C.paper2, borderRadius: 5, overflow: "hidden" }}>
-                    {lvBlocks.map((b, i) => (
-                      <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: accent ?? lv.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, padding: "0 3px" }}>{b.label}</span>
+            <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
+                <div
+                  onClick={hasAudio ? handleTimelineClick : undefined}
+                  style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden", cursor: hasAudio ? "pointer" : "default" }}>
+                  {lvBlocks.map((b, i) => {
+                    const lPct = (b.start / exercise.duration) * 100;
+                    const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                    const { bg, textColor } = schemaBlockColor(b, bks);
+                    if (lv.id === 3) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden", pointerEvents: "none" }}>
+                          <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
+                          </div>
+                          {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
+                        </div>
+                      );
+                    }
+                    if (lv.id === 4) {
+                      return (
+                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden", pointerEvents: "none" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
+                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px" }}>{b.label}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={exercise.duration} />}
+                </div>
               </div>
-              {/* Nivel 4: lista de bloques con texto */}
-              {lv.id === 4 && (
-                <div style={{ paddingLeft: 56, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {lvBlocks.map((b, i) => (
-                    <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: b.bodyText ? 6 : 0 }}>
-                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 13, color: lv.color }}>{b.label}</span>
-                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
-                      </div>
-                      {b.bodyText && (
+              {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
+                <div style={{ paddingLeft: 66, marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {lvBlocks.filter(b => b.bodyText).map((b, i) => {
+                    const { bg } = schemaBlockColor(b, bks);
+                    return (
+                      <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 13, color: bg }}>{b.label}</span>
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                        </div>
                         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
-                      )}
-                      {!b.bodyText && (
-                        <div style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>Sin texto</div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-      );
-    };
+    );
 
+    const AudioBar = () => hasAudio ? (
+      <div style={{ ...S.card, marginBottom: 16, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={togglePlay}
+            disabled={!audioReady}
+            style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: audioReady ? C.ink : C.line, color: C.paper, cursor: audioReady ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, transition: "background .15s" }}>
+            {playing ? "⏸" : "▶"}
+          </button>
+          <div
+            onClick={handleTimelineClick}
+            style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / exercise.duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
+          </div>
+          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(exercise.duration)}</span>
+        </div>
+      </div>
+    ) : null;
+
+    // ── Vista del profesor ────────────────────────────────────────────────────
+    if (isTeacherMode) {
+      const handleSave = () => onSaveCorrection?.(student?.id, exercise.id, {
+        levelComments: lvComments,
+        blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
+        globalComment: schemaGlobal.trim(),
+        totalScore:    schemaScore !== "" ? Number(schemaScore) : null,
+      });
+      return (
+        <div style={S.app}>
+          <div style={S.page}>
+            <button onClick={onBack} style={{ ...S.btn, marginBottom: 20, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+            <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+            {student && <p style={{ color: C.muted, fontSize: 13, margin: "0 0 20px" }}>Alumno: <strong>{student.displayName}</strong></p>}
+
+            {ps != null && (
+              <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Colocación automática (margen ±3 s)</div>
+                <div style={{ fontSize: 48, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
+                <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>de bloques dentro del margen</div>
+              </div>
+            )}
+
+            <AudioBar />
+
+            {(blocks.length > 0 || hasKey) && (
+              <div style={{ ...S.card, marginBottom: 16 }}>
+                {hasKey && <><SchemaStrip title="Referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+                {blocks.length > 0 && <SchemaStrip title="Esquema del alumno" bks={blocks} />}
+              </div>
+            )}
+
+            <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.3)` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.quiz, marginBottom: 16 }}>
+                {tc?.corrected ? "Editar corrección" : "Añadir corrección manual"}
+              </div>
+
+              {activeLevels.map((lv) => (
+                <div key={lv.id} style={{ marginBottom: 14 }}>
+                  <label style={{ ...S.label, color: lv.color }}>{lv.sub} — comentario (opcional)</label>
+                  <textarea value={lvComments[lv.id] || ""}
+                    onChange={(e) => setLvComments((p) => ({ ...p, [lv.id]: e.target.value }))}
+                    placeholder={`Valoración del nivel ${lv.sub}…`}
+                    style={{ ...S.input, minHeight: 56, resize: "vertical", fontFamily: FONT_SANS }} />
+                </div>
+              ))}
+
+              {blocks.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <button onClick={() => setShowBlkForm(!showBlkForm)} style={{ ...S.btn, fontSize: 12, marginBottom: 8 }}>
+                    {showBlkForm ? "▲ Ocultar comentarios por bloque" : "▼ Comentarios por bloque (opcional)"}
+                  </button>
+                  {showBlkForm && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {blocks.map((b) => {
+                        const lv = SCHEMA_LEVELS.find((l) => l.id === b.level);
+                        return (
+                          <div key={b.id} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                            <div style={{ ...S.row, gap: 6, marginBottom: 6 }}>
+                              <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{b.label}</span>
+                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                              <span style={{ fontSize: 10, background: (lv?.color || C.muted) + "20", color: lv?.color || C.muted, padding: "1px 6px", borderRadius: 3 }}>{lv?.sub}</span>
+                            </div>
+                            <textarea value={blkComments[b.id] || ""}
+                              onChange={(e) => setBlkComments((p) => ({ ...p, [b.id]: e.target.value }))}
+                              placeholder="Comentario sobre este bloque…" rows={2}
+                              style={{ ...S.input, resize: "vertical", fontFamily: FONT_SANS, fontSize: 12 }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={S.label}>Comentario general</label>
+                <textarea value={schemaGlobal} onChange={(e) => setSchemaGlobal(e.target.value)}
+                  placeholder="Observaciones generales sobre el esquema…"
+                  style={{ ...S.input, minHeight: 70, resize: "vertical", fontFamily: FONT_SANS }} />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={S.label}>Puntuación total (0–10, opcional)</label>
+                <input type="number" min={0} max={10} step={0.5} value={schemaScore}
+                  onChange={(e) => setSchemaScore(e.target.value)} placeholder="Ej: 7.5"
+                  style={{ ...S.input, width: 120 }} />
+              </div>
+
+              <button onClick={handleSave} style={{ ...S.btnPrimary, width: "100%" }}>
+                {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+              </button>
+            </div>
+            <div style={{ height: 32 }} />
+          </div>
+        </div>
+      );
+    }
+
+    // ── Vista del alumno ──────────────────────────────────────────────────────
+    const showRefSchema = exercise.immediateSchemaFeedback && hasKey;
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{"<-"} Volver</button>
-          <h2 style={S.h2}>Esquema entregado: {exercise.title}</h2>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
+          <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
+
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
-            <div style={{ color: C.muted, lineHeight: 1.6 }}>
-              Esquema enviado al profesor para revisión.<br />
-              <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
-            </div>
+            {ps != null ? (
+              <>
+                <div style={{ fontSize: 56, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>de bloques colocados correctamente (margen ±3 s)</div>
+              </>
+            ) : (
+              <div style={{ color: C.muted, lineHeight: 1.6 }}>
+                Esquema enviado al profesor para revisión.<br />
+                <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
+              </div>
+            )}
           </div>
 
-          {(blocks.length > 0 || hasKey) && (
+          <AudioBar />
+
+          {(blocks.length > 0 || showRefSchema) && (
             <div style={S.card}>
-              {hasKey && (
-                <>
-                  <SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} />
-                  <hr style={{ ...S.divider, margin: "10px 0 14px" }} />
-                </>
+              {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+              {!showRefSchema && hasKey && (
+                <p style={{ textAlign: "center", color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
+                  El esquema de referencia estará disponible cuando el profesor corrija el ejercicio.
+                </p>
               )}
-              {blocks.length > 0 && (
-                <SchemaStrip title="Tu esquema" bks={blocks} />
+              {blocks.length > 0 && <SchemaStrip title="Tu esquema" bks={blocks} />}
+            </div>
+          )}
+
+          {tc?.corrected && (
+            <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.35)`, marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>Corrección del profesor</div>
+              {tc.totalScore != null && (
+                <div style={{ textAlign: "center", marginBottom: 14 }}>
+                  <span style={{ fontSize: 48, fontWeight: 900, color: C.quiz, lineHeight: 1 }}>{tc.totalScore}</span>
+                  <span style={{ fontSize: 18, color: C.quiz }}>/10</span>
+                </div>
+              )}
+              {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
+                <div key={lv.id} style={{ marginBottom: 10, padding: "10px 12px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: lv.color, marginBottom: 4 }}>{lv.sub}</div>
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.levelComments[lv.id]}</div>
+                </div>
+              ))}
+              {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
+                const block = blocks.find((b) => b.id === blockId);
+                if (!block) return null;
+                const lv = SCHEMA_LEVELS.find((l) => l.id === block.level);
+                return (
+                  <div key={blockId} style={{ marginBottom: 6, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
+                    <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(block.start)}–{fmt(block.end)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
+                  </div>
+                );
+              })}
+              {tc.globalComment && (
+                <div style={{ padding: "10px 12px", background: "rgba(47,111,184,0.06)", border: `1px solid rgba(47,111,184,0.2)`, borderRadius: 8, marginTop: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, marginBottom: 4 }}>Comentario general</div>
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.globalComment}</div>
+                </div>
               )}
             </div>
           )}
 
-          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
+          <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 16, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
       </div>
     );
@@ -4112,23 +5947,146 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     const questions = questionsOf(exercise);
     const sc        = result.score;
     const testQs    = questions.filter((q) => q.type === "test" && q.correctOptionId);
+    const devQs     = questions.filter((q) => q.type === "desarrollo");
     const correctN  = testQs.filter((q) => result.answers?.[q.id] === q.correctOptionId).length;
     const col       = scoreColor(sc);
 
+    const handleSaveQuiz = () => {
+      const correction = {
+        corrected: true,
+        questionComments: qComments,
+        globalComment: quizGlobal,
+        totalScore: quizScore === "" ? null : Number(quizScore),
+      };
+      onSaveCorrection(student.id, exercise.id, correction);
+    };
+
+    if (isTeacherMode) {
+      return (
+        <div style={S.app}>
+          <div style={S.page}>
+            <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+            <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+            {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
+
+            {sc != null && (
+              <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>{correctN} de {testQs.length} {testQs.length === 1 ? "pregunta test" : "preguntas test"} correctas (automático)</div>
+              </div>
+            )}
+
+            {questions.map((q, idx) => {
+              const studentAnswer = result.answers?.[q.id];
+              const isCorrect = q.type === "test" && studentAnswer === q.correctOptionId;
+              const isWrong   = q.type === "test" && !!studentAnswer && studentAnswer !== q.correctOptionId;
+              return (
+                <div key={q.id} style={{ ...S.card, marginBottom: 16, border: q.type !== "test" ? `1.5px solid ${C.quiz}33` : `1.5px solid ${isCorrect ? C.fnT : isWrong ? C.danger : C.line}` }}>
+                  <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
+                    <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)}–{fmt(q.audioEnd)}</span>
+                    {q.type === "test" && (
+                      <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
+                        {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 14, color: C.ink, marginBottom: 12 }}>{q.text}</div>
+
+                  {q.type === "test" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {q.options.map((opt) => {
+                        const isPick       = opt.id === studentAnswer;
+                        const isCorrectOpt = opt.id === q.correctOptionId;
+                        return (
+                          <div key={opt.id} style={{
+                            ...S.row, gap: 10, padding: "8px 12px", borderRadius: 8,
+                            background: isCorrectOpt ? "rgba(63,155,91,0.10)" : isPick && !isCorrectOpt ? "rgba(184,74,58,0.10)" : C.paper2,
+                            border:     `1.5px solid ${isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.line}`,
+                            color:      isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.muted,
+                          }}>
+                            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, minWidth: 20 }}>{opt.id}</span>
+                            <span style={{ flex: 1, fontSize: 13 }}>{opt.text}</span>
+                            {isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>✓ Correcta</span>}
+                            {isPick && !isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>Resp. alumno</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {q.type === "desarrollo" && (
+                    <div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Respuesta del alumno:</div>
+                      <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", minHeight: 40, lineHeight: 1.5, marginBottom: 12 }}>
+                        {studentAnswer || <span style={{ color: C.muted2, fontStyle: "italic" }}>Sin respuesta</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario del profesor:</div>
+                      <textarea
+                        value={qComments[q.id] || ""}
+                        onChange={(e) => setQComments((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        placeholder="Escribe un comentario para esta respuesta..."
+                        rows={3}
+                        style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {devQs.length > 0 && (
+              <div style={{ ...S.card, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 12 }}>Corrección global</div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario global:</div>
+                <textarea
+                  value={quizGlobal}
+                  onChange={(e) => setQuizGlobal(e.target.value)}
+                  placeholder="Comentario general sobre el cuestionario..."
+                  rows={3}
+                  style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box", marginBottom: 12 }}
+                />
+                <div style={{ ...S.row, gap: 12, alignItems: "center" }}>
+                  <label style={{ fontSize: 13, color: C.muted }}>Puntuación total (0–10):</label>
+                  <input
+                    type="number" min={0} max={10} step={0.5}
+                    value={quizScore}
+                    onChange={(e) => setQuizScore(e.target.value)}
+                    style={{ width: 80, fontFamily: "Outfit, sans-serif", fontSize: 14, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 10px", color: C.ink, textAlign: "center" }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveQuiz}
+              disabled={devQs.length === 0}
+              style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, marginBottom: 8, opacity: devQs.length === 0 ? 0.4 : 1 }}
+            >
+              {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+            </button>
+            <button onClick={onBack} style={{ ...S.btn, width: "100%", padding: 14, borderRadius: 12 }}>{backLabel}</button>
+          </div>
+        </div>
+      );
+    }
+
+    // Student mode
     return (
       <div style={S.app}>
         <div style={S.page}>
           <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
-          <h2 style={S.h2}>Corrección: {exercise.title}</h2>
+          <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            {sc == null ? (
-              <div style={{ color: C.muted, lineHeight: 1.6 }}>
-                {testQs.length === 0
-                  ? <>Respuestas enviadas al profesor para revisión.<br /><span style={{ fontSize: 12 }}>Las preguntas de desarrollo se corrigen manualmente.</span></>
-                  : "Sin puntuación automática."}
-              </div>
-            ) : (
+            {tc?.corrected && tc?.totalScore != null ? (
+              <>
+                <div style={{ fontSize: 64, fontWeight: 900, color: scoreColor(tc.totalScore * 10), lineHeight: 1 }}>{tc.totalScore}<span style={{ fontSize: 28 }}>/10</span></div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Puntuación del profesor</div>
+                {sc != null && <div style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>{correctN} de {testQs.length} preguntas test correctas ({sc}% automático)</div>}
+              </>
+            ) : sc != null ? (
               <>
                 <div style={{ fontSize: 64, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
                 <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>{correctN} de {testQs.length} {testQs.length === 1 ? "pregunta" : "preguntas"} correctas</div>
@@ -4136,6 +6094,12 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                   {sc >= 80 ? "Excelente análisis." : sc >= 50 ? "Bien, pero hay margen de mejora." : "Sigue practicando."}
                 </div>
               </>
+            ) : (
+              <div style={{ color: C.muted, lineHeight: 1.6 }}>
+                {devQs.length > 0
+                  ? <>Respuestas enviadas al profesor para revisión.<br /><span style={{ fontSize: 12 }}>Las preguntas de desarrollo se corrigen manualmente.</span></>
+                  : "Sin puntuación automática."}
+              </div>
             )}
           </div>
 
@@ -4143,6 +6107,7 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
             const studentAnswer = result.answers?.[q.id];
             const isCorrect = q.type === "test" && studentAnswer === q.correctOptionId;
             const isWrong   = q.type === "test" && !!studentAnswer && studentAnswer !== q.correctOptionId;
+            const teacherComment = tc?.corrected ? tc?.questionComments?.[q.id] : null;
             return (
               <div key={q.id} style={{ ...S.card, border: q.type !== "test" ? `1px solid ${C.line}` : `1.5px solid ${isCorrect ? C.fnT : isWrong ? C.danger : C.line}` }}>
                 <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
@@ -4185,12 +6150,26 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                     <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", minHeight: 40, lineHeight: 1.5 }}>
                       {studentAnswer || <span style={{ color: C.muted2, fontStyle: "italic" }}>Sin respuesta</span>}
                     </div>
-                    <p style={{ fontSize: 11, color: C.muted2, margin: "6px 0 0" }}>Las preguntas de desarrollo serán revisadas por el profesor.</p>
+                    {teacherComment ? (
+                      <div style={{ marginTop: 10, background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor:</div>
+                        <div style={{ fontSize: 13, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{teacherComment}</div>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 11, color: C.muted2, margin: "6px 0 0" }}>Pendiente de revisión por el profesor.</p>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+
+          {tc?.corrected && tc?.globalComment && (
+            <div style={{ ...S.card, background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: C.quiz, fontWeight: 700, marginBottom: 6 }}>Comentario global del profesor</div>
+              <div style={{ fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{tc.globalComment}</div>
+            </div>
+          )}
 
           <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>{backLabel}</button>
         </div>
@@ -4211,8 +6190,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>{backLabel}</button>
-        <h2 style={S.h2}>Corrección: {exercise.title}</h2>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>{backLabel}</button>
+        <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
         {exCategories.length > 1 && (
           <div style={{ marginBottom: 16, color: C.muted, fontSize: 13 }}>
@@ -4294,24 +6273,31 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
 }
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-function QuestionnaireView({ exercise, onSubmit, onBack }) {
+function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null }) {
   const dur       = exercise.duration;
   const questions = questionsOf(exercise);
 
   const [answers,        setAnswers]        = useState({});
   const [expandedId,     setExpandedId]     = useState(null);
   const [lockedQuestion, setLockedQuestion] = useState(null);
-  const [waveformData,   setWaveformData]   = useState(exercise.waveformData || null);
+  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
-  // Sincronizado cada render para que RAF/timer conozcan el bucle activo
-  const loopRegionRef = useRef(null);
-  loopRegionRef.current = lockedQuestion;
+  // Ref de bucle: usa el externo (del padre) si está disponible, para que el
+  // reproductor compartido vea los cambios de fragmento bloqueado
+  const ownLoopRegionRef = useRef(null);
+  const loopRegionRef    = externalLoopRef || ownLoopRegionRef;
+  loopRegionRef.current  = lockedQuestion;   // sincronizado cada render
 
-  const onWaveform = exercise.waveformData ? null : (wd) => setWaveformData(wd);
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localPlayer = useAudioPlayer(
+    sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
+    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : loopRegionRef }
+  );
   const {
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
-  } = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
+  } = sharedAudioPlayer || localPlayer;
 
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
@@ -4334,7 +6320,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
     return (
       <div style={S.app}>
         <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24 }}>← Volver</button>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
           <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
             <div>Este ejercicio aún no tiene preguntas configuradas.</div>
@@ -4347,18 +6333,16 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
-      <div style={{ ...S.page, paddingTop: "1.25rem" }}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 13 }}>← Volver</button>
-          <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1 }}>{exercise.title}</div>
-          <div style={{ width: 70 }} />
-        </div>
+      <ExercisePageHeader exercise={exercise} onBack={onBack} />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
 
-        {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>Cargando audio…</div>}
+        {modelToggleNode}
+
+        {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 16 }}>
-          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={{}} questionRegion={questionRegion}
@@ -4371,20 +6355,10 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
               const isLock = lockedQuestion?.id === q.id;
               return (
                 <div key={q.id}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => selectQuestion(q)}
+                  onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
                   title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
-                  style={{
-                    position: "absolute", top: 3, bottom: 3,
-                    left:  `${(q.audioStart / dur) * 100}%`,
-                    width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`,
-                    background: C.quiz, opacity: isLock ? 1 : 0.45,
-                    borderRadius: 3, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none",
-                    boxSizing: "border-box", overflow: "hidden", transition: "opacity .15s",
-                  }}>
-                  <span style={{ fontSize: 7, color: C.paper, fontWeight: 700, fontFamily: FONT_MONO, pointerEvents: "none" }}>P{idx + 1}</span>
+                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: C.quiz, opacity: isLock ? 1 : 0.45, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
+                  <span style={{ fontSize: 7, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>P{idx + 1}</span>
                 </div>
               );
             })}
@@ -4394,25 +6368,21 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           {lockedQuestion ? (
             <div style={{ ...S.row, gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "6px 0 8px", flexWrap: "wrap" }}>
               <span>🔒 Fragmento activo: {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)}</span>
-              <span style={{ color: C.muted2, fontSize: 11 }}>(bucle automático)</span>
-              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11, color: C.muted, borderColor: C.line }}>Liberar</button>
+              <span style={{ color: C.muted, fontSize: 11 }}>(bucle automático)</span>
+              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11 }}>Liberar</button>
             </div>
-          ) : (
-            <div style={{ height: 8 }} />
-          )}
+          ) : <div style={{ height: 8 }} />}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-            <div />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CircleButton onClick={() => seekTo(Math.max(lockedQuestion ? lockedQuestion.audioStart : 0, time - 5))}>−5s</CircleButton>
-              <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-                primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-                {playing ? "❚❚" : "▶"}
-              </CircleButton>
-              <CircleButton onClick={() => seekTo(Math.min(lockedQuestion ? lockedQuestion.audioEnd : dur, time + 5))}>+5s</CircleButton>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(lockedQuestion ? lockedQuestion.audioStart : 0)} title="Volver al inicio">⏮</CircleButton>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
         </section>
@@ -4430,36 +6400,30 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           const answered   = answers[q.id] !== undefined && answers[q.id] !== "";
           return (
             <div key={q.id} onMouseDown={(e) => e.stopPropagation()}
-              style={{ ...S.card, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, transition: "border-color .15s" }}>
+              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8, padding: "14px 16px" }}>
               <div style={{ cursor: "pointer" }}
                 onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}>
-                <div style={{ ...S.row, justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ ...S.row, gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, flexShrink: 0 }}>Pregunta {idx + 1}</span>
-                    {answered && <span style={{ ...S.badge, background: "rgba(63,155,91,0.14)", color: C.fnT, flexShrink: 0 }}>✓</span>}
-                    <span style={{ fontSize: 14, color: C.ink, fontWeight: isExpanded ? 600 : 400, lineHeight: 1.4 }}>{q.text}</span>
-                  </div>
-                  <span style={{ color: C.muted2, fontSize: 12, flexShrink: 0 }}>{isExpanded ? "▲" : "▼"}</span>
+                {/* Fila de metadatos — chip + ✓ + chevron */}
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                  <Chip>Pregunta {idx + 1}</Chip>
+                  {answered && <span style={{ background: "rgba(63,155,91,0.14)", color: C.fnT, fontFamily: F.sans, fontSize: 11, fontWeight: 600, borderRadius: 4, padding: "2px 7px" }}>✓</span>}
+                  <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
+                {/* Texto de la pregunta — serif grande */}
+                <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.35, color: C.ink }}>{q.text}</div>
               </div>
 
               {isExpanded && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
                   {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {q.options.map((opt) => {
                         const isSel = answers[q.id] === opt.id;
                         return (
                           <button key={opt.id}
                             onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{
-                              background: isSel ? C.ink : C.paper, color: isSel ? C.paper : C.ink2,
-                              border: `1.5px solid ${isSel ? C.ink : C.line}`,
-                              borderRadius: 10, padding: "10px 14px", cursor: "pointer",
-                              textAlign: "left", fontSize: 14, transition: "all .12s",
-                              display: "flex", alignItems: "center", gap: 10,
-                            }}>
-                            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 13, color: isSel ? C.paper : C.muted, minWidth: 20, flexShrink: 0 }}>{opt.id}</span>
+                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1px solid ${isSel ? C.ink : C.line}`, borderRadius: 7, padding: "9px 12px", cursor: "pointer", textAlign: "left", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 11, color: isSel ? "rgba(255,255,255,0.55)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
                             {opt.text}
                           </button>
                         );
@@ -4467,13 +6431,11 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
                     </div>
                   )}
                   {q.type === "desarrollo" && (
-                    <textarea
-                      style={{ ...S.input, minHeight: 90, resize: "vertical", fontFamily: FONT_SANS, lineHeight: 1.5 }}
+                    <textarea style={{ ...S.input, minHeight: 90, resize: "vertical", lineHeight: 1.5 }}
                       placeholder="Escribe tu respuesta aquí…"
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                      onClick={(e) => e.stopPropagation()} />
                   )}
                 </div>
               )}
@@ -4485,7 +6447,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, flex: "1 1 200px" }}>
             Haz clic en una pregunta para ver su fragmento en la waveform · Espacio = Play/Pausa
           </div>
-          <PillSubmitButton onClick={handleSubmit}>Entregar respuestas</PillSubmitButton>
+          <PillSubmitButton onClick={handleSubmit}>Entregar</PillSubmitButton>
         </div>
       </div>
     </div>
@@ -4495,217 +6457,277 @@ function QuestionnaireView({ exercise, onSubmit, onBack }) {
 // ═══ 11. DASHBOARD DEL PROFESOR ═════════════════════════════════════════════
 
 // ── Pestaña: Ejercicios ────────────────────────────────────────────────────
-function ExercisesTab({ exercises, onNew, onSelect }) {
+function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }) {
+  const [open, setOpen] = useState(false);
+  const meta    = modelMeta(ex);
+  const exModels= modelsOf(ex);
+  const isQuiz  = modelOf(ex) === "cuestionario";
+  const isSchema= modelOf(ex) === "esquema";
+  const exQs    = questionsOf(ex);
+  const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
+  const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
+  const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+  const isHidden = !!ex.hidden;
+
+  return (
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
+      {exModels.length > 1 ? (
+        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
+          <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
+        </div>
+      ) : (
+        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div onClick={() => setOpen((o) => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: isHidden ? C.muted : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
+            {composerName && (
+              <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
+            )}
+          </div>
+          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
+          <Chevron open={open} />
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
+            <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
+          </div>
+        </div>
+        {open && (
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Clave de corrección">
+              <StatusCircle done={keyReady} size={13} />
+              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+            </MetaItem>
+            <MetaItem label="Visible para alumnos">
+              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+            </MetaItem>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }) {
+  const [filterModel,     setFilterModel]     = useState("all");
+  const [filterComposers, setFilterComposers] = useState([]);
+  const [filterTags,      setFilterTags]      = useState([]);
+
+  // Derivar compositores y etiquetas únicas de la biblioteca de audios
+  const allComposers = useMemo(
+    () => [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  const allTags = useMemo(
+    () => [...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  // Mapa rápido URL → audio
+  const audioByUrl = useMemo(() => {
+    const m = {};
+    audioLibrary.forEach((a) => { if (a.url) m[a.url] = a; });
+    return m;
+  }, [audioLibrary]);
+
+  const filtered = useMemo(() => {
+    return exercises.filter((ex) => {
+      if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
+      if (filterComposers.length > 0 || filterTags.length > 0) {
+        const audio = ex.audioUrl ? audioByUrl[ex.audioUrl] : null;
+        if (filterComposers.length > 0 && (!audio || !filterComposers.includes(audio.composer))) return false;
+        if (filterTags.length > 0) {
+          const audioTags = audio?.tags || [];
+          if (!filterTags.every((t) => audioTags.includes(t))) return false;
+        }
+      }
+      return true;
+    });
+  }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
+
+  const hasFilters = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
+  const showFilterBar = exercises.length > 0 && (allComposers.length > 0 || allTags.length > 0 || true);
+
   return (
     <>
-      <button onClick={onNew} style={{ ...S.btnPrimary, marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> Nuevo ejercicio
-      </button>
-
-      {exercises.length === 0 ? (
-        <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
-      ) : (
-        <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 58px 112px 140px 16px", alignItems: "center", padding: "7px 16px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-            {["Nombre", "Dur.", "Tipo", "Estado", ""].map((h, i) => (
-              <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
-            ))}
-          </div>
-
-          {exercises.map((ex, i) => {
-            const isQuiz   = modelOf(ex) === "cuestionario";
-            const isSchema = modelOf(ex) === "esquema";
-            const exQs   = questionsOf(ex);
-            const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
-            const keyDone    = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
-            const keyPartial = !isQuiz && !isSchema && recorded > 0 && recorded < total;
-            const dotColor   = isSchema ? C.fnD : keyDone ? C.fnT : keyPartial ? C.fnD : C.muted2;
-            const dotLabel   = isQuiz
-              ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}`)
-              : isSchema ? "Sin clave automática"
-              : recorded === 0   ? "Sin clave"
-              : recorded === total ? "Clave completa"
-              : `${recorded}/${total} claves`;
-
-            return (
-              <div key={ex.id} onClick={() => onSelect(ex.id)}
-                style={{
-                  display: "grid", gridTemplateColumns: "1fr 58px 112px 140px 16px",
-                  alignItems: "center", padding: "11px 16px", cursor: "pointer",
-                  borderBottom: i < exercises.length - 1 ? `1px solid ${C.line}` : "none",
-                  transition: "background .1s",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 16 }}>{ex.title}</div>
-                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</div>
-                <div>
-                  <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : isSchema ? `${C.fnD}1C` : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : isSchema ? C.fnD : C.fnT }}>
-                    {isQuiz ? "Cuestionario" : isSchema ? "Esquema" : "Interactivo"}
-                  </span>
-                </div>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: keyDone ? C.fnT : keyPartial ? C.fnD : C.muted }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0, display: "inline-block" }} />
-                  {dotLabel}
-                </div>
-                <div style={{ color: C.muted2, fontSize: 16, fontWeight: 300, lineHeight: 1 }}>›</div>
-              </div>
-            );
-          })}
-        </div>
+      <div style={{ marginBottom: 14 }}>
+        <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
+      </div>
+      {showFilterBar && (
+        <TeacherFilterBar
+          filterModel={filterModel}       setFilterModel={setFilterModel}
+          allComposers={allComposers}     filterComposers={filterComposers} setFilterComposers={setFilterComposers}
+          allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
+        />
       )}
+      {exercises.length === 0
+        ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
+        : filtered.length === 0
+          ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem" }}>
+              Ningún ejercicio coincide con los filtros.{" "}
+              <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); }}
+                style={{ background: "none", border: "none", color: C.fnS, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: 0 }}>
+                Limpiar filtros
+              </button>
+            </p>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {filtered.map((ex) => (
+                <TeacherExerciseRow key={ex.id} ex={ex} onSelect={onSelect}
+                  composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl]?.composer || null) : null}
+                  onToggleVisibility={onToggleVisibility}
+                  onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id))} />
+              ))}
+            </div>}
     </>
   );
 }
 
-// ── Pestaña: Cursos (con unidades y ejercicios anidados) ──────────────────
+// ── Pestaña: Cursos ────────────────────────────────────────────────────────
 function CoursesTab({
-  courses, units, exercises,
+  courses, units, exercises, groups = [],
   openUnitIds, setOpenUnitIds,
-  onCreateCourse, onEditCourse, onDeleteCourse,
-  onCreateUnit, onEditUnit, onDeleteUnit,
+  onCreateCourse, onEditCourse, onDeleteCourse, onUpdateCourse,
+  onCreateUnit, onEditUnit, onDeleteUnit, onUpdateUnit,
   onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit,
   onSelectExercise,
   askConfirm,
 }) {
-  const toggleUnit = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
+  const isMobile = useIsMobile();
+  const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
+  const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
+  const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
 
   return (
     <>
-      <button onClick={onCreateCourse} style={{ ...S.btnPrimary, marginBottom: 24, display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> Nuevo curso
-      </button>
+      <div style={{ marginBottom: 20 }}>
+        <CtaButton onClick={onCreateCourse}>+ Nuevo curso</CtaButton>
+      </div>
 
       {courses.length === 0
-        ? <p style={{ color: C.muted, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay cursos. Crea el primero para organizar tus ejercicios.</p>
-        : courses.map((course, courseIdx) => {
+        ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay cursos. Crea el primero para organizar tus ejercicios.</p>
+        : courses.map((course) => {
             const courseUnits = units.filter((u) => course.unitIds.includes(u.id));
-            const exCount     = courseUnits.reduce((sum, u) => sum + u.exerciseIds.length, 0);
-            const accent      = COURSE_ACCENTS[courseIdx % COURSE_ACCENTS.length];
+            const courseOpen  = openCourseIds.has(course.id);
 
             return (
-              <div key={course.id} style={{ marginBottom: 36 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 0, marginBottom: 10 }}>
-                  <div style={{ width: 3, alignSelf: "stretch", background: accent, borderRadius: 2, flexShrink: 0, marginRight: 14, marginTop: 3 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 18, color: C.ink, letterSpacing: -0.4, marginBottom: course.description ? 3 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</div>
-                    {course.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{course.description}</div>}
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: 600, background: accent + "18", color: accent }}>
-                        {courseUnits.length} {courseUnits.length === 1 ? "unidad" : "unidades"}
-                      </span>
-                      <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{exCount} {exCount === 1 ? "ejercicio" : "ejercicios"}</span>
+              <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                {/* Cabecera del curso */}
+                <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: isMobile ? "16px 16px" : "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                  <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: isMobile ? 12 : 16 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: F.serif, fontSize: isMobile ? 22 : 28, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.05, wordBreak: "break-word" }}>{course.name}</span>
+                        <Chevron open={courseOpen} rotate90WhenClosed size={14} />
+                        {(() => {
+                          const vis = course.visibility || "teacher";
+                          if (vis === "public")  return <span style={{ ...S.badge, background: "rgba(63,155,91,0.12)", color: C.fnT, fontSize: 10 }}>Público</span>;
+                          if (vis === "group") {
+                            const g = groups.find((x) => x.id === course.visibilityGroupId);
+                            return <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, fontSize: 10 }}>{g ? g.name : "Grupo"}</span>;
+                          }
+                          return <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>Mis alumnos</span>;
+                        })()}
+                      </div>
+                      {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
                     </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 5, flexShrink: 0, marginLeft: 12 }}>
-                    <button onClick={() => onEditCourse(course)} style={{ ...S.btn, padding: "5px 10px", fontSize: 11 }}>Editar</button>
-                    <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 11 }}>Eliminar</button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
+                      <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
+                      <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))}>Eliminar</DangerOutlineButton>
+                    </div>
                   </div>
                 </div>
 
-                {courseUnits.length === 0 ? (
-                  <div style={{ paddingLeft: 17, color: C.muted, fontSize: 13 }}>Este curso no tiene unidades todavía.</div>
-                ) : (
-                  <div style={{ paddingLeft: 17 }}>
-                    <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 88px auto", alignItems: "center", padding: "6px 12px", borderBottom: `1px solid ${C.line}`, background: C.paper2 }}>
-                        {["", "Unidad", "Ejercicios", ""].map((h, i) => (
-                          <span key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.9, color: C.muted, textTransform: "uppercase" }}>{h}</span>
-                        ))}
-                      </div>
+                {/* Unidades — riel tipográfico */}
+                {courseOpen && (
+                  <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
+                    {courseUnits.length === 0
+                      ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
+                      : courseUnits.map((unit, unitIdx) => {
+                          const isOpen     = openUnitIds.has(unit.id);
+                          const isLast     = unitIdx === courseUnits.length - 1;
+                          const unitNum    = String(unitIdx + 1).padStart(2, "0");
+                          const unitExs    = unit.exerciseIds.map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
+                          const railW      = isMobile ? 40 : 52;
+                          const numW       = isMobile ? 30 : 36;
 
-                      {courseUnits.map((unit, unitIdx) => {
-                        const isUnitOpen    = openUnitIds.has(unit.id);
-                        const unitExercises = unit.exerciseIds.map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
-                        const isLast        = unitIdx === courseUnits.length - 1;
+                          return (
+                            <div key={unit.id} style={{ display: "flex", marginBottom: isLast ? 0 : 28 }}>
+                              {/* Riel */}
+                              <div style={{ width: railW, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                <div style={{ width: numW, height: numW, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: isMobile ? 14 : 17, fontWeight: 600 }}>{unitNum}</div>
+                                {(!isLast || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
+                              </div>
+                              {/* Contenido */}
+                              <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
+                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 8 : 10, marginBottom: isOpen ? 12 : 0, paddingRight: isMobile ? 12 : 20 }}>
+                                  <div onClick={() => toggleUnit(unit.id)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none", fontFamily: F.serif, fontSize: isMobile ? 18 : 22, fontWeight: 600, letterSpacing: "-0.01em" }}>
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
+                                    <Chevron open={isOpen} rotate90WhenClosed />
+                                    <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2, flexShrink: 0 }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}</span>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                    <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
+                                    <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
+                                    <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))}>Eliminar</DangerOutlineButton>
+                                  </div>
+                                </div>
 
-                        return (
-                          <div key={unit.id}>
-                            <div onClick={() => toggleUnit(unit.id)}
-                              style={{
-                                display: "grid", gridTemplateColumns: "32px 1fr 88px auto",
-                                alignItems: "center", padding: "9px 12px", cursor: "pointer",
-                                background: isUnitOpen ? C.paper2 : "transparent",
-                                borderBottom: (!isLast || isUnitOpen) ? `1px solid ${C.line}` : "none",
-                                transition: "background .1s",
-                              }}
-                              onMouseEnter={(e) => { if (!isUnitOpen) e.currentTarget.style.background = C.paper2; }}
-                              onMouseLeave={(e) => { if (!isUnitOpen) e.currentTarget.style.background = "transparent"; }}>
-                              <div style={{ width: 22, height: 22, borderRadius: 5, background: accent + "18", color: accent, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO, flexShrink: 0 }}>
-                                U{unitIdx + 1}
-                              </div>
-                              <div style={{ minWidth: 0, paddingRight: 8 }}>
-                                <div style={{ fontWeight: 500, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</div>
-                                {unit.description && <div style={{ fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.description}</div>}
-                              </div>
-                              <div style={{ fontSize: 12, color: C.muted }}>
-                                {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
-                              </div>
-                              <div style={{ display: "flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => onEditUnit(unit)} style={{ ...S.btn, padding: "3px 8px", fontSize: 11 }}>Editar</button>
-                                <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} style={{ ...S.btnDanger, padding: "3px 8px", fontSize: 11 }}>Eliminar</button>
-                                <span style={{ color: C.muted2, fontSize: 12, marginLeft: 2, userSelect: "none" }}>{isUnitOpen ? "▲" : "▼"}</span>
+                                {isOpen && (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                    {unitExs.length === 0
+                                      ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>No hay ejercicios en esta unidad.</p>
+                                      : unitExs.map((ex) => {
+                                          const meta = modelMeta(ex);
+                                          const isQuiz = modelOf(ex) === "cuestionario";
+                                          const exQs = questionsOf(ex);
+                                          const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
+                                          const keyReady = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
+                                          return (
+                                            <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -railW }}>
+                                              <div style={{ width: railW, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                                <StatusCircle done={keyReady} />
+                                              </div>
+                                              <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                                                <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+                                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 8 : 10, padding: isMobile ? "10px 12px" : "10px 14px" }}>
+                                                  <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
+                                                    onClick={() => onSelectExercise(ex.id)}>{ex.title}</span>
+                                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                                    <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
+                                                    <DangerOutlineButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))}>Quitar</DangerOutlineButton>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                    <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+                                      <GhostButton onClick={() => onPickFromBank(unit.id)}>+ Del banco</GhostButton>
+                                      <GhostButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo ejercicio</GhostButton>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
+                          );
+                        })}
 
-                            {isUnitOpen && (
-                              <div style={{ borderBottom: !isLast ? `1px solid ${C.line}` : "none" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 54px 104px auto", alignItems: "center", padding: "5px 12px", background: C.bg, borderBottom: `1px solid ${C.line}` }}>
-                                  {["", "Ejercicio", "Dur.", "Estado", ""].map((h, i) => (
-                                    <span key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted2, textTransform: "uppercase" }}>{h}</span>
-                                  ))}
-                                </div>
-
-                                {unitExercises.length === 0 ? (
-                                  <div style={{ padding: "10px 12px 10px 44px", fontSize: 12, color: C.muted, background: C.bg }}>No hay ejercicios en esta unidad.</div>
-                                ) : unitExercises.map((ex, exIdx) => {
-                                  const isQuiz   = modelOf(ex) === "cuestionario";
-                                  const exQs     = questionsOf(ex);
-                                  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
-                                  const keyDone  = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
-                                  const dotColor = keyDone ? C.fnT : C.muted2;
-                                  const dotLabel = isQuiz ? (exQs.length === 0 ? "Sin preguntas" : `${exQs.length} preg.`) : (recorded === 0 ? "Sin clave" : "Clave ✓");
-                                  return (
-                                    <div key={ex.id}
-                                      style={{ display: "grid", gridTemplateColumns: "44px 1fr 54px 104px auto", alignItems: "center", padding: "8px 12px", background: C.bg, borderBottom: `1px solid ${C.line}`, transition: "background .1s" }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = C.paper2}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = C.bg}>
-                                      <span style={{ fontSize: 10, color: C.muted2, fontFamily: FONT_MONO, textAlign: "right", paddingRight: 10 }}>{exIdx + 1}</span>
-                                      <div style={{ fontSize: 13, color: C.ink, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 10 }}
-                                        onClick={() => onSelectExercise(ex.id)}>
-                                        {ex.title}
-                                      </div>
-                                      <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</div>
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: keyDone ? C.fnT : C.muted }}>
-                                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, display: "inline-block", flexShrink: 0 }} />
-                                        {dotLabel}
-                                      </div>
-                                      <div>
-                                        <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} style={{ ...S.btnDanger, fontSize: 10, padding: "2px 7px" }}>Quitar</button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                <div style={{ display: "flex", gap: 6, padding: "8px 12px 10px 44px", background: C.bg }}>
-                                  <button onClick={() => onPickFromBank(unit.id)} style={{ ...S.btn, fontSize: 11, padding: "5px 10px" }}>+ Del banco</button>
-                                  <button onClick={() => onCreateNewExInUnit(unit.id)} style={{ ...S.btnPrimary, fontSize: 11, padding: "5px 10px" }}>+ Nuevo ejercicio</button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                    {/* Nueva unidad — nivel del riel */}
+                    <div style={{ paddingTop: courseUnits.length ? 24 : 0, paddingRight: 24 }}>
+                      <GhostButton onClick={() => onCreateUnit(course.id)}>+ Nueva unidad didáctica</GhostButton>
                     </div>
                   </div>
                 )}
-
-                <div style={{ paddingLeft: 17, marginTop: 8 }}>
-                  <button onClick={() => onCreateUnit(course.id)}
-                    style={{ ...S.btn, fontSize: 12, padding: "6px 14px", borderStyle: "dashed", color: C.muted }}>
-                    + Nueva unidad didáctica
-                  </button>
-                </div>
               </div>
             );
           })}
@@ -4714,68 +6736,128 @@ function CoursesTab({
 }
 
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
-function StudentsTab({ students, exercises, results, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer }) {
-  return (
-    <>
-      <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>{students.length} {students.length === 1 ? "alumno" : "alumnos"}</p>
-        <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear cuenta de alumno</button>
-      </div>
+function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
+  const [expandedStudents, setExpandedStudents] = useState(new Set());
+  const toggleExpand = (id) =>
+    setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-      {students.length === 0 && (
-        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>👨‍🎓</div>
-          <div>Aún no hay alumnos.</div>
-          <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
-        </div>
-      )}
-
-      {students.map((s) => {
-        const sRes = results[s.id] || {};
-        return (
-          <div key={s.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
-                <div style={{ ...S.row, gap: 6 }}>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
-                  <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
-                    {s.credType === "pin" ? "PIN" : "Contraseña"}
-                  </span>
-                </div>
-              </div>
-              <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear acceso</button>
-                <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
-              </div>
+  const renderStudentCard = (s) => {
+    const sRes      = results[s.id] || {};
+    const isOpen    = expandedStudents.has(s.id);
+    const doneCount = exercises.filter((ex) => sRes[ex.id]).length;
+    return (
+      <div key={s.id} style={S.card}>
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
+            <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+              <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
+                {s.credType === "pin" ? "PIN" : "Contraseña"}
+              </span>
+              {exercises.length > 0 && (
+                <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
+                  {doneCount}/{exercises.length} ejs.
+                </span>
+              )}
             </div>
+          </div>
+          <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+            {exercises.length > 0 && (
+              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>
+                {isOpen ? "▲ Ocultar" : "▼ Ejercicios"}
+              </button>
+            )}
+            <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear</button>
+            <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
+          </div>
+        </div>
+
+        {isOpen && exercises.length > 0 && (
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
             {exercises.map((ex) => {
               const r = sRes[ex.id];
+              const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                r.type === "esquema" ||
+                (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+              );
               return (
                 <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
                   <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                    {needsCorrection && (
+                      <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                    )}
                     {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
                     {r && (
-                      <button
-                        onClick={() => onViewAnswer(s, ex, r)}
-                        style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>
-                        Ver
-                      </button>
+                      <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
+        )}
+      </div>
+    );
+  };
+
+  const assignedStudentIds = new Set(groups.flatMap((g) => g.studentIds || []));
+  const ungrouped = students.filter((s) => !assignedStudentIds.has(s.id));
+
+  return (
+    <>
+      <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
+          {students.length} {students.length === 1 ? "alumno" : "alumnos"} · {groups.length} {groups.length === 1 ? "grupo" : "grupos"}
+        </p>
+        <div style={{ ...S.row, gap: 8 }}>
+          <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
+          <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
+        </div>
+      </div>
+
+      {students.length === 0 && groups.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
+          <div>Aún no hay alumnos.</div>
+          <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
+        </div>
+      )}
+
+      {groups.map((group) => {
+        const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
+        return (
+          <div key={group.id} style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
+              <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
+              <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
+              <button onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))} style={{ ...S.btnDanger, fontSize: 12, padding: "4px 10px" }}>Eliminar</button>
+            </div>
+            {groupStudents.length === 0
+              ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
+              : groupStudents.map(renderStudentCard)
+            }
+          </div>
         );
       })}
+
+      {ungrouped.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          {groups.length > 0 && (
+            <div style={{ paddingBottom: 10, marginBottom: 12, borderBottom: `2px solid ${C.line}` }}>
+              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, color: C.muted }}>Sin grupo</span>
+            </div>
+          )}
+          {ungrouped.map(renderStudentCard)}
+        </div>
+      )}
     </>
   );
 }
 
 // ── Pestaña: Categorías ───────────────────────────────────────────────────
-function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
+function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }) {
   return (
     <>
       <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Crear categoría</button>
@@ -4783,38 +6865,96 @@ function CategoriesTab({ categories, onAdd, onEdit, onDelete, askConfirm }) {
         Las categorías definen los botones del modelo Interactivo. Editar o eliminar una categoría no afecta a los ejercicios ya creados.
       </p>
 
-      {categories.map((m) => (
-        <div key={m.id} style={S.card}>
-          <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-              <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 600 }}>{m.name}</span>
-                {m.builtIn && <span style={{ ...S.badge, background: C.line, color: C.muted }}>Predeterminada</span>}
+      {categories.map((m) => {
+        const isGlobal = m.builtIn || m.global;
+        const canEdit  = isAdmin || !isGlobal;
+        const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
+        return (
+          <div key={m.id} style={S.card}>
+            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{m.name}</span>
+                  {isGlobal && (
+                    <span style={{ ...S.badge, background: "#e8f0fe", color: "#1a56db", border: "1px solid #bfcfef" }}>
+                      ⭐ Predeterminada
+                    </span>
+                  )}
+                </div>
+                <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+                  {m.buttons.map((b) => (
+                    <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
+                      {b.id} · {b.name} [{b.key.toUpperCase()}]
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                {m.buttons.map((b) => (
-                  <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
-                    {b.id} · {b.name} [{b.key.toUpperCase()}]
-                  </span>
-                ))}
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {isAdmin && !m.builtIn && (
+                  <button
+                    onClick={() => onToggleGlobal(m.id)}
+                    title={m.global ? "Quitar de predeterminadas" : "Establecer como predeterminada para todos los profesores"}
+                    style={{ ...S.btn, fontSize: 12, color: m.global ? "#1a56db" : C.muted }}
+                  >
+                    {m.global ? "⭐ Predeterminada" : "☆ Predeterminar"}
+                  </button>
+                )}
+                {canEdit && (
+                  <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
+                )}
+                {canDel && (
+                  <button
+                    onClick={() => askConfirm(
+                      `¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`,
+                      () => onDelete(m.id)
+                    )}
+                    style={S.btnDanger}
+                  >Eliminar</button>
+                )}
               </div>
             </div>
-            {!m.builtIn && (
-              <div style={{ ...S.row, gap: 6 }}>
-                <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
-                <button onClick={() => askConfirm(`¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`, () => onDelete(m.id))} style={S.btnDanger}>Eliminar</button>
-              </div>
-            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }
 
 // ── Pestaña: Audios (almacén) ─────────────────────────────────────────────
 function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }) {
-  const [previewId, setPreviewId] = useState(null);
+  const [openId,          setOpenId]          = useState(null);
+  const [previewId,       setPreviewId]       = useState(null);
+  const [filterComposers, setFilterComposers] = useState([]);
+  const [filterTags,      setFilterTags]      = useState([]);
+
+  // Opciones únicas para los dropdowns
+  const allComposers = useMemo(() =>
+    [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
+    [audioLibrary]
+  );
+  const allTags = useMemo(() =>
+    [...new Set(audioLibrary.flatMap((a) => a.tags || []))].sort(),
+    [audioLibrary]
+  );
+
+  // Lista filtrada
+  const filtered = useMemo(() => {
+    if (filterComposers.length === 0 && filterTags.length === 0) return audioLibrary;
+    return audioLibrary.filter((a) => {
+      if (filterComposers.length > 0 && !filterComposers.includes(a.composer)) return false;
+      if (filterTags.length > 0) {
+        const aTags = a.tags || [];
+        if (!filterTags.every((t) => aTags.includes(t))) return false;
+      }
+      return true;
+    });
+  }, [audioLibrary, filterComposers, filterTags]);
+
+  const hasFilters = filterComposers.length > 0 || filterTags.length > 0;
+
+  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+
   return (
     <>
       {isAdmin && (
@@ -4824,45 +6964,106 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
         <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios del almacén.</p>
       )}
 
+      {/* ── Barra de filtros ── */}
+      {audioLibrary.length > 0 && (
+        <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <FilterDropdown
+            label="Compositor"
+            options={allComposers}
+            selected={filterComposers}
+            onToggle={toggleComposer}
+            onClear={() => setFilterComposers([])}
+            accent="#2F6FB8"
+          />
+          <FilterDropdown
+            label="Etiquetas"
+            options={allTags}
+            selected={filterTags}
+            onToggle={toggleTag}
+            onClear={() => setFilterTags([])}
+            accent={C.fnI}
+          />
+          {hasFilters && (
+            <button
+              onClick={() => { setFilterComposers([]); setFilterTags([]); }}
+              style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}
+            >✕ Limpiar</button>
+          )}
+        </div>
+      )}
+
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
           <div>El almacén está vacío.</div>
           {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio con el botón de arriba.</div>}
         </div>
       )}
 
-      {audioLibrary.map((audio) => {
-        const isPrev = previewId === audio.id;
-        return (
-          <div key={audio.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 15, color: C.ink, marginBottom: audio.description ? 4 : 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
-                {audio.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>{audio.description}</div>}
-                <div style={{ ...S.row, gap: 6 }}>
-                  <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+      {audioLibrary.length > 0 && filtered.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem" }}>
+          No hay audios que coincidan con los filtros seleccionados.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {filtered.map((audio) => {
+          const isOpen = openId === audio.id;
+          const isPrev = previewId === audio.id;
+          return (
+            <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+              {/* ── Cabecera siempre visible ── */}
+              <div
+                onClick={() => setOpenId(isOpen ? null : audio.id)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {audio.title}
+                  </div>
+                  {audio.composer && (
+                    <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {audio.composer}
+                    </div>
+                  )}
+                </div>
+                <Chevron open={isOpen} />
+                <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button onClick={() => { setPreviewId(isPrev ? null : audio.id); if (!isOpen) setOpenId(audio.id); }}
+                    style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
+                    {isPrev ? "⏹" : "▶"}
+                  </button>
+                  {isAdmin && (
+                    <>
+                      <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                      <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                        style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+                    </>
+                  )}
                 </div>
               </div>
-              <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                <button onClick={() => setPreviewId(isPrev ? null : audio.id)} style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
-                  {isPrev ? "⏹ Cerrar" : "▶ Escuchar"}
-                </button>
-                {isAdmin && (
-                  <>
-                    <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                    <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))} style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-                  </>
-                )}
-              </div>
+
+              {/* ── Detalle expandido ── */}
+              {isOpen && (
+                <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 14px", background: C.bg }}>
+                  {audio.description && (
+                    <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
+                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+                    {(audio.tags || []).map((tag) => (
+                      <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
+                    ))}
+                  </div>
+                  {isPrev && (
+                    <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 10, height: 36 }} />
+                  )}
+                </div>
+              )}
             </div>
-            {isPrev && (
-              <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 12, height: 36 }} />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -4935,24 +7136,34 @@ function TeacherDash({
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
   results, margin, onMargin,
-  onRecord, onPreview, onAdd, onLogout,
-  categories, onAddCategory, onUpdateCategory, onDeleteCategory,
+  onRecord, onPreview, onManageQuestions, onAdd, onLogout,
+  categories, onAddCategory, onUpdateCategory, onDeleteCategory, onToggleGlobalCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
   onAddUnit, onUpdateUnit, onDeleteUnit,
   onAddExercisesToUnit, onRemoveExerciseFromUnit,
+  groups = [], onAddGroup, onUpdateGroup, onDeleteGroup,
+  onSaveCorrection,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
+  tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }) {
   const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
+  const isMobile = useIsMobile();
 
   const students = useMemo(() =>
     (users || []).filter((u) => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
     [users, currentUser, isAdmin]
   );
-  const teachers = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
+  const teachers      = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
+  const teacherGroups = useMemo(() =>
+    (groups || []).filter((g) => isAdmin || g.teacherId === currentUser?.id),
+    [groups, currentUser, isAdmin]
+  );
 
-  const [tab, setTab] = useState("exercises");
-  const [selectedExerciseId, setSelectedExerciseId] = useState(null);
+  const setTab = onTab || (() => {});
+  // Detalle de ejercicio controlado por la URL ("new" para creación)
+  const selectedExerciseId = detailExId;
+  const setSelectedExerciseId = onSelectExercise || (() => {});
   // Para que el profesor vea la respuesta detallada de un alumno en un ejercicio
   const [viewingAnswer, setViewingAnswer] = useState(null); // null | { student, exercise, result }
 
@@ -4964,6 +7175,7 @@ function TeacherDash({
   const [addingUserRole,  setAddingUserRole]  = useState("student");
   const [showResetCred,   setShowResetCred]   = useState(false);
   const [resetCredTarget, setResetCredTarget] = useState(null);
+  const [editingGroup,    setEditingGroup]    = useState(undefined); // undefined=closed, null=new, group=edit
 
   // Course/unit modal state
   const [openUnitIds,      setOpenUnitIds]      = useState(new Set());
@@ -4989,7 +7201,8 @@ function TeacherDash({
   // Vista de respuesta de un alumno
   if (viewingAnswer) {
     const { student, exercise: va_ex, result: va_result } = viewingAnswer;
-    const freshVa = exercises.find((e) => e.id === va_ex.id) || va_ex;
+    const freshVa      = exercises.find((e) => e.id === va_ex.id) || va_ex;
+    const freshResult  = (results[student.id] || {})[va_ex.id] || va_result;
     return (
       <div style={S.app}>
         <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -5000,11 +7213,15 @@ function TeacherDash({
           </div>
         </div>
         <CorrectionView
+          key={JSON.stringify(freshResult.teacherCorrection)}
           exercise={freshVa}
-          result={va_result}
+          result={freshResult}
           margin={margin}
           onBack={() => setViewingAnswer(null)}
           backLabel="← Volver a alumnos"
+          isTeacherMode={true}
+          student={student}
+          onSaveCorrection={onSaveCorrection}
         />
       </div>
     );
@@ -5027,7 +7244,7 @@ function TeacherDash({
   }
 
   const selectedExercise = selectedExerciseId != null
-    ? (exercises.find((e) => e.id === selectedExerciseId) || lastCreatedExRef.current)
+    ? (exercises.find((e) => String(e.id) === String(selectedExerciseId)) || lastCreatedExRef.current)
     : null;
 
   if (selectedExercise) {
@@ -5037,6 +7254,7 @@ function TeacherDash({
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
         onPreview={onPreview}
+        onManageQuestions={onManageQuestions}
         onUpdate={(patch) => onUpdateExercise(selectedExercise.id, patch)}
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
@@ -5060,41 +7278,56 @@ function TeacherDash({
 
   return (
     <div style={S.app}>
-      <div style={S.page}>
-        <div style={{ paddingBottom: 20, borderBottom: `1.5px solid ${C.line}`, marginBottom: 0 }}>
-          <div style={{ ...S.row, justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.muted, marginBottom: 5 }}>
-                {isAdmin ? "Administrador" : "Profesor"}
-              </div>
-              <h1 style={{ ...S.h1, fontSize: 22, marginBottom: 0 }}>{currentUser?.displayName}</h1>
-            </div>
-            <button onClick={onLogout} style={{ ...S.btn, fontSize: 12 }}>Salir</button>
+      <div style={{ ...S.page, padding: isMobile ? "18px 14px 80px" : S.page.padding }}>
+        {/* Cabecera editorial */}
+        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <Overline>{isAdmin ? "Administrador" : "Profesor"}</Overline>
+            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</h1>
           </div>
+          <div style={{ flexShrink: 0 }}><GhostButton onClick={onLogout}>Salir</GhostButton></div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
-          <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
-          <div style={{ flex: 1 }} />
-          <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
-        </div>
+        {isMobile ? (
+          // Móvil: una sola tira de pestañas con scroll horizontal (sin separador
+          // que colapse ni pestañas recortadas). El borde inferior se mantiene.
+          <div className="fa-noscroll" style={{
+            display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`,
+            marginBottom: 22, gap: 0, overflowX: "auto", flexWrap: "nowrap",
+            WebkitOverflowScrolling: "touch", scrollbarWidth: "none",
+          }}>
+            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
+            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
+            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
+            <div style={{ flex: 1 }} />
+            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
+          </div>
+        )}
 
         {tab === "exercises" && (
-          <ExercisesTab exercises={exercises}
+          <ExercisesTab exercises={exercises} audioLibrary={audioLibrary}
             onNew={() => setSelectedExerciseId("new")}
-            onSelect={setSelectedExerciseId} />
+            onSelect={setSelectedExerciseId}
+            onToggleVisibility={(ex) => onUpdateExercise(ex.id, { hidden: !ex.hidden })}
+            onDelete={(id) => { onDeleteExercise(id); setSelectedExerciseId(null); }}
+            askConfirm={askConfirm} />
         )}
 
         {tab === "courses" && (
           <CoursesTab
-            courses={courses} units={units} exercises={exercises}
+            courses={courses} units={units} exercises={exercises} groups={teacherGroups}
             openUnitIds={openUnitIds} setOpenUnitIds={setOpenUnitIds}
             onCreateCourse={() => setEditingCourse("new")}
             onEditCourse={(c) => setEditingCourse(c)}
             onDeleteCourse={onDeleteCourse}
+            onUpdateCourse={onUpdateCourse}
             onCreateUnit={(courseId) => { setEditingUnit(null); setUnitFormCourseId(courseId); }}
             onEditUnit={(u) => setEditingUnit(u)}
             onDeleteUnit={onDeleteUnit}
+            onUpdateUnit={onUpdateUnit}
             onPickFromBank={(unitId) => setExPickerUnitId(unitId)}
             onCreateNewExInUnit={(unitId) => { setNewExInUnit(unitId); setSelectedExerciseId("new"); }}
             onRemoveExFromUnit={onRemoveExerciseFromUnit}
@@ -5104,18 +7337,25 @@ function TeacherDash({
         )}
 
         {tab === "students" && (
-          <StudentsTab students={students} exercises={exercises} results={results}
+          <StudentsTab
+            students={students} exercises={exercises} results={results}
+            groups={teacherGroups}
             onAddStudent={() => { setAddingUserRole("student"); setShowAddUser(true); }}
             onResetCred={(s) => { setResetCredTarget(s); setShowResetCred(true); }}
             onRemove={onRemoveUser} askConfirm={askConfirm}
-            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })} />
+            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })}
+            onEditGroup={(g) => setEditingGroup(g === null ? null : g)}
+            onDeleteGroup={onDeleteGroup}
+          />
         )}
 
         {tab === "categories" && (
           <CategoriesTab categories={categories}
+            isAdmin={isAdmin}
             onAdd={() => setEditingCategory("new")}
             onEdit={(m) => setEditingCategory(m)}
             onDelete={onDeleteCategory}
+            onToggleGlobal={onToggleGlobalCategory}
             askConfirm={askConfirm} />
         )}
 
@@ -5148,6 +7388,7 @@ function TeacherDash({
         {editingCourse !== null && (
           <CourseFormModal
             initial={editingCourse === "new" ? null : editingCourse}
+            groups={teacherGroups}
             onSave={(c) => { if (editingCourse === "new") onAddCourse({ ...c, ownerId: currentUser.id }); else onUpdateCourse(c); setEditingCourse(null); }}
             onClose={() => setEditingCourse(null)} />
         )}
@@ -5187,8 +7428,23 @@ function TeacherDash({
         {editingAudio !== null && (
           <AudioLibraryFormModal
             initial={editingAudio === "new" ? null : editingAudio}
+            allTags={[...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort()}
+            allComposers={[...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort()}
             onSave={(a) => { if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a); setEditingAudio(null); }}
             onClose={() => setEditingAudio(null)} />
+        )}
+
+        {editingGroup !== undefined && (
+          <GroupEditorModal
+            initial={editingGroup}
+            students={students}
+            currentUserId={currentUser.id}
+            onSave={(g) => {
+              if (editingGroup === null) onAddGroup(g); else onUpdateGroup(g);
+              setEditingGroup(undefined);
+            }}
+            onClose={() => setEditingGroup(undefined)}
+          />
         )}
 
         {confirmState && (
@@ -5200,12 +7456,18 @@ function TeacherDash({
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
+function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
   const isCreating = exercise == null;
 
   // Estado del formulario
   const [title, setTitle] = useState(isCreating ? "" : exercise.title);
-  const [model, setModel] = useState(isCreating ? DEFAULT_MODEL_ID : modelOf(exercise));
+  // comboId: id de MODEL_COMBOS — puede ser un solo modelo o un combo doble
+  const [comboId, setComboId] = useState(() =>
+    isCreating ? DEFAULT_MODEL_ID : comboIdFromModels(modelsOf(exercise))
+  );
+  const activeCombo   = MODEL_COMBOS.find((c) => c.id === comboId) || MODEL_COMBOS[0];
+  const selectedModels = activeCombo.models;          // ej. ["interactivo","cuestionario"]
+  const model          = selectedModels[0];           // modelo primario (backward compat)
 
   const initialCatIds = useMemo(() => {
     if (isCreating) return new Set([categories[0]?.id || "default"]);
@@ -5231,14 +7493,25 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
 
   const [audioUrl,       setAudioUrl]       = useState(isCreating ? null : (exercise.audioUrl || null));
   const [audioName,      setAudioName]      = useState(isCreating ? null : (exercise.audioName || null));
-  const [audioDuration,  setAudioDuration]  = useState(null);
+  const [audioDuration,  setAudioDuration]  = useState(() => {
+    if (isCreating) return null;
+    const lib = (exercise.audioUrl || null)
+      ? audioLibrary.find(a => a.url === exercise.audioUrl)
+      : null;
+    return lib?.duration || exercise.audioTotalDuration || null;
+  });
   const [waveformData,   setWaveformData]   = useState(isCreating ? null : (exercise.waveformData || null));
+  // Fragmento de audio: inicio y fin en el audio completo (segundos), o null = sin fragmento
+  const [fragStart,      setFragStart]      = useState(isCreating ? null : (exercise.audioFragmentStart ?? null));
+  const [fragEnd,        setFragEnd]        = useState(isCreating ? null : (exercise.audioFragmentEnd   ?? null));
   const [manualDuration, setManualDuration] = useState(
     !isCreating && !exercise.audioName && exercise.duration ? String(exercise.duration) : ""
   );
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
-  const [listenOnly,        setListenOnly]        = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [listenOnly,                setListenOnly]                = useState(isCreating ? false : (exercise.listenOnly ?? false));
+  const [immediateSchemaFeedback,   setImmediateSchemaFeedback]   = useState(isCreating ? false : (exercise.immediateSchemaFeedback ?? false));
+  const [showComposer,              setShowComposer]              = useState(isCreating ? true  : (exercise.showComposer ?? true));
   const [schemaLevels,      setSchemaLevels]      = useState(
     () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
   );
@@ -5271,6 +7544,8 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     setAudioName(url ? url.split("/").pop().split("?")[0] || "audio" : null);
     setAudioDuration(null);
     setWaveformData(null);
+    setFragStart(null);
+    setFragEnd(null);
     if (!url) return;
 
     const reqId    = ++urlReqRef.current;
@@ -5291,6 +7566,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
   const clearAudio = () => {
     setAudioUrl(null); setAudioName(null);
     setAudioDuration(null); setWaveformData(null);
+    setFragStart(null); setFragEnd(null);
     urlReqRef.current++;
   };
 
@@ -5301,28 +7577,48 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
     setAudioDuration(audio.duration);
     setWaveformData(null);                      // se recalcula al reproducir
     setManualDuration(String(audio.duration));
+    setFragStart(null);                         // reset fragmento al cambiar audio
+    setFragEnd(null);
     setShowLibraryPicker(false);
   };
 
   const hasExistingAudio = !!audioName;
+  // Duración total del audio del almacén (sin recortar), para la barra de fragmento
+  const totalAudioDuration = audioDuration
+    || (!audioUrl ? null : audioLibrary.find(a => a.url === audioUrl)?.duration)
+    || (!isCreating && !exercise.audioFragmentStart ? exercise.duration : null)
+    || null;
+  // Duración efectiva del ejercicio (del fragmento si está definido, del audio completo si no)
   const effDuration = hasExistingAudio
-    ? (audioDuration || (!isCreating ? exercise.duration : 0))
+    ? (fragStart != null && fragEnd != null
+        ? Math.round((fragEnd - fragStart) * 10) / 10
+        : (audioDuration || (!isCreating ? exercise.duration : 0)))
     : (parseInt(manualDuration) || 0);
+
+  // Compositor del audio actualmente seleccionado (para el toggle)
+  const activeComposer = useMemo(() => {
+    if (!audioUrl) return null;
+    return audioLibrary.find((a) => a.url === audioUrl)?.composer || null;
+  }, [audioUrl, audioLibrary]);
 
   // Detección de cambios (solo en edición)
   const isDirty = useMemo(() => {
     if (isCreating) return false;
     if (title.trim() !== exercise.title) return true;
-    if (model !== modelOf(exercise)) return true;
+    // Comparar array de modelos
+    const exModelsArr = modelsOf(exercise);
+    if (selectedModels.join(",") !== exModelsArr.join(",")) return true;
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
-    if (model === "esquema" && (exercise.listenOnly ?? false) !== listenOnly) return true;
-    if (model === "esquema") {
+    if (selectedModels.includes("esquema") && (exercise.listenOnly ?? false) !== listenOnly) return true;
+    if (selectedModels.includes("esquema") && (exercise.immediateSchemaFeedback ?? false) !== immediateSchemaFeedback) return true;
+    if ((exercise.showComposer ?? true) !== showComposer) return true;
+    if (selectedModels.includes("esquema")) {
       const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
     }
 
-    if (model === "interactivo") {
+    if (selectedModels.includes("interactivo")) {
       const exCats = categoriesOf(exercise);
       const exIds  = new Set(exCats.map((m) => m.id));
       if (selectedCategoryIds.size !== exIds.size) return true;
@@ -5339,42 +7635,54 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       const manual = parseInt(manualDuration) || 0;
       if (manual !== exercise.duration) return true;
     }
+    if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
+    if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, model, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, schemaLevels]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
+  const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
 
   const handleSave = () => {
     if (!canSave) return;
-    const chosen = model === "interactivo" ? categories.filter((m) => selectedCategoryIds.has(m.id)) : [];
+    const hasInteractivo = selectedModels.includes("interactivo");
+    const hasEsquema     = selectedModels.includes("esquema");
+    const hasCuestionario = selectedModels.includes("cuestionario");
+    const chosen = hasInteractivo ? categories.filter((m) => selectedCategoryIds.has(m.id)) : [];
 
     const applyBtnFilter = (cat) => {
       const selBtns = selectedButtonIds.get(cat.id);
       const btns    = selBtns ? cat.buttons.filter((b) => selBtns.has(b.id)) : cat.buttons;
       return { ...cat, buttons: btns.length >= 1 ? btns : cat.buttons };
     };
-    const safe = (chosen.length ? chosen : (model === "interactivo" ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
+    const safe = (chosen.length ? chosen : (hasInteractivo ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
 
     if (isCreating) {
       onCreate({
         id: Date.now(),
         title: title.trim(),
         duration: effDuration,
-        model,
-        audioUrl:     audioUrl     || null,
-        audioName:    audioName    || null,
-        waveformData: waveformData || null,
+        model,                     // modelo primario (backward compat)
+        models: selectedModels,    // array completo de modelos
+        audioUrl:            audioUrl     || null,
+        audioName:           audioName    || null,
+        waveformData:        waveformData || null,
+        audioFragmentStart:  fragStart    ?? null,
+        audioFragmentEnd:    fragEnd      ?? null,
+        audioTotalDuration:  totalAudioDuration || null,
         showHint: false,
-        categories: model === "interactivo" ? safe : [],
+        categories: hasInteractivo ? safe : [],
         answers:    {},
-        ...(model === "cuestionario" ? { questions: [] } : {}),
-        ...(model === "esquema" ? { listenOnly, schemaLevels: [...schemaLevels] } : {}),
+        ...(hasCuestionario ? { questions: [] } : {}),
+        ...(hasEsquema ? { listenOnly, immediateSchemaFeedback, schemaLevels: [...schemaLevels] } : {}),
+        showComposer,
+        composerName: activeComposer || null,
       });
       return;
     }
 
-    const patch = { title: title.trim(), duration: effDuration, model };
-    if (model === "interactivo") {
+    const patch = { title: title.trim(), duration: effDuration, model, models: selectedModels };
+    if (hasInteractivo) {
       const keepIds = new Set(safe.map((m) => m.id));
       const prev    = exercise.answers || {};
       patch.categories = safe;
@@ -5384,160 +7692,251 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
       patch.categories = [];
       patch.answers    = {};
     }
-    patch.audioUrl     = audioUrl     || null;
-    patch.audioName    = audioName    || null;
-    patch.waveformData = waveformData || null;
-    if (model === "esquema") { patch.listenOnly = listenOnly; patch.schemaLevels = [...schemaLevels]; }
+    patch.audioUrl            = audioUrl     || null;
+    patch.audioName           = audioName    || null;
+    patch.waveformData        = waveformData || null;
+    patch.audioFragmentStart  = fragStart    ?? null;
+    patch.audioFragmentEnd    = fragEnd      ?? null;
+    patch.audioTotalDuration  = totalAudioDuration || null;
+    if (hasEsquema) { patch.listenOnly = listenOnly; patch.immediateSchemaFeedback = immediateSchemaFeedback; patch.schemaLevels = [...schemaLevels]; }
+    patch.showComposer = showComposer;
+    patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
+      patch.audioFragmentStart = null; patch.audioFragmentEnd = null;
     }
     onUpdate(patch);
   };
 
   // Estado derivado del ejercicio guardado
-  const isQuizSaved = !isCreating && modelOf(exercise) === "cuestionario";
+  const isQuizSaved = !isCreating && modelsOf(exercise).includes("cuestionario");
   const exQs        = isCreating ? [] : questionsOf(exercise);
   const { recorded, total } = (isCreating || isQuizSaved) ? { recorded: 0, total: 0 } : answerStats(exercise);
 
   return (
     <div style={S.app}>
       <div style={S.page}>
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 28 }}>
-          <button onClick={onBack} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>← Ejercicios</button>
-          {(isCreating || isDirty) && (
-            <button onClick={handleSave} disabled={!canSave}
-              style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-              {isCreating ? "Crear ejercicio" : "Guardar cambios"}
-            </button>
-          )}
+        {/* Cabecera */}
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 14 }}>← Ejercicios</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <h1 style={{ ...S.h1 }}>{isCreating ? "Nuevo ejercicio" : title || "Sin título"}</h1>
+            {(isCreating || isDirty) && (
+              <CtaButton onClick={handleSave} disabled={!canSave}>
+                {isCreating ? "Crear ejercicio" : "Guardar cambios"}
+              </CtaButton>
+            )}
+          </div>
         </div>
 
-        <p style={SECTION_STYLE}>Información</p>
+        {/* ══ 1. INFORMACIÓN ══════════════════════════════════════════════════ */}
+        <section style={SEC}>
+          <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Información</p>
 
-        <label style={S.label}>Nombre del ejercicio</label>
-        <input style={{ ...S.input, marginBottom: 18, fontSize: 15, fontWeight: 500 }}
-          value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" />
+          <label style={S.label}>Nombre del ejercicio</label>
+          <input style={{ ...S.input, marginBottom: 14, fontSize: 15, fontWeight: 500 }}
+            value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" />
 
-        <label style={S.label}>{hasExistingAudio ? "Audio" : "Audio del ejercicio"}</label>
-        {hasExistingAudio && (
-          <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, ...S.row, gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: C.ink, flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              🎵 {audioName}
-            </span>
-            {!isCreating && <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(exercise.duration)}</span>}
-            <button type="button" onClick={clearAudio} style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 12 }}>Quitar</button>
-          </div>
-        )}
-
-        {audioLibrary.length > 0 && (
-          <button type="button" onClick={() => setShowLibraryPicker(true)}
-            style={{ ...S.btn, width: "100%", marginBottom: 10, fontSize: 13, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>🎵 {hasExistingAudio ? "Cambiar desde el almacén" : "Elegir del almacén de audios"}</span>
-            <span style={{ color: C.muted2, fontSize: 18, fontWeight: 300, lineHeight: 1 }}>›</span>
-          </button>
-        )}
-
-        <label style={{ ...S.label, marginBottom: 4 }}>{audioLibrary.length > 0 ? "O pega una URL directamente" : "Enlace de audio (URL)"}</label>
-        <input type="url" style={{ ...S.input, marginBottom: 4, fontSize: 13 }}
-          value={audioUrl || ""} onChange={(e) => handleUrlInput(e.target.value)}
-          placeholder="https://res.cloudinary.com/… o cualquier URL pública de audio" />
-        {hasExistingAudio && audioDuration !== null && (
-          <p style={{ fontSize: 12, color: C.fnT, margin: "4px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>
-        )}
-        {hasExistingAudio && audioDuration === null && (
-          <p style={{ fontSize: 12, color: C.muted, margin: "4px 0 0" }}>Duración no detectada — se usará la actual o la manual.</p>
-        )}
-        {!hasExistingAudio && (
-          <div style={{ marginTop: 10 }}>
-            <label style={S.label}>Duración manual (segundos)</label>
-            <input type="number" min={1} style={S.input}
-              value={manualDuration} onChange={(e) => setManualDuration(e.target.value)} placeholder="Ej: 30" />
-          </div>
-        )}
-        <div style={{ marginBottom: 18 }} />
-
-        <label style={S.label}>Modelo de ejercicio</label>
-        <div style={{ ...S.row, gap: 8, marginBottom: 8 }}>
-          {EXERCISE_MODELS.map((m) => (
-            <button key={m.id} type="button" onClick={() => setModel(m.id)} title={m.description}
-              style={{
-                ...S.btn, flex: 1, fontSize: 13, padding: "9px 12px",
-                background: model === m.id ? C.ink : C.paper,
-                color:      model === m.id ? C.paper : C.ink2,
-                border:     `1px solid ${model === m.id ? C.ink : C.line}`,
-              }}>
-              {m.name}
-            </button>
-          ))}
-        </div>
-        {model === "cuestionario" && (
-          <p style={{ fontSize: 11, color: C.quiz, margin: 0, padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
-            Las preguntas se gestionan desde la sección de abajo.
-          </p>
-        )}
-
-        {model === "interactivo" && (
-          <div style={{ marginTop: 18 }}>
-            <label style={S.label}>Categorías y botones del ejercicio</label>
-            <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 8, maxHeight: 320, overflowY: "auto" }}>
-              {categories.map((cat) => {
-                const checked  = selectedCategoryIds.has(cat.id);
-                const isLast   = checked && selectedCategoryIds.size === 1;
-                const selBtns  = selectedButtonIds.get(cat.id) || new Set();
-                const allCount = cat.buttons.length;
-                const selCount = checked ? [...cat.buttons].filter((b) => selBtns.has(b.id)).length : 0;
-                return (
-                  <div key={cat.id} style={{ marginBottom: checked ? 6 : 2 }}>
-                    <label style={{ ...S.row, gap: 10, padding: "6px 8px", borderRadius: 6, cursor: isLast ? "not-allowed" : "pointer", background: checked ? "rgba(26,25,21,0.04)" : "transparent" }}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat.id)}
-                        style={{ cursor: isLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, fontWeight: 500, color: checked ? C.ink : C.muted2, flex: 1 }}>{cat.name}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
-                        {checked ? `${selCount}/${allCount}` : `${allCount} btn`}
-                      </span>
-                    </label>
-
-                    {checked && (
-                      <div style={{ paddingLeft: 28, paddingBottom: 4, paddingTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
-                        {cat.buttons.map((btn) => {
-                          const bChecked = selBtns.has(btn.id);
-                          const bIsLast  = bChecked && selCount === 1;
-                          return (
-                            <label key={btn.id} style={{ ...S.row, gap: 8, padding: "4px 8px", borderRadius: 6, cursor: bIsLast ? "not-allowed" : "pointer", opacity: bChecked ? 1 : 0.45 }}>
-                              <input type="checkbox" checked={bChecked} onChange={() => toggleButton(cat.id, btn.id)}
-                                style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
-                              <span style={{
-                                width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0,
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO,
-                              }}>{btn.id}</span>
-                              <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
-                              <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{btn.key.toUpperCase()}]</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+          <label style={S.label}>Audio</label>
+          {hasExistingAudio ? (
+            /* Fila única cuando ya hay audio */
+            <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 4 }}>
+              <AudioWaveIcon size={15} color={C.ink2} />
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {audioName}
+              </span>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>
+                {fmt(effDuration)}
+              </span>
+              {audioLibrary.length > 0 && (
+                <button type="button" onClick={() => setShowLibraryPicker(true)}
+                  style={{ ...S.btn, padding: "3px 10px", fontSize: 12, flexShrink: 0 }}>
+                  Cambiar
+                </button>
+              )}
+              <button type="button" onClick={clearAudio}
+                style={{ ...S.btnDanger, padding: "3px 10px", fontSize: 12, flexShrink: 0 }}>
+                Quitar
+              </button>
             </div>
+          ) : (
+            /* Selección cuando no hay audio: almacén + URL en una fila */
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ ...S.row, gap: 8, marginBottom: 0 }}>
+                {audioLibrary.length > 0 && (
+                  <button type="button" onClick={() => setShowLibraryPicker(true)}
+                    style={{ ...S.btn, padding: "8px 12px", fontSize: 13, flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <AudioWaveIcon size={13} color="#555" />
+                    Almacén
+                  </button>
+                )}
+                <input type="url" style={{ ...S.input, fontSize: 13 }}
+                  value={audioUrl || ""} onChange={(e) => handleUrlInput(e.target.value)}
+                  placeholder={audioLibrary.length > 0 ? "O pega una URL de audio" : "URL pública de audio"} />
+              </div>
+              <div style={{ ...S.row, gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                <label style={{ ...S.label, margin: 0, whiteSpace: "nowrap" }}>Sin audio · duración manual (s)</label>
+                <input type="number" min={1} style={{ ...S.input, width: 90, flex: "0 0 auto" }}
+                  value={manualDuration} onChange={(e) => setManualDuration(e.target.value)} placeholder="30" />
+              </div>
+            </div>
+          )}
+          {hasExistingAudio && audioDuration !== null && (
+            <p style={{ fontSize: 11, color: C.fnT, margin: "2px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>
+          )}
+          {hasExistingAudio && audioDuration === null && (
+            <p style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>Duración no detectada — se usará la actual.</p>
+          )}
+
+          {/* Fragmento — separado por un divisor interno */}
+          {hasExistingAudio && totalAudioDuration && (
+            selectedModels.includes("cuestionario") || selectedModels.includes("interactivo")
+          ) && (
+            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 14, paddingTop: 14 }}>
+              <p style={{ ...SECTION_STYLE, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                Fragmento
+                {fragStart !== null && (
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.quiz, fontWeight: 600,
+                    textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
+                    padding: "1px 6px", borderRadius: 4 }}>
+                    {fmt(fragStart)} – {fmt(fragEnd)}
+                  </span>
+                )}
+              </p>
+              <FragmentRangeSelector
+                totalDuration={totalAudioDuration}
+                start={fragStart}
+                end={fragEnd}
+                onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
+                onClear={() => { setFragStart(null); setFragEnd(null); }}
+                onDefine={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
+                audioUrl={audioUrl}
+              />
+              {fragStart === null && (
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0", lineHeight: 1.5 }}>
+                  Escucha el audio y define un fragmento para que el ejercicio use solo ese tramo.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ══ 2. MODELO ═══════════════════════════════════════════════════════ */}
+        <section style={SEC}>
+          <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Modelo de ejercicio</p>
+
+          {/* Fila 1: modelos individuales */}
+          <div style={{ ...S.row, gap: 8, marginBottom: 6 }}>
+            {MODEL_COMBOS.slice(0, 3).map((c) => {
+              const isActive = comboId === c.id;
+              const dotColor = MODEL_META[c.models[0]]?.color || C.muted;
+              return (
+                <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                  style={{
+                    ...S.btn, flex: 1, fontSize: 13, padding: "8px 10px",
+                    background: isActive ? C.ink : C.paper2,
+                    color:      isActive ? C.paper : C.ink2,
+                    border:     `1px solid ${isActive ? C.ink : C.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "rgba(255,255,255,0.55)" : dotColor, flexShrink: 0 }} />
+                  {c.name}
+                </button>
+              );
+            })}
           </div>
-        )}
+          {/* Fila 2: combos dobles */}
+          <div style={{ ...S.row, gap: 8, marginBottom: 10 }}>
+            {MODEL_COMBOS.slice(3).map((c) => {
+              const isActive = comboId === c.id;
+              return (
+                <button key={c.id} type="button" onClick={() => setComboId(c.id)} title={c.description}
+                  style={{
+                    ...S.btn, flex: 1, fontSize: 12, padding: "8px 10px",
+                    background: isActive ? C.ink : C.paper2,
+                    color:      isActive ? C.paper : C.ink2,
+                    border:     `1px solid ${isActive ? C.ink : C.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>
+                  <span style={{ display: "flex", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
+                    <span style={{ width: 8, height: 8, background: MODEL_META[c.models[0]]?.color || C.muted }} />
+                    <span style={{ width: 8, height: 8, background: MODEL_META[c.models[1]]?.color || C.muted }} />
+                  </span>
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+          {selectedModels.includes("cuestionario") && (
+            <p style={{ fontSize: 11, color: C.quiz, margin: "0 0 4px", padding: "6px 10px", background: "rgba(47,111,184,0.08)", borderRadius: 8 }}>
+              {selectedModels.length > 1
+                ? "Incluye cuestionario: las preguntas se configuran en la sección de abajo."
+                : "Las preguntas se configuran en la sección de abajo."}
+            </p>
+          )}
+          {selectedModels.length > 1 && (
+            <p style={{ fontSize: 11, color: C.muted, margin: "4px 0 0", padding: "6px 10px", background: C.paper2, borderRadius: 8, lineHeight: 1.5 }}>
+              El alumno podrá alternar entre los dos modos durante la práctica del ejercicio.
+            </p>
+          )}
 
-        <hr style={{ ...S.divider, margin: "28px 0" }} />
+          {/* Categorías — solo interactivo */}
+          {selectedModels.includes("interactivo") && (
+            <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+              <label style={{ ...S.label, marginBottom: 8 }}>Categorías y botones</label>
+              <div style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 8, maxHeight: 300, overflowY: "auto" }}>
+                {categories.map((cat) => {
+                  const checked  = selectedCategoryIds.has(cat.id);
+                  const isLast   = checked && selectedCategoryIds.size === 1;
+                  const selBtns  = selectedButtonIds.get(cat.id) || new Set();
+                  const allCount = cat.buttons.length;
+                  const selCount = checked ? [...cat.buttons].filter((b) => selBtns.has(b.id)).length : 0;
+                  return (
+                    <div key={cat.id} style={{ marginBottom: checked ? 6 : 2 }}>
+                      <label style={{ ...S.row, gap: 10, padding: "6px 8px", borderRadius: 6, cursor: isLast ? "not-allowed" : "pointer", background: checked ? "rgba(26,25,21,0.04)" : "transparent" }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat.id)}
+                          style={{ cursor: isLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: checked ? C.ink : C.muted2, flex: 1 }}>{cat.name}</span>
+                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
+                          {checked ? `${selCount}/${allCount}` : `${allCount} btn`}
+                        </span>
+                      </label>
+                      {checked && (
+                        <div style={{ paddingLeft: 28, paddingBottom: 4, paddingTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+                          {cat.buttons.map((btn) => {
+                            const bChecked = selBtns.has(btn.id);
+                            const bIsLast  = bChecked && selCount === 1;
+                            return (
+                              <label key={btn.id} style={{ ...S.row, gap: 8, padding: "4px 8px", borderRadius: 6, cursor: bIsLast ? "not-allowed" : "pointer", opacity: bChecked ? 1 : 0.45 }}>
+                                <input type="checkbox" checked={bChecked} onChange={() => toggleButton(cat.id, btn.id)}
+                                  style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
+                                <span style={{ width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO }}>{btn.id}</span>
+                                <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
+                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{btn.key.toUpperCase()}]</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
 
-        {/* Clave · Interactivo */}
-        {model === "interactivo" && (
-          <>
-            <p style={SECTION_STYLE}>Clave de corrección</p>
+        {/* ══ 3. CLAVE DE CORRECCIÓN (interactivo) ════════════════════════════ */}
+        {selectedModels.includes("interactivo") && (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Clave de corrección</p>
             {isCreating ? (
               <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: 0 }}>
                 Crea el ejercicio para poder grabar la clave de corrección.
               </p>
             ) : (
               <>
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 14 }}>
                   {categoriesOf(exercise).map((cat) => {
                     const hasKey = answerFor(exercise, cat.id).length > 0;
                     return (
@@ -5563,18 +7962,16 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                 </button>
               </>
             )}
-          </>
+          </section>
         )}
 
-        {/* Esquema · info + botones grabar/probar */}
-        {model === "esquema" && !isCreating && (
-          <>
-            <p style={SECTION_STYLE}>Esquema formal</p>
-            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
-              El alumno dibuja bloques de forma musical (partes, frases, armonía, texto) sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo junto a la entrega del alumno durante la corrección.
+        {/* ══ 4. ESQUEMA FORMAL ═══════════════════════════════════════════════ */}
+        {selectedModels.includes("esquema") && !isCreating && (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Esquema formal</p>
+            <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+              El alumno dibuja bloques de forma musical sobre una línea de tiempo multinivel. Graba un esquema de referencia para mostrarlo durante la corrección.
             </div>
-
-            {/* Selección de niveles activos */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ ...S.label, marginBottom: 8 }}>Niveles que verá el alumno</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -5585,15 +7982,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                     <button key={lv.id} type="button"
                       onClick={() => !isLast && toggleSchemaLevel(lv.id)}
                       title={isLast ? "Debe haber al menos un nivel activo" : undefined}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 7,
-                        padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer",
-                        border: `1.5px solid ${active ? lv.color : C.line}`,
-                        background: active ? lv.color + "18" : C.paper2,
-                        transition: "all .12s",
-                        opacity: isLast ? 0.6 : 1,
-                        fontFamily: FONT_SANS,
-                      }}>
+                      style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 9, cursor: isLast ? "not-allowed" : "pointer", border: `1.5px solid ${active ? lv.color : C.line}`, background: active ? lv.color + "18" : C.paper2, transition: "all .12s", opacity: isLast ? 0.6 : 1, fontFamily: FONT_SANS }}>
                       <span style={{ width: 10, height: 10, borderRadius: 2, background: active ? lv.color : C.muted2, flexShrink: 0, transition: "background .12s" }} />
                       <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? lv.color : C.muted, transition: "all .12s" }}>{lv.sub}</span>
                       {active && <span style={{ fontSize: 10, color: lv.color, opacity: 0.7, marginLeft: 1 }}>✓</span>}
@@ -5602,34 +7991,33 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                 })}
               </div>
               {schemaLevels.size < SCHEMA_LEVELS.length && (
-                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>
-                  Solo se mostrarán las pistas seleccionadas. Los niveles desactivados no aparecen al alumno.
-                </p>
+                <p style={{ fontSize: 11, color: C.muted, margin: "6px 0 0" }}>Los niveles desactivados no aparecen al alumno.</p>
               )}
             </div>
-
-            {/* Toggle: reproducción sin navegación */}
             <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${listenOnly ? C.fnD + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-                <input type="checkbox" checked={listenOnly}
-                  onChange={e => setListenOnly(e.target.checked)}
+                <input type="checkbox" checked={listenOnly} onChange={e => setListenOnly(e.target.checked)}
                   style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Reproducción sin navegación</div>
-                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>
-                    El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo. Activa una barra de marcas donde se pueden colocar, mover y borrar puntos de referencia a los que los bloques se imantan.
-                  </div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>El alumno solo puede dar al play/pausa y a «Empezar de nuevo». No puede saltar en la línea de tiempo.</div>
                 </div>
               </label>
             </div>
-
-            {/* Estado de la clave */}
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: C.paper2, border: `1px solid ${immediateSchemaFeedback ? C.quiz + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={immediateSchemaFeedback} onChange={e => setImmediateSchemaFeedback(e.target.checked)}
+                  style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Retroalimentación inmediata</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Al entregar el ejercicio, el alumno verá el esquema de referencia del profesor antes de que corrija manualmente.</div>
+                </div>
+              </label>
+            </div>
             {(() => {
               const key = exercise.schemaKey;
               const hasKey = Array.isArray(key) && key.length > 0;
-              const keyLevels = SCHEMA_LEVELS.filter(lv =>
-                !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
-              );
+              const keyLevels = SCHEMA_LEVELS.filter(lv => !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id));
               const byLevel = hasKey ? keyLevels.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
               return (
                 <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
@@ -5640,16 +8028,38 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                     </span>
                   </div>
                   {hasKey && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {byLevel.map(({ lv, blocks }) => (
                         <div key={lv.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                          <div style={{ flex: 1, position: "relative", height: 20, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
-                            {blocks.map((b, i) => (
-                              <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${(b.start / exercise.duration) * 100}%`, width: `${((b.end - b.start) / exercise.duration) * 100}%`, background: lv.color, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                                <span style={{ fontSize: 8, fontWeight: 700, color: "white", fontFamily: FONT_SERIF, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
-                              </div>
-                            ))}
+                          <div style={{ flex: 1, position: "relative", height: 28, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                            {blocks.map((b, i) => {
+                              const lPct = (b.start / exercise.duration) * 100;
+                              const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                              const { bg, textColor } = schemaBlockColor(b, key);
+                              if (lv.id === 3) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                                    <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", padding: "2px 7px", flexShrink: 0 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
+                                    </div>
+                                    {wPct >= 4 && <div style={{ flex: 1, height: 2, background: bg, opacity: 0.5, marginLeft: 3, borderRadius: 1 }} />}
+                                  </div>
+                                );
+                              }
+                              if (lv.id === 4) {
+                                return (
+                                  <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                    <span style={{ fontSize: 9, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 4px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={i} style={{ position: "absolute", top: 2, bottom: 2, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 3, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                  <span style={{ fontSize: 9, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", padding: "0 2px", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
@@ -5658,79 +8068,79 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onUpdate, o
                 </div>
               );
             })()}
-
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => onRecord(exercise)} style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: !exercise.schemaKey?.length ? C.ink : C.paper2,
-                color:      !exercise.schemaKey?.length ? C.paper : C.ink,
-                border:     !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
-                borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
-              }}>
+              <button onClick={() => onRecord(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !exercise.schemaKey?.length ? C.ink : C.paper2, color: !exercise.schemaKey?.length ? C.paper : C.ink, border: !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                 <span>{exercise.schemaKey?.length ? "Regrabar clave" : "Grabar clave"}</span>
                 <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
               </button>
               {onPreview && (
-                <button onClick={() => onPreview(exercise)} style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: C.paper2, color: C.ink,
-                  border: `1.5px solid ${C.line}`,
-                  borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600,
-                }}>
+                <button onClick={() => onPreview(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                   <span>Probar ejercicio</span>
                   <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>›</span>
                 </button>
               )}
             </div>
-          </>
+          </section>
         )}
 
-        {/* Preguntas · Cuestionario */}
-        {model === "cuestionario" && !isCreating && (
-          <>
-            <p style={SECTION_STYLE}>Preguntas</p>
-            <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 16 }}>
+        {/* ══ 5. PREGUNTAS (cuestionario) ══════════════════════════════════════ */}
+        {selectedModels.includes("cuestionario") && !isCreating && (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Preguntas</p>
+            <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 14 }}>
               <span style={{ fontSize: 13, color: C.ink2, fontWeight: 500 }}>Preguntas configuradas</span>
               <span style={{ fontSize: 12, fontWeight: 600, color: exQs.length > 0 ? C.quiz : C.muted }}>
                 {exQs.length > 0 ? `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}` : "Ninguna todavía"}
               </span>
             </div>
-            <button onClick={() => onRecord(exercise)} style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: exQs.length === 0 ? C.ink : C.paper2,
-              color:      exQs.length === 0 ? C.paper : C.ink,
-              border:     exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
-              borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600,
-            }}>
+            <button onClick={() => (onManageQuestions || onRecord)(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: exQs.length === 0 ? C.ink : C.paper2, color: exQs.length === 0 ? C.paper : C.ink, border: exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
               <span>{exQs.length === 0 ? "Crear preguntas" : "Editar preguntas"}</span>
               <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
             </button>
-          </>
+            {selectedModels.length > 1 && onPreview && (
+              <button onClick={() => onPreview(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", color: C.ink2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13, fontWeight: 500, marginTop: 8 }}>
+                <span>Probar ejercicio completo</span>
+                <span style={{ fontSize: 16, opacity: 0.45, fontWeight: 300 }}>→</span>
+              </button>
+            )}
+          </section>
         )}
 
-        {/* Opciones para el alumno (solo interactivo, tras crear) */}
-        {!isCreating && model === "interactivo" && (
-          <>
-            <hr style={{ ...S.divider, margin: "28px 0" }} />
-            <p style={SECTION_STYLE}>Opciones para el alumno</p>
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-              <input type="checkbox" checked={!!exercise.showHint}
-                onChange={(e) => onUpdate({ showHint: e.target.checked })}
-                style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar guía de tiempo</div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-                  Muestra los bloques de función como barras apagadas — una pista sin revelar la solución.
+        {/* ══ 6. OPCIONES PARA EL ALUMNO ══════════════════════════════════════ */}
+        {(!isCreating && selectedModels.includes("interactivo")) || activeComposer ? (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Opciones para el alumno</p>
+            {!isCreating && selectedModels.includes("interactivo") && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none", marginBottom: activeComposer ? 14 : 0 }}>
+                <input type="checkbox" checked={!!exercise.showHint}
+                  onChange={(e) => onUpdate({ showHint: e.target.checked })}
+                  style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar guía de tiempo</div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Muestra los bloques de función como barras apagadas — una pista sin revelar la solución.</div>
                 </div>
-              </div>
-            </label>
-          </>
-        )}
+              </label>
+            )}
+            {activeComposer && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={showComposer}
+                  onChange={(e) => setShowComposer(e.target.checked)}
+                  style={{ width: 16, height: 16, marginTop: 2, accentColor: C.fnT, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, marginBottom: 3 }}>Mostrar nombre del compositor</div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+                    Muestra <em style={{ fontStyle: "normal", color: C.fnS }}>{activeComposer}</em> debajo del título en la vista del alumno.
+                  </div>
+                </div>
+              </label>
+            )}
+          </section>
+        ) : null}
 
         {/* Zona de peligro */}
         {!isCreating && (
-          <div style={{ marginTop: 40, paddingTop: 20, borderTop: `1px solid ${C.line}` }}>
-            <button onClick={() => setShowConfirmDel(true)} style={{ ...S.btnDanger, width: "100%", padding: "10px", fontSize: 13, textAlign: "center" }}>
+          <div style={{ marginTop: 8, textAlign: "center" }}>
+            <button onClick={() => setShowConfirmDel(true)} style={{ ...S.btnDanger, padding: "8px 20px", fontSize: 12 }}>
               Eliminar ejercicio
             </button>
           </div>
@@ -5883,7 +8293,7 @@ function QuestionManagerView({ exercise, onSave, onBack }) {
                 </div>
               );
             })}
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 1.5, background: C.ink, opacity: 0.75, pointerEvents: "none", zIndex: 5 }} />
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 2, background: C.ink, opacity: 0.75, pointerEvents: "none", zIndex: 5 }} />
           </div>
 
           {selectedQId && (() => {
@@ -6024,9 +8434,10 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:   initialCategory?.id || uid("cat"),
-      name: name.trim(),
-      builtIn: false,
+      id:      initialCategory?.id || uid("cat"),
+      name:    name.trim(),
+      builtIn: initialCategory?.builtIn ?? false,
+      global:  initialCategory?.global  ?? false,
       buttons: buttons.map((b) => ({ ...b, id: b.id.trim().toUpperCase(), name: b.name.trim(), key: b.key.trim().toLowerCase() })),
     });
   };
@@ -6077,31 +8488,126 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
 }
 
 // Formulario de curso
-function CourseFormModal({ initial, onSave, onClose }) {
-  const [name, setName] = useState(initial?.name || "");
-  const [desc, setDesc] = useState(initial?.description || "");
+function GroupEditorModal({ initial, students, currentUserId, onSave, onClose }) {
+  const [name,       setName]       = useState(initial?.name || "");
+  const [studentIds, setStudentIds] = useState(() => new Set(initial?.studentIds || []));
+
+  const toggleStudent = (id) => setStudentIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const canSave = name.trim().length > 0;
 
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      id:          initial?.id || uid("course"),
-      name:        name.trim(),
-      description: desc.trim(),
-      unitIds:     initial?.unitIds || [],
-      createdAt:   initial?.createdAt || Date.now(),
+      id:         initial?.id || uid("group"),
+      name:       name.trim(),
+      teacherId:  currentUserId,
+      studentIds: [...studentIds],
+      createdAt:  initial?.createdAt || Date.now(),
     });
   };
 
   return (
-    <ModalShell width={440}>
+    <ModalShell width={480} align="top">
+      <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>
+        {initial ? "Editar grupo" : "Nuevo grupo"}
+      </h3>
+
+      <label style={S.label}>Nombre del grupo</label>
+      <input style={{ ...S.input, marginBottom: 18 }} value={name} autoFocus
+        onChange={(e) => setName(e.target.value)} placeholder="Ej: Grupo A, 2º Bachillerato…" />
+
+      {students.length > 0 && (
+        <>
+          <label style={{ ...S.label, marginBottom: 8 }}>Alumnos del grupo</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 240, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+            {students.map((s) => (
+              <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 13, color: C.ink }}>
+                <input type="checkbox" checked={studentIds.has(s.id)} onChange={() => toggleStudent(s.id)}
+                  style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
+                <span style={{ flex: 1 }}>{s.displayName}</span>
+                <span style={{ color: C.muted, fontSize: 11, fontFamily: FONT_MONO }}>@{s.username}</span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
+        <button onClick={onClose} style={S.btn}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
+          {initial ? "Guardar" : "Crear grupo"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CourseFormModal({ initial, groups = [], onSave, onClose }) {
+  const [name,              setName]              = useState(initial?.name || "");
+  const [desc,              setDesc]              = useState(initial?.description || "");
+  const [visibility,        setVisibility]        = useState(initial?.visibility || "teacher");
+  const [visibilityGroupId, setVisibilityGroupId] = useState(initial?.visibilityGroupId || "");
+
+  const canSave = name.trim().length > 0 && (visibility !== "group" || visibilityGroupId !== "");
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      id:                initial?.id || uid("course"),
+      name:              name.trim(),
+      description:       desc.trim(),
+      unitIds:           initial?.unitIds || [],
+      visibility,
+      visibilityGroupId: visibility === "group" ? visibilityGroupId : null,
+      createdAt:         initial?.createdAt || Date.now(),
+    });
+  };
+
+  const VIS_OPTIONS = [
+    { id: "teacher", label: "Mis alumnos",      desc: "Solo los alumnos asignados a ti" },
+    { id: "public",  label: "Público",           desc: "Todos los alumnos de la aplicación" },
+    { id: "group",   label: "Grupo específico",  desc: "Solo los alumnos de un grupo" },
+  ];
+
+  return (
+    <ModalShell width={480}>
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar curso" : "Nuevo curso"}</h3>
+
       <label style={S.label}>Nombre del curso</label>
       <input style={{ ...S.input, marginBottom: 14 }} value={name} autoFocus
         onChange={(e) => setName(e.target.value)} placeholder="Ej: 2º Bachillerato — Armonía" />
+
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 18, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
         value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Breve descripción del curso…" />
+
+      <label style={{ ...S.label, marginBottom: 8 }}>Visibilidad</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: visibility === "group" ? 10 : 20 }}>
+        {VIS_OPTIONS.map((opt) => (
+          <label key={opt.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${visibility === opt.id ? C.ink : C.line}`, background: visibility === opt.id ? C.paper2 : "transparent", fontFamily: FONT_SANS }}>
+            <input type="radio" name="visibility" value={opt.id} checked={visibility === opt.id} onChange={() => setVisibility(opt.id)}
+              style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer", flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{opt.label}</div>
+              <div style={{ fontSize: 11, color: C.muted }}>{opt.desc}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {visibility === "group" && (
+        <div style={{ marginBottom: 18 }}>
+          {groups.length === 0
+            ? <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>Aún no tienes grupos. Créalos desde la pestaña Alumnos.</p>
+            : <select value={visibilityGroupId} onChange={(e) => setVisibilityGroupId(e.target.value)}
+                style={{ ...S.input, cursor: "pointer" }}>
+                <option value="">— Selecciona un grupo —</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+          }
+        </div>
+      )}
+
       <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
         <button onClick={onClose} style={S.btn}>Cancelar</button>
         <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
@@ -6354,6 +8860,56 @@ function ResetCredentialModal({ targetUser, onSave, onClose }) {
   );
 }
 
+// Modal para configurar el correo de recuperación en el primer login
+function RecoveryEmailModal({ onSave, onSkip }) {
+  const [email,   setEmail]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const handleSave = async () => {
+    if (!valid || loading) return;
+    setLoading(true); setError("");
+    try { await onSave(email.trim().toLowerCase()); }
+    catch { setError("Error al guardar el correo. Inténtalo de nuevo."); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
+          <Overline>Primer acceso</Overline>
+          <h1 style={{ ...S.h1 }}>Correo de recuperación</h1>
+        </div>
+        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 24 }}>
+          Añade un correo para poder recuperar tu acceso si olvidas tu PIN. Puedes saltarte este paso, pero no podrás recuperar tu cuenta sin ayuda del profesor.
+        </p>
+        <div style={{ marginBottom: 8 }}>
+          <FieldLabel>Correo electrónico</FieldLabel>
+          <input
+            type="email"
+            style={{ ...S.input }}
+            value={email}
+            autoFocus
+            onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            placeholder="correo@ejemplo.com"
+            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+          />
+        </div>
+        {error && <ErrorMsg style={{ marginBottom: 12 }}>{error}</ErrorMsg>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 24 }}>
+          <CtaButton full lg onClick={handleSave} disabled={!valid || loading}>
+            {loading ? "Guardando…" : "Guardar y continuar →"}
+          </CtaButton>
+          <GhostButton full lg onClick={onSkip}>Ahora no</GhostButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Picker para elegir un audio del almacén
 function AudioLibraryPickerModal({ library, onPick, onClose }) {
   const [previewId, setPreviewId] = useState(null);
@@ -6363,7 +8919,7 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
 
       {library.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem 1rem", color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>🎵</div>
+          
           <div>El almacén está vacío.</div>
           <div style={{ fontSize: 12 }}>Pide al administrador que añada audios.</div>
         </div>
@@ -6375,7 +8931,8 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
               <div key={audio.id} style={{ padding: "8px 10px", borderRadius: 6, marginBottom: 4, background: isPrev ? "rgba(26,25,21,0.04)" : "transparent", transition: "background .1s" }}>
                 <div style={{ ...S.row, gap: 10, justifyContent: "space-between" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.description ? 2 : 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                    {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
                     <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
                   </div>
@@ -6403,9 +8960,11 @@ function AudioLibraryPickerModal({ library, onPick, onClose }) {
 }
 
 // Crear/editar un audio en el almacén
-function AudioLibraryFormModal({ initial, onSave, onClose }) {
+function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSave, onClose }) {
   const [title,       setTitle]       = useState(initial?.title || "");
+  const [composer,    setComposer]    = useState(initial?.composer || "");
   const [description, setDescription] = useState(initial?.description || "");
+  const [tags,        setTags]        = useState(initial?.tags || []);
   const [url,         setUrl]         = useState(initial?.url || "");
   const [duration,    setDuration]    = useState(initial?.duration || null);
   const [detecting,   setDetecting]   = useState(false);
@@ -6447,7 +9006,9 @@ function AudioLibraryFormModal({ initial, onSave, onClose }) {
     onSave({
       id:          initial?.id || uid("audio"),
       title:       title.trim(),
+      composer:    composer.trim(),
       description: description.trim(),
+      tags,
       url:         url.trim(),
       duration,
       createdAt:   initial?.createdAt || Date.now(),
@@ -6462,9 +9023,24 @@ function AudioLibraryFormModal({ initial, onSave, onClose }) {
       <input style={{ ...S.input, marginBottom: 14 }} value={title} autoFocus
         onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 — Bach (BWV 28)" />
 
+      <label style={S.label}>Compositor</label>
+      <SuggestInput
+        value={composer}
+        onChange={setComposer}
+        suggestions={allComposers}
+        placeholder="Ej: Johann Sebastian Bach"
+        style={{ ...S.input, marginBottom: 14 }}
+      />
+
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 14, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
-        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tonalidad, compositor, contexto…" />
+        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tonalidad, contexto histórico…" />
+
+      <label style={{ ...S.label, marginBottom: 4 }}>Etiquetas internas <span style={{ fontWeight: 400, color: C.muted }}>(solo visibles para el profesor)</span></label>
+      <div style={{ marginBottom: 14 }}>
+        <TagInput tags={tags} onChange={setTags} suggestions={allTags} />
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Pulsa Intro o coma para añadir · Ej: "Forma sonata", "Modulación cromática"</div>
+      </div>
 
       <label style={S.label}>URL del audio</label>
       <input type="url" style={{ ...S.input, marginBottom: 6 }}
@@ -6609,9 +9185,81 @@ function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onC
   );
 }
 
+// ═══ 14b. MULTI-MODEL SESSION VIEW ══════════════════════════════════════════
+// Wrapper para ejercicios con dos modelos: gestiona el estado de alternancia
+// y pasa la barra de toggle a cada vista como prop.
+// El audio se decodifica UNA SOLA VEZ aquí y se comparte con todas las vistas
+// para que cambiar de modelo no recargue ni re-decodifique el audio.
+function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
+  const models = modelsOf(exercise);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const activeModel = models[activeIdx] || models[0];
+
+  // Audio compartido: decodificado una vez, persiste entre cambios de modelo
+  const [sharedWaveformData, setSharedWaveformData] = useState(exercise.waveformData || null);
+  const loopRegionRef = useRef(null);   // QuestionnaireView lo actualiza con su lockedQuestion
+  const onWaveform    = sharedWaveformData ? null : (wd) => setSharedWaveformData(wd);
+  const rawPlayer     = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
+  const sharedAudioPlayer = { ...rawPlayer, waveformData: sharedWaveformData };
+
+  // Al cambiar de modelo, cancelar cualquier bucle de fragmento activo
+  useEffect(() => { loopRegionRef.current = null; }, [activeModel]);
+
+  const toggleNode = models.length > 1 ? (
+    <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
+  ) : null;
+
+  // Cada vista tiene su propio estado de UI; al cambiar de modelo se desmonta
+  // y vuelve a montar (React detecta el cambio de key). El audio, sin embargo,
+  // vive aquí y se pasa como sharedAudioPlayer para no re-decodificar.
+  if (activeModel === "esquema") {
+    return (
+      <div key={`schema-${exercise.id}`}>
+        <SchemaExerciseView
+          exercise={exercise}
+          mode={mode}
+          onSubmit={onSubmit}
+          onBack={onBack}
+          modelToggleNode={toggleNode}
+          sharedAudioPlayer={sharedAudioPlayer}
+        />
+      </div>
+    );
+  }
+  if (activeModel === "cuestionario") {
+    return (
+      <div key={`quiz-${exercise.id}`}>
+        <QuestionnaireView
+          exercise={exercise}
+          onSubmit={onSubmit}
+          onBack={onBack}
+          modelToggleNode={toggleNode}
+          sharedAudioPlayer={sharedAudioPlayer}
+          loopRegionRef={loopRegionRef}
+        />
+      </div>
+    );
+  }
+  return (
+    <div key={`interactive-${exercise.id}`}>
+      <ExerciseView
+        exercise={exercise}
+        mode={mode}
+        onSubmit={onSubmit}
+        onBack={onBack}
+        modelToggleNode={toggleNode}
+        sharedAudioPlayer={sharedAudioPlayer}
+      />
+    </div>
+  );
+}
+
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
   useInjectFonts();
+
+  // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
+  const supabaseRef = useRef(null);
 
   // Estado global
   const [exercises,    setExercises]    = useState(INIT_EXERCISES);
@@ -6621,36 +9269,73 @@ export default function App() {
   const [categories,   setCategories]   = useState([DEFAULT_CATEGORY]);
   const [courses,      setCourses]      = useState([]);
   const [units,        setUnits]        = useState([]);
-  const [audioLibrary, setAudioLibrary] = useState([]);
+  const [groups,       setGroups]       = useState([]);
+  const [audioLibrary, setAudioLibrary] = useState(INIT_AUDIO_LIBRARY);
 
   const [dbReady, setDbReady] = useState(false);
   const [user,    setUser]    = useState(null);
 
-  // Navegación
-  const [loginRole,    setLoginRole]      = useState(null);   // "admin" | "teacher" | "student" | null
-  const [view,         setView]           = useState("home"); // home | student-dash | teacher-dash | exercise | questionnaire | question-manager | correction
-  const [exCtx,        setExCtx]          = useState(null);   // { exercise, mode: 'student'|'record' }
-  const [qmCtx,        setQmCtx]          = useState(null);   // { exercise }
+  // Navegación — la URL (#/…) es la fuente de verdad
+  const { route, navigate } = useHashRoute();
   const [lastResult,   setLastResult]     = useState(null);
   const [guestResults, setGuestResults]   = useState({});
   const [pickingTeacher, setPickingTeacher] = useState(false);
+  const redirectAfterLogin = useRef(null);   // enlace profundo a recuperar tras login
 
-  // ─── Carga inicial desde Supabase ────────────────────────────────────────
+  const [pendingLoginUser, setPendingLoginUser] = useState(null); // alumno esperando configurar correo de recuperación
+  const [showForgotPin,    setShowForgotPin]    = useState(false);
+  const [resetSession,     setResetSession]     = useState(null);  // sesión Supabase Auth desde magic link
+
+  // Ejercicio referenciado por la URL (reconstruido desde el id)
+  const routeExercise = useMemo(() => {
+    const exId = route.params?.exId;
+    if (!exId || exId === "nuevo") return null;
+    // Los ids de la URL son texto; los del modelo pueden ser numéricos → comparar como texto
+    return (exercises || []).find((e) => String(e.id) === String(exId)) || null;
+  }, [route, exercises]);
+  const exCtx = routeExercise
+    ? { exercise: routeExercise, mode: route.params?.mode || "student" }
+    : null;
+  const qmCtx = routeExercise ? { exercise: routeExercise } : null;
+  const loginRole = route.name === "login" ? route.params.role : null;
+
+  // ─── Carga inicial desde Supabase (import dinámico) ─────────────────────
+  // En la web, el import resuelve y carga datos reales.
+  // En el visor de artefactos de Claude, el import falla silenciosamente y
+  // la app arranca en modo "en memoria" con los datos semilla (INIT_EXERCISES).
   useEffect(() => {
     (async () => {
       try {
+        // Intentar cargar el cliente de Supabase dinámicamente
+        try {
+          const mod = await import("./supabase.js");
+          supabaseRef.current = mod.supabase;
+          // Detectar sesión desde magic link de recuperación de PIN
+          const { data: { session: magicSession } } = await mod.supabase.auth.getSession();
+          if (magicSession) {
+            setResetSession(magicSession);
+            window.history.replaceState(null, "", "#/");
+          }
+        } catch {
+          // Entorno de previsualización: sin backend — modo en memoria
+          setDbReady(true);
+          return;
+        }
+
+        const sb = supabaseRef.current;
         const [
           exRes, userRes, catRes, courseRes, unitRes,
-          resultRes, settingsRes, audioRes,
+          resultRes, settingsRes, audioRes, groupRes,
         ] = await Promise.all([
-          supabase.from("fa_exercises").select("*"),
-          supabase.from("fa_users").select("*"),
-          supabase.from("fa_categories").select("*"),
-          supabase.from("fa_courses").select("*"),
-          supabase.from("fa_units").select("*"),
-          supabase.from("fa_results").select("*"),
-          supabase.from("fa_settings").select("*"),
-          supabase.from("fa_audio_library").select("*"),
+          sb.from("fa_exercises").select("*"),
+          sb.from("fa_users").select("*"),
+          sb.from("fa_categories").select("*"),
+          sb.from("fa_courses").select("*"),
+          sb.from("fa_units").select("*"),
+          sb.from("fa_results").select("*"),
+          sb.from("fa_settings").select("*"),
+          sb.from("fa_audio_library").select("*"),
+          sb.from("fa_groups").select("*"),
         ]);
 
         if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
@@ -6664,6 +9349,7 @@ export default function App() {
         if (courseRes.data?.length) setCourses(courseRes.data.map((r) => r.data));
         if (unitRes.data?.length)   setUnits(unitRes.data.map((r) => r.data));
         if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r) => r.data));
+        if (groupRes.data?.length)  setGroups(groupRes.data.map((r) => r.data));
 
         if (resultRes.data?.length) {
           const byUser = {};
@@ -6687,36 +9373,43 @@ export default function App() {
   }, []);
 
   // ─── Helpers de upsert ───────────────────────────────────────────────────
+  // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
+  // simplemente retornan sin hacer nada: el estado React ya se actualizó.
   const dbUpsertExercise = async (ex) => {
+    const sb = supabaseRef.current; if (!sb) return;
     // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
     // eslint-disable-next-line no-unused-vars
     const { waveformData, ...rest } = ex;
-    await supabase.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
   };
-  const dbDeleteExercise = async (id) => { await supabase.from("fa_exercises").delete().eq("id", id); };
+  const dbDeleteExercise = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
 
-  const dbUpsertUser   = async (u)  => { await supabase.from("fa_users").upsert({ id: u.id, data: u }); };
-  const dbDeleteUser   = async (id) => { await supabase.from("fa_users").delete().eq("id", id); };
+  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").upsert({ id: u.id, data: u }); };
+  const dbDeleteUser   = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
 
-  const dbUpsertCategory = async (c)  => { await supabase.from("fa_categories").upsert({ id: c.id, data: c }); };
-  const dbDeleteCategory = async (id) => { await supabase.from("fa_categories").delete().eq("id", id); };
+  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").upsert({ id: c.id, data: c }); };
+  const dbDeleteCategory = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
 
-  const dbUpsertCourse = async (c)  => { await supabase.from("fa_courses").upsert({ id: c.id, data: c }); };
-  const dbDeleteCourse = async (id) => { await supabase.from("fa_courses").delete().eq("id", id); };
+  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").upsert({ id: c.id, data: c }); };
+  const dbDeleteCourse = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
 
-  const dbUpsertUnit = async (u)  => { await supabase.from("fa_units").upsert({ id: u.id, data: u }); };
-  const dbDeleteUnit = async (id) => { await supabase.from("fa_units").delete().eq("id", id); };
+  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").upsert({ id: u.id, data: u }); };
+  const dbDeleteUnit = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
 
   const dbUpsertResult = async (userId, exerciseId, data) => {
-    await supabase.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
+    const sb = supabaseRef.current; if (!sb) return;
+    await sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
   };
-  const dbDeleteResultsForUser     = async (userId)     => { await supabase.from("fa_results").delete().eq("user_id", userId); };
-  const dbDeleteResultsForExercise = async (exerciseId) => { await supabase.from("fa_results").delete().eq("exercise_id", exerciseId); };
+  const dbDeleteResultsForUser     = async (userId)     => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("user_id", userId); };
+  const dbDeleteResultsForExercise = async (exerciseId) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("exercise_id", exerciseId); };
 
-  const dbUpsertSetting = async (key, value) => { await supabase.from("fa_settings").upsert({ key, value }); };
+  const dbUpsertSetting = async (key, value) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_settings").upsert({ key, value }); };
 
-  const dbUpsertAudio = async (a)  => { await supabase.from("fa_audio_library").upsert({ id: a.id, data: a }); };
-  const dbDeleteAudio = async (id) => { await supabase.from("fa_audio_library").delete().eq("id", id); };
+  const dbUpsertAudio = async (a)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").upsert({ id: a.id, data: a }); };
+  const dbDeleteAudio = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").delete().eq("id", id); };
+
+  const dbUpsertGroup = async (g)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").upsert({ id: g.id, data: g }); };
+  const dbDeleteGroup = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").delete().eq("id", id); };
 
   // ─── Users ───────────────────────────────────────────────────────────────
   const addUser = (newUser) => {
@@ -6727,6 +9420,18 @@ export default function App() {
   const removeUser = (userId) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
+    let changedGroups = [];
+    setGroups((prev) => {
+      changedGroups = [];
+      const next = prev.map((g) => {
+        if (!g.studentIds?.includes(userId)) return g;
+        const updated = { ...g, studentIds: g.studentIds.filter((id) => id !== userId) };
+        changedGroups.push(updated);
+        return updated;
+      });
+      return next;
+    });
+    changedGroups.forEach((g) => dbUpsertGroup(g));
     dbDeleteUser(userId);
     dbDeleteResultsForUser(userId);
   };
@@ -6737,12 +9442,28 @@ export default function App() {
     dbUpsertUser(updatedUser);
   };
 
+  // ─── Correction save ─────────────────────────────────────────────────────
+  const saveCorrection = (studentId, exerciseId, correction) => {
+    let saved = null;
+    setResults((prev) => {
+      const existing = (prev[studentId] || {})[exerciseId] || {};
+      const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
+      saved = updated;
+      return { ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } };
+    });
+    if (saved) dbUpsertResult(studentId, exerciseId, saved);
+  };
+
+  // ─── Groups ──────────────────────────────────────────────────────────────
+  const addGroup    = (g) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
+  const updateGroup = (g) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
+  const deleteGroup = (id) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
+
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
   const handleSetup = (adminUser) => {
     setUsers([adminUser]);
     setUser(adminUser);
-    setLoginRole(null);
-    setView("teacher-dash");
+    navigate("/profesor");
     dbUpsertUser(adminUser);
   };
 
@@ -6753,22 +9474,29 @@ export default function App() {
   };
 
   const updateExercise = (id, patch) => {
+    let updated = null;
     setExercises((prev) => {
       const next = prev.map((e) => e.id === id ? { ...e, ...patch } : e);
-      const updated = next.find((e) => e.id === id);
-      if (updated) dbUpsertExercise(updated);
+      updated = next.find((e) => e.id === id) || null;
       return next;
     });
+    if (updated) dbUpsertExercise(updated);
   };
 
   const deleteExercise = (id) => {
     setExercises((prev) => prev.filter((e) => e.id !== id));
-    // BUG FIX: leer units con callback evita race condition con setUnits anteriores
+    let changedUnits = [];
     setUnits((prev) => {
-      const next = prev.map((u) => ({ ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) }));
-      next.forEach((u, i) => { if (u.exerciseIds.length !== prev[i].exerciseIds.length) dbUpsertUnit(u); });
+      changedUnits = [];
+      const next = prev.map((u) => {
+        if (!u.exerciseIds.includes(id)) return u;
+        const nu = { ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) };
+        changedUnits.push(nu);
+        return nu;
+      });
       return next;
     });
+    changedUnits.forEach((u) => dbUpsertUnit(u));
     setResults((prev) => {
       const next = {};
       for (const uid of Object.keys(prev)) {
@@ -6796,6 +9524,15 @@ export default function App() {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     dbDeleteCategory(id);
   };
+  const toggleGlobalCategory = (id) => {
+    let cat = null;
+    setCategories((prev) => {
+      const updated = prev.map((c) => c.id === id ? { ...c, global: !c.global } : c);
+      cat = updated.find((c) => c.id === id) || null;
+      return updated;
+    });
+    if (cat) dbUpsertCategory(cat);
+  };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
   const addCourse = (newCourse) => {
@@ -6814,12 +9551,13 @@ export default function App() {
   // ─── Units (con fix de race condition usando setState callback) ─────────
   const addUnit = (newUnit, courseId) => {
     setUnits((prev) => [...prev, newUnit]);
+    let updatedCourse = null;
     setCourses((prev) => {
       const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c);
-      const updatedCourse = next.find((c) => c.id === courseId);
-      if (updatedCourse) dbUpsertCourse(updatedCourse);
+      updatedCourse = next.find((c) => c.id === courseId) || null;
       return next;
     });
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
     dbUpsertUnit(newUnit);
   };
 
@@ -6830,35 +9568,38 @@ export default function App() {
 
   const deleteUnit = (unitId, courseId) => {
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
+    let updatedCourse = null;
     setCourses((prev) => {
       const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c);
-      const updatedCourse = next.find((c) => c.id === courseId);
-      if (updatedCourse) dbUpsertCourse(updatedCourse);
+      updatedCourse = next.find((c) => c.id === courseId) || null;
       return next;
     });
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
     dbDeleteUnit(unitId);
   };
 
   const addExercisesToUnit = (unitId, exIds) => {
+    let updated = null;
     setUnits((prev) => {
       const next = prev.map((u) => {
         if (u.id !== unitId) return u;
         const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
         return { ...u, exerciseIds: merged };
       });
-      const updated = next.find((u) => u.id === unitId);
-      if (updated) dbUpsertUnit(updated);
+      updated = next.find((u) => u.id === unitId) || null;
       return next;
     });
+    if (updated) dbUpsertUnit(updated);
   };
 
   const removeExerciseFromUnit = (unitId, exId) => {
+    let updated = null;
     setUnits((prev) => {
       const next = prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u);
-      const updated = next.find((u) => u.id === unitId);
-      if (updated) dbUpsertUnit(updated);
+      updated = next.find((u) => u.id === unitId) || null;
       return next;
     });
+    if (updated) dbUpsertUnit(updated);
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
@@ -6881,18 +9622,52 @@ export default function App() {
   // ─── Navegación helpers ──────────────────────────────────────────────────
   const freshExercise = (ex) => exercises.find((e) => e.id === ex.id) || ex;
 
-  const openEx = (ex, mode = "student") => {
-    const fresh = freshExercise(ex);
-    setExCtx({ exercise: fresh, mode });
-    const m = modelOf(fresh);
-    if (m === "esquema") setView("schema");
-    else if (mode === "student" && m === "cuestionario") setView("questionnaire");
-    else setView("exercise");
+  // Si entras sin sesión a una ruta protegida, recuérdala para volver tras login
+  useEffect(() => {
+    if (user) return;
+    const open = route.name === "home" || route.name === "login" || route.name === "setup";
+    if (!open) {
+      redirectAfterLogin.current = window.location.hash.replace(/^#/, "") || null;
+    }
+  }, [user, route]);
+
+  const openCorrection = (ex) => {
+    // Calcular el resultado almacenado de forma local: no depende del `const
+    // userResults` declarado más abajo en el cuerpo del componente, lo que
+    // evita una referencia frágil en la zona muerta temporal (TDZ).
+    const stored = user?.isGuest
+      ? guestResults[ex.id]
+      : (results[user?.id] || {})[ex.id];
+    if (!stored) return;
+    setLastResult(stored);
+    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
   };
 
-  const openQM = (ex) => {
-    setQmCtx({ exercise: freshExercise(ex) });
-    setView("question-manager");
+  const openEx = (ex, mode = "student") => {
+    if (mode === "record") {
+      // El cuestionario puro se "graba" desde el gestor de preguntas.
+      // Los híbridos tienen su propio botón onManageQuestions; aquí se graba la clave interactiva.
+      if (modelsOf(ex).join(",") === "cuestionario") navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
+      else navigate(`/profesor/ejercicio/${ex.id}/grabar`);
+    } else {
+      navigate(`/alumno/ejercicio/${ex.id}`);
+    }
+  };
+
+  const openQM = (ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
+
+  // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
+  const completeLogin = (u) => {
+    setUser(u);
+    const dest = redirectAfterLogin.current;
+    redirectAfterLogin.current = null;
+    if (u.role === "student") {
+      const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
+      if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
+      navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
+    } else {
+      navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
+    }
   };
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
@@ -6911,7 +9686,7 @@ export default function App() {
         dbUpsertResult(user.id, ex.id, data);
       }
       setLastResult(data);
-      setView("correction");
+      navigate(`/alumno/ejercicio/${ex.id}/correccion`);
       return;
     }
 
@@ -6920,12 +9695,12 @@ export default function App() {
       if (payload.mode === "record") {
         // El profesor guarda el esquema como modelo de referencia
         updateExercise(ex.id, { schemaKey: payload.blocks });
-        setExCtx(null);
-        setView("teacher-dash");
+        navigate("/profesor");
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const data = { type: "esquema", blocks: payload.blocks, timestamp: Date.now() };
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey, payload.blocks);
+      const data = { type: "esquema", blocks: payload.blocks, placementScore, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real
         if (isGuest) {
@@ -6936,7 +9711,9 @@ export default function App() {
         }
       }
       setLastResult(data);
-      setView("correction");
+      navigate(payload.mode === "preview"
+        ? `/profesor/ejercicio/${ex.id}/correccion`
+        : `/alumno/ejercicio/${ex.id}/correccion`);
       return;
     }
 
@@ -6956,8 +9733,7 @@ export default function App() {
       const patchAnswers = { ...(ex.answers || {}) };
       entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
       updateExercise(ex.id, { answers: patchAnswers });
-      setExCtx(null);
-      setView("teacher-dash");
+      navigate("/profesor");
       return;
     }
 
@@ -6991,7 +9767,7 @@ export default function App() {
       dbUpsertResult(user.id, ex.id, data);
     }
     setLastResult(data);
-    setView("correction");
+    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
   };
 
   // ─── Routing ─────────────────────────────────────────────────────────────
@@ -7007,21 +9783,82 @@ export default function App() {
   const hasAdmin = (users || []).some((u) => u.role === "admin");
   if (!hasAdmin) return <SetupView onSetup={handleSetup} />;
 
-  // Selección de profesor para alumno (al primer login o al pedirlo)
-  if (pickingTeacher && user?.role === "student") {
+  // Selección de profesor para alumno (al primer login o desde "Cambiar profesor")
+  if ((pickingTeacher || route.name === "pick-teacher") && user?.role === "student") {
     const teacherList = (users || []).filter((u) => u.role === "teacher");
     return (
       <TeacherPickerView
         teachers={teacherList}
         currentTeacherId={user.teacherId}
-        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); setPickingTeacher(false); }}
-        onLogout={() => { setUser(null); setLoginRole(null); setPickingTeacher(false); setView("home"); }}
+        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); setPickingTeacher(false); navigate("/alumno"); }}
+        onLogout={() => { setUser(null); setPickingTeacher(false); navigate("/"); }}
       />
     );
   }
 
   // Login flow
   if (!user) {
+    // 1. Recuperar acceso desde magic link enviado por correo
+    if (resetSession) {
+      return (
+        <ResetPinView
+          users={users}
+          supabaseSession={resetSession}
+          onReset={async (updatedUser) => {
+            updateUser(updatedUser);
+            const sb = supabaseRef.current;
+            if (sb) await sb.auth.signOut();
+            setResetSession(null);
+            navigate("/");
+          }}
+          onBack={async () => {
+            const sb = supabaseRef.current;
+            if (sb) await sb.auth.signOut();
+            setResetSession(null);
+            navigate("/");
+          }}
+        />
+      );
+    }
+
+    // 2. Primer login de alumno sin correo de recuperación configurado
+    if (pendingLoginUser) {
+      return (
+        <RecoveryEmailModal
+          onSave={async (email) => {
+            const updated = { ...pendingLoginUser, recoveryEmail: email };
+            setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
+            await dbUpsertUser(updated);
+            setPendingLoginUser(null);
+            completeLogin(updated);
+          }}
+          onSkip={() => {
+            setPendingLoginUser(null);
+            completeLogin(pendingLoginUser);
+          }}
+        />
+      );
+    }
+
+    // 3. Vista "He olvidado mi PIN"
+    if (showForgotPin) {
+      return (
+        <ForgotPinView
+          users={users}
+          supabaseRef={supabaseRef}
+          onBack={() => setShowForgotPin(false)}
+        />
+      );
+    }
+
+    const finishLogin = (u) => {
+      if (u.role === "student" && !u.recoveryEmail) {
+        setPendingLoginUser(u);
+        return;
+      }
+      completeLogin(u);
+    };
+
     if (loginRole) {
       const labels = { admin: "administrador", teacher: "profesor", student: "alumno" };
       return (
@@ -7029,111 +9866,94 @@ export default function App() {
           roleLabel={labels[loginRole]}
           filterRole={loginRole}
           users={users}
-          onLogin={(u) => {
-            setUser(u);
-            setLoginRole(null);
-            if (u.role === "student") {
-              const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
-              if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
-              setView("student-dash");
-            } else {
-              setView("teacher-dash");
-            }
-          }}
-          onBack={() => setLoginRole(null)}
+          onLogin={finishLogin}
+          onBack={() => navigate("/")}
+          onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : null}
           onGuest={loginRole === "student" ? () => {
             const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
-            setUser(guest); setLoginRole(null); setView("student-dash");
+            setUser(guest); navigate("/alumno");
           } : null}
         />
       );
     }
     return (
       <HomeView
-        onTeacher={() => setLoginRole("teacher")}
-        onStudent={() => setLoginRole("student")}
+        onTeacher={() => navigate("/entrar/profesor")}
+        onStudent={() => navigate("/entrar/alumno")}
       />
     );
   }
 
   // Vistas autenticadas
-  const onLogout = () => { setUser(null); setView("home"); setGuestResults({}); };
+  const onLogout = () => { setUser(null); setGuestResults({}); navigate("/"); };
   const userResults = user.isGuest ? guestResults : (results[user.id] || {});
+  const isStudent = user.role === "student";
 
-  if (view === "exercise" && exCtx) {
-    return (
-      <ExerciseView
-        exercise={exCtx.exercise} mode={exCtx.mode}
-        onSubmit={submitAnswer}
-        onBack={() => {
-          setExCtx(null);
-          setView(exCtx.mode === "record" ? "teacher-dash" : "student-dash");
-        }}
-      />
-    );
+  // Mensaje cuando el ejercicio referenciado por la URL no existe (o no cargó)
+  const NotFound = ({ to }) => (
+    <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted, fontSize: 14, padding: 24, textAlign: "center" }}>
+      <span>No se encontró este ejercicio.</span>
+      <button style={S.btn} onClick={() => navigate(to)}>← Volver</button>
+    </div>
+  );
+
+  // ── Sesión de ejercicio (interactivo / esquema / cuestionario) ──
+  if (route.name === "session") {
+    const back = isStudent ? "/alumno" : "/profesor";
+    // Un alumno no puede entrar a modos de profesor
+    if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
+    if (!exCtx) return <NotFound to={back} />;
+    const exModels = modelsOf(exCtx.exercise);
+    const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
+    // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
+    if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
+      return <MultiModelSessionView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    // Ejercicio de un solo modelo (o modo record/preview con el modelo primario)
+    const m = exModels[0];
+    if (m === "esquema") {
+      return <SchemaExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    if (exCtx.mode === "student" && m === "cuestionario") {
+      return <QuestionnaireView exercise={exCtx.exercise} onSubmit={submitAnswer} onBack={onBack} />;
+    }
+    return <ExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
   }
 
-  if (view === "schema" && exCtx) {
-    return (
-      <SchemaExerciseView
-        exercise={exCtx.exercise} mode={exCtx.mode}
-        onSubmit={submitAnswer}
-        onBack={() => {
-          setExCtx(null);
-          setView(exCtx.mode === "record" ? "teacher-dash" : "student-dash");
-        }}
-      />
-    );
-  }
-
-  if (view === "questionnaire" && exCtx) {
-    return (
-      <QuestionnaireView
-        exercise={exCtx.exercise}
-        onSubmit={submitAnswer}
-        onBack={() => { setExCtx(null); setView("student-dash"); }}
-      />
-    );
-  }
-
-  if (view === "question-manager" && qmCtx) {
+  // ── Gestor de preguntas (cuestionario) ──
+  if (route.name === "question-manager") {
+    if (isStudent) { navigate("/alumno"); return null; }
+    if (!qmCtx) return <NotFound to="/profesor" />;
     return (
       <QuestionManagerView
         exercise={qmCtx.exercise}
-        onSave={(questions) => {
-          updateExercise(qmCtx.exercise.id, { questions });
-          setQmCtx(null); setView("teacher-dash");
-        }}
-        onBack={() => { setQmCtx(null); setView("teacher-dash"); }}
+        onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate("/profesor"); }}
+        onBack={() => navigate("/profesor")}
       />
     );
   }
 
-  if (view === "correction" && exCtx && lastResult) {
-    const wasPreview = exCtx.mode === "preview";
+  // ── Corrección (depende del resultado recién entregado) ──
+  if (route.name === "correction") {
+    const back = route.params.from === "teacher" ? "/profesor" : "/alumno";
+    if (!exCtx) return <NotFound to={back} />;
+    if (!lastResult) {
+      // La corrección no se puede reconstruir desde un enlace pegado/recargado
+      return <NotFound to={exCtx ? `/alumno/ejercicio/${exCtx.exercise.id}` : back} />;
+    }
+    const wasPreview = route.params.from === "teacher";
     return (
       <CorrectionView
         exercise={freshExercise(exCtx.exercise)}
         result={lastResult} margin={margin}
-        onBack={() => {
-          setExCtx(null); setLastResult(null);
-          setView(wasPreview ? "teacher-dash" : "student-dash");
-        }}
+        onBack={() => { setLastResult(null); navigate(wasPreview ? "/profesor" : "/alumno"); }}
       />
     );
   }
 
-  if (user.role === "student") {
-    const teacherId = user.teacherId;
-    const visibleExercises = teacherId
-      ? exercises.filter((ex) => {
-          // El alumno ve los ejercicios asignados a través de cursos/unidades del profesor
-          // (heurística: cualquier ejercicio en alguna unidad de algún curso del profesor)
-          // Si no hay sistema de propietario, mostramos todos los del banco.
-          return true;
-        })
-      : exercises;
-
+  // ── Panel del alumno ──
+  if (isStudent) {
+    const visibleExercises = exercises; // (heurística actual: banco completo)
     return (
       <StudentDash
         user={user}
@@ -7141,14 +9961,18 @@ export default function App() {
         results={userResults}
         courses={courses}
         units={units}
+        groups={groups}
+        tab={route.name === "student" ? route.params.tab : "all"}
+        onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
         onExercise={(ex) => openEx(ex, "student")}
+        onViewCorrection={openCorrection}
         onLogout={onLogout}
-        onChangeTeacher={user.isGuest ? null : () => setPickingTeacher(true)}
+        onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
       />
     );
   }
 
-  // Teacher / Admin dashboard
+  // ── Panel del profesor / admin ──
   return (
     <TeacherDash
       currentUser={user}
@@ -7161,28 +9985,31 @@ export default function App() {
       onDeleteExercise={deleteExercise}
       results={results}
       margin={margin} onMargin={updateMargin}
-      onRecord={(ex) => {
-        const fresh = freshExercise(ex);
-        if (modelOf(fresh) === "cuestionario") openQM(fresh);
-        else if (modelOf(fresh) === "esquema") { setExCtx({ exercise: fresh, mode: "record" }); setView("schema"); }
-        else { setExCtx({ exercise: fresh, mode: "record" }); setView("exercise"); }
+      tab={route.name === "teacher" ? route.params.tab : "exercises"}
+      onTab={(t) => navigate(TEACHER_TAB_PATH[t] || "/profesor")}
+      detailExId={route.name === "teacher-detail" ? (route.params.exId === "nuevo" ? "new" : route.params.exId) : null}
+      onSelectExercise={(id) => {
+        if (id == null) navigate(route.name === "teacher" ? (TEACHER_TAB_PATH[route.params.tab] || "/profesor") : "/profesor");
+        else if (id === "new") navigate("/profesor/ejercicio/nuevo");
+        else navigate(`/profesor/ejercicio/${id}`);
       }}
-      onPreview={(ex) => {
-        const fresh = freshExercise(ex);
-        setExCtx({ exercise: fresh, mode: "preview" });
-        setView("schema");
-      }}
+      onRecord={(ex) => openEx(freshExercise(ex), "record")}
+      onManageQuestions={(ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`)}
+      onPreview={(ex) => navigate(`/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
       onLogout={onLogout}
       categories={categories}
       onAddCategory={addCategory}
       onUpdateCategory={updateCategory}
       onDeleteCategory={deleteCategory}
+      onToggleGlobalCategory={toggleGlobalCategory}
       courses={courses} units={units}
       onAddCourse={addCourse} onUpdateCourse={updateCourse} onDeleteCourse={deleteCourse}
       onAddUnit={addUnit} onUpdateUnit={updateUnit} onDeleteUnit={deleteUnit}
       onAddExercisesToUnit={addExercisesToUnit}
       onRemoveExerciseFromUnit={removeExerciseFromUnit}
+      groups={groups} onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
+      onSaveCorrection={saveCorrection}
       audioLibrary={audioLibrary}
       onAddAudio={addAudio} onUpdateAudio={updateAudio} onDeleteAudio={deleteAudio}
     />
