@@ -153,7 +153,7 @@ const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
   app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
-  page:       { maxWidth: 740, margin: "0 auto", padding: "22px 24px 80px" },
+  page:       { maxWidth: 740, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
   h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
@@ -805,8 +805,14 @@ function useInjectFonts() {
       const style = document.createElement("style");
       style.setAttribute("data-fa-anim", "1");
       style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
+        + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
+        + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"
         + ".fa-noscroll::-webkit-scrollbar{display:none;height:0;width:0}"
-        + ".fa-noscroll{-ms-overflow-style:none}";
+        + ".fa-noscroll{-ms-overflow-style:none}"
+        // Sticky bar: pushes a safe spacer below the page so the bar never hides content
+        + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
+        + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
+        + ".fa-pressable:active{transform:scale(.97)}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
@@ -993,6 +999,159 @@ const disabledStyle = (canSave) => ({
   opacity: canSave ? 1 : 0.45,
   cursor:  canSave ? "pointer" : "not-allowed",
 });
+
+// ── Primitivos de sesión S2 ───────────────────────────────────────────────────
+// Estos primitivos unifican las tres vistas de ejercicio (interactivo /
+// cuestionario / esquema) para que la lógica de interacción sea obvia y el
+// flujo esté pensado para móvil: cabecera con el modelo visible, banner de
+// ayuda destacado y barra de acción inferior fija (alcanzable con el pulgar).
+
+// Punto de tiempo abreviado para "0:07" sin minutos cuando es corto
+const SESSION_MODEL_META = {
+  interactivo:  { color: C.fnT, label: "Interactivo",  hint: "Mantén pulsado el botón de la función (o su tecla) mientras suena el audio para marcar cada fragmento.", verb: "marca categorías en vivo" },
+  cuestionario: { color: C.fnS, label: "Cuestionario", hint: "Toca una pregunta para saltar a su fragmento de audio y escucharlo en bucle, luego responde.", verb: "responde sobre fragmentos" },
+  esquema:      { color: C.fnD, label: "Esquema",       hint: "Arrastra sobre cualquier pista para crear un bloque. Doble toque para renombrarlo; selecciónalo para moverlo o cambiar su color.", verb: "dibuja la forma musical" },
+};
+
+// Cabecera unificada de sesión: volver + título + píldora del modelo activo.
+// Sustituye/clarifica a ExercisePageHeader en las vistas de ejercicio S2.
+function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
+  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+  return (
+    <div style={{
+      background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0,
+      position: "sticky", top: 0, zIndex: 55,
+      paddingTop: "env(safe-area-inset-top, 0px)",
+    }}>
+      <div style={{ padding: "9px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={onBack} aria-label="Volver" className="fa-pressable" style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontFamily: F.sans, fontSize: 13, color: C.ink2, padding: "6px 4px",
+          flexShrink: 0, display: "flex", alignItems: "center", gap: 4, marginLeft: -4,
+        }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>←</span>
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: C.ink,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.25,
+          }}>{exercise.title}</div>
+          {exercise.composerName && exercise.showComposer !== false && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
+              {exercise.composerName}
+            </div>
+          )}
+        </div>
+        {rightSlot}
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
+          background: `${meta.color}14`, border: `1px solid ${meta.color}40`,
+          borderRadius: 999, padding: "4px 11px",
+          fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: meta.color,
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+          {meta.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Banner de ayuda destacado y descartable, al inicio del área de trabajo.
+// Hace evidente el modelo de interacción de un vistazo, sin sustituir el texto
+// fino de pie ya existente (que se mantiene como recordatorio).
+function SessionHint({ modelId, extra = null, storageKeyless = true }) {
+  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+  const [open, setOpen] = useState(true);
+  if (!open) return null;
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 10,
+      background: `${meta.color}0E`, border: `1px solid ${meta.color}33`,
+      borderRadius: 12, padding: "11px 12px 11px 14px", marginBottom: 12,
+      animation: "faHintIn .25s ease",
+    }}>
+      <span aria-hidden style={{
+        flexShrink: 0, marginTop: 1,
+        width: 20, height: 20, borderRadius: "50%",
+        background: meta.color, color: C.paper,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: F.serif, fontSize: 13, fontWeight: 700, lineHeight: 1,
+      }}>i</span>
+      <div style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 12.5, lineHeight: 1.5, color: C.ink2 }}>
+        {meta.hint}{extra ? <> {extra}</> : null}
+      </div>
+      <button onClick={() => setOpen(false)} aria-label="Ocultar ayuda" className="fa-pressable" style={{
+        flexShrink: 0, background: "transparent", border: "none", cursor: "pointer",
+        color: meta.color, fontSize: 16, lineHeight: 1, padding: "0 2px", marginTop: -1, opacity: 0.7,
+      }}>✕</button>
+    </div>
+  );
+}
+
+// Barra de acción inferior fija. Garantiza que la acción principal (Entregar /
+// Guardar clave) esté siempre visible y al alcance del pulgar en móvil.
+// `secondary` permite añadir controles a la izquierda (deshacer, borrar…).
+function StickyActionBar({ children, secondary = null, info = null }) {
+  return (
+    <div className="fa-sticky-bar" style={{
+      background: "rgba(255,255,255,0.86)",
+      backdropFilter: "saturate(180%) blur(12px)",
+      WebkitBackdropFilter: "saturate(180%) blur(12px)",
+      borderTop: `1px solid ${C.line}`,
+      marginTop: 14,
+      padding: "10px 16px",
+      paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
+      boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
+    }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+        {secondary}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+          {info}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Botón submit grande para la barra fija — variante full-bleed amigable al pulgar
+function BarSubmitButton({ onClick, children, disabled = false, accent = C.ink }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="fa-pressable" style={{
+      background: accent, color: C.paper, border: `1px solid ${accent}`,
+      borderRadius: 999, padding: "11px 18px 11px 22px",
+      fontSize: 14, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+      fontFamily: FONT_SANS, flexShrink: 0,
+      display: "inline-flex", alignItems: "center", gap: 9,
+      opacity: disabled ? 0.45 : 1,
+    }}>
+      {children}
+      <span style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 22, height: 22, borderRadius: "50%",
+        background: "rgba(251,250,246,0.20)", fontSize: 13,
+      }}>→</span>
+    </button>
+  );
+}
+
+// Botón circular compacto para la barra de acción (deshacer / borrar)
+function BarIconButton({ onClick, disabled, title, children, danger = false }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={title} className="fa-pressable" style={{
+      width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+      background: C.paper, border: `1px solid ${danger ? "rgba(184,74,58,0.4)" : C.line}`,
+      color: danger ? C.danger : C.ink2,
+      cursor: disabled ? "not-allowed" : "pointer",
+      opacity: disabled ? 0.35 : 1,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 17, lineHeight: 1, fontFamily: FONT_SANS,
+    }}>
+      {children}
+    </button>
+  );
+}
 
 // ── Primitivos del sistema editorial V1 ──────────────────────────────────────
 
@@ -1600,8 +1759,11 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onF
 // Pantalla inicial: selección de rol
 function HomeView({ onTeacher, onStudent }) {
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px))" }}>
       <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+        <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 600, fontStyle: "italic", color: C.muted, marginBottom: 14, letterSpacing: "0.01em" }}>
+          Funciones armónicas
+        </div>
         <h1 style={{ fontFamily: F.sans, fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1.0, margin: 0 }}>
           Análisis<br />auditivo
         </h1>
@@ -1889,6 +2051,7 @@ function ModelToggleBar({ models, activeIdx, onSwitch }) {
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
 function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const [open, setOpen] = useState(false);
+  const isMobile  = useIsMobile();
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
   const isQuiz    = modelOf(ex) === "cuestionario";
@@ -1898,10 +2061,26 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const isDone    = result != null;
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
-  const hasManualModel = exModels.includes("esquema") || (exModels.includes("cuestionario") && exQs.some((q) => q.type === "desarrollo"));
+
+  const actionButtons = (
+    <>
+      {isDone && onViewCorrection && (
+        <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }} className="fa-pressable"
+          style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto", color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+          {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+        </button>
+      )}
+      <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }} className="fa-pressable"
+        style={isDone
+          ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }
+          : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }}>
+        {isDone ? "Repetir" : "Iniciar →"}
+      </button>
+    </>
+  );
 
   return (
-    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
       {exModels.length > 1 ? (
         <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
@@ -1912,36 +2091,48 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
-          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 12px 12px 14px" : "11px 14px", cursor: "pointer", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            <span style={{ fontFamily: F.sans, fontSize: isMobile ? 15.5 : 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {ex.title}
             </span>
-            {ex.composerName && ex.showComposer !== false && (
-              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, display: "block", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {ex.composerName}
+            {/* Línea meta inline: tipo + autor + estado — visible sin desplegar */}
+            <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, overflow: "hidden" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />
+                <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
+                  {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
+                </span>
               </span>
-            )}
+              {ex.composerName && ex.showComposer !== false && (
+                <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  · {ex.composerName}
+                </span>
+              )}
+            </span>
           </div>
-          <Chevron open={open} />
-          {isDone && onViewCorrection && (
-            <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }}
-              style={{ ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
-              {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
-            </button>
+          {isDone && score != null && (
+            <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
-            style={isDone
-              ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
-              : { ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
-            {isDone ? "Repetir" : "Iniciar →"}
-          </button>
+          {isDone && score == null && (
+            <StatusCircle done />
+          )}
+          <Chevron open={open} />
+          {/* En escritorio, los botones van en línea; en móvil bajan a su propia fila */}
+          {!isMobile && actionButtons}
         </div>
+
+        {isMobile && (
+          <div style={{ display: "flex", gap: 8, padding: "0 12px 12px 14px" }}>
+            {actionButtons}
+          </div>
+        )}
+
         {open && (
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
             <MetaItem label="Tipo">
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
-              {meta.label}
+              {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
             </MetaItem>
             <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
             {isQuiz
@@ -1997,7 +2188,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
 
   return (
     <div style={S.app}>
-      <div style={{ ...S.page, padding: isMobile ? "18px 14px 80px" : S.page.padding }}>
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {user.isGuest && (
           <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
@@ -2800,8 +2991,9 @@ function WaveformDisplay({
 
 // Botonera de funciones (T/S/D…) pulsables con tecla
 function FunctionButtons({ buttons, pressing, onDown, onUp }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 12, marginBottom: 14 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 10, marginBottom: 4 }}>
       {buttons.map((b) => {
         const isActive = pressing?.fn === b.id;
         return (
@@ -2815,15 +3007,16 @@ function FunctionButtons({ buttons, pressing, onDown, onUp }) {
               background: isActive ? b.color : C.paper,
               border:     `1.5px solid ${isActive ? b.color : C.line}`,
               color:      isActive ? C.paper : b.color,
-              borderRadius: 14, padding: "16px 8px", cursor: "pointer",
+              borderRadius: 16, padding: isMobile ? "20px 8px" : "18px 8px", cursor: "pointer",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-              transition: "background .08s, color .08s, border-color .08s, transform .08s",
-              transform: isActive ? "translateY(1px)" : "translateY(0)",
-              userSelect: "none", touchAction: "none",
+              transition: "background .08s, color .08s, border-color .08s, transform .08s, box-shadow .08s",
+              transform: isActive ? "scale(0.97)" : "scale(1)",
+              boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
+              userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
             }}>
-            <span style={{ fontSize: 28, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>
-            <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>{b.key.toUpperCase()}</span>
+            <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>
+            {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
           </button>
         );
       })}
@@ -3123,15 +3316,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   const SWITCH_GAP = 8;
   const gutter     = showSwitch ? SWITCH_W + SWITCH_GAP : 0;
 
+  // Conteo de fragmentos marcados (todas las categorías) para la barra de acción
+  const markedCount = Object.values(intervalsByCategory).reduce((n, arr) => n + (arr?.length || 0), 0) + (pressing ? 1 : 0);
+  const submitLabel = mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar";
+
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
-      <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
+
+        {mode === "student" && <SessionHint modelId="interactivo" extra={<>Pulsa <b>Espacio</b> para reproducir o pausar.</>} />}
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
@@ -3183,7 +3382,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
             </div>
             <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
               {playing ? "❚❚" : "▶"}
             </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
@@ -3193,34 +3392,37 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         </section>
 
         {selected && selectedIv && (
-          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 4px" }}>
-            <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
+            <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
             {exCategory.buttons.map((b) => {
               const isSel = selectedIv.fn === b.id;
               return (
-                <button key={b.id}
+                <button key={b.id} className="fa-pressable"
                   onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
-                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "4px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
+                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
                   {b.id}
                 </button>
               );
             })}
             <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
-            <button onClick={deleteSelected} style={{ ...S.btnDanger, marginLeft: "auto", padding: "4px 12px", fontSize: 12 }}>Eliminar</button>
+            <button onClick={deleteSelected} className="fa-pressable" style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 13px", fontSize: 12 }}>Eliminar</button>
           </div>
         )}
 
         <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} />
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, flex: "1 1 240px", minWidth: 200 }}>
-            Mantén pulsado el botón (o tecla) mientras suena · Espacio = Play/Pausa
-          </div>
-          <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
-          </PillSubmitButton>
-        </div>
       </div>
+
+      <StickyActionBar
+        info={
+          <>
+            <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+              {markedCount === 0 ? "Sin marcas todavía" : `${markedCount} ${markedCount === 1 ? "fragmento marcado" : "fragmentos marcados"}`}
+            </span>
+            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Mantén pulsada la función mientras suena</span>
+          </>
+        }>
+        <BarSubmitButton onClick={handleSubmit}>{submitLabel}</BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
@@ -4901,19 +5103,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
   // ── JSX principal ────────────────────────────────────────────────────────
   return (
     <div style={S.app}>
-      {/* Cabecera */}
-      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
-        <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
-            <span>Volver</span>
-          </button>
-          <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{exercise.title}</div>
-          </div>
-        </div>
-      </div>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="esquema" />
 
       {showRepModal && (
         <RepeatManagerModal
@@ -4923,11 +5113,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
         {modelToggleNode}
+
+        {!listenOnly && mode === "student" && <SessionHint modelId="esquema" />}
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -4996,6 +5188,19 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
             </div>
           )}
         </section>
+
+        {/* Leyenda de niveles — clarifica qué representa cada pista de color */}
+        {!listenOnly && activeLevels.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10, alignItems: "center" }}>
+            <span style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron, marginRight: 2 }}>Niveles</span>
+            {activeLevels.map(lv => (
+              <span key={lv.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: lv.bg, border: `1px solid ${lv.color}33`, borderRadius: 999, padding: "3px 10px 3px 8px" }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: lv.color, flexShrink: 0 }} />
+                <span style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 600, color: lv.color }}>{lv.sub}</span>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Regla + pistas (layout flex-segmentado) */}
         <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: schemaZoom > 1 ? 4 : 12, position: "relative" }}
@@ -5503,12 +5708,12 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
         {/* Panel de selección de bloque */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {selBlock && !selBlock.isPreview && selLv ? (
-            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}
+            <div style={{ background: C.paper, border: `1px solid ${selLv.color}40`, borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, flexWrap: "wrap" }}
               onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: selLv.color, flexShrink: 0 }} />
-              <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
-              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>
-                {selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: selLv.color, flexShrink: 0 }} />
+              <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
+              <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
+                {selLv.sub} · {fmt(selBlock.start)}–{fmt(selBlock.end)} · dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
               </span>
               {/* Selector de color */}
               {selBlock.level !== 4 && (() => {
@@ -5531,57 +5736,47 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
                 );
               })()}
               {selBlock.level !== 4 && selBlock.customColor && (
-                <button title="Restablecer color automático"
+                <button title="Restablecer color automático" className="fa-pressable"
                   onClick={() => setBlocks(prev => { const selB = prev.find(b => b.id === selected); return prev.map(b => { if (b.id === selected) return { ...b, customColor: undefined }; if (selB?.pass === "first" && b.mirrorId === selected) return { ...b, customColor: undefined }; return b; }); })}
-                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 9px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
               )}
               {selBlock.pass !== "second" && (
-                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }}
-                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
+                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} className="fa-pressable"
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
               )}
               {selBlock.pass === "second" && (
                 <span style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>texto igual al original</span>
               )}
-              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }}
-                style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
+              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} className="fa-pressable"
+                style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
           ) : selectedRepId ? (() => {
             const rep = localReps.find(r => r.id === selectedRepId);
             if (!rep) return null;
             return (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "4px 0" }}
+              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", background: C.paper, border: `1px solid ${C.fnS}40`, borderRadius: 12, padding: "10px 14px" }}
                 onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
-                  <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>Repetición</span>
-                  <span style={{ fontSize: 11, color: C.muted }}>
-                    {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
-                  </span>
-                </div>
-                <span style={{ fontSize: 11, color: C.muted2, flex: 1 }}>Supr o ⌫ para borrar</span>
-                <button
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
+                <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>Repetición</span>
+                <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
+                  {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
+                </span>
+                <button className="fa-pressable"
                   onClick={() => { deleteRepeat(selectedRepId); setSelectedRepId(null); }}
-                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>
+                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.danger }}>
                   Eliminar
                 </button>
               </div>
             );
           })() : (
-            <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
+            <div style={{ flex: 1, fontSize: 12.5, color: C.muted, padding: "8px 10px", lineHeight: 1.5 }}>
               {blocks.filter(b => !b.isPreview).length === 0
-                ? "Arrastra en cualquier pista para crear un bloque. Doble clic para renombrar."
-                : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""}. Selecciona uno para editar.`}
+                ? "Arrastra sobre cualquier pista para crear un bloque · doble toque para renombrar."
+                : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""} · selecciona uno para editarlo.`}
             </div>
           )}
-          <button onClick={undo} disabled={history.length === 0} title="Deshacer"
-            style={{ ...S.btn, padding: "8px 12px", fontSize: 16, lineHeight: 1, opacity: history.length === 0 ? 0.35 : 1, cursor: history.length === 0 ? "not-allowed" : "pointer" }}>↩</button>
-          <button onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Empezar de nuevo"
-            style={{ ...S.btn, fontSize: 12, opacity: blocks.filter(b => !b.isPreview).length === 0 ? 0.35 : 1, cursor: blocks.filter(b => !b.isPreview).length === 0 ? "not-allowed" : "pointer" }}>✕ Borrar todo</button>
-          <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
-          </PillSubmitButton>
 
-          {/* Área de texto (nivel 4) */}
+          {/* Área de texto (nivel 4) — ancho completo bajo el panel de selección */}
           {selBlock?.level === 4 && !selBlock.isPreview && (
             <div style={{ width: "100%", marginTop: 4 }}
               onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
@@ -5617,6 +5812,35 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
 
       </div>
+
+      <StickyActionBar
+        secondary={listenOnly ? null : (
+          <div style={{ display: "flex", gap: 8 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+            <BarIconButton onClick={undo} disabled={history.length === 0} title="Deshacer">↩</BarIconButton>
+            <BarIconButton onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Borrar todo" danger>✕</BarIconButton>
+          </div>
+        )}
+        info={
+          listenOnly ? (
+            <>
+              <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+                {(() => { const n = schemaMarks.length; return n === 0 ? "Sin marcas todavía" : `${n} ${n === 1 ? "marca" : "marcas"}`; })()}
+              </span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Toca la regla para añadir una marca</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+                {(() => { const n = blocks.filter(b => !b.isPreview).length; return n === 0 ? "Sin bloques todavía" : `${n} ${n === 1 ? "bloque" : "bloques"}`; })()}
+              </span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Arrastra en una pista para crear</span>
+            </>
+          )
+        }>
+        <BarSubmitButton onClick={handleSubmit} accent={C.fnD}>
+          {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar"}
+        </BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
@@ -6319,9 +6543,9 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   if (questions.length === 0) {
     return (
       <div style={S.app}>
+        <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
         <div style={S.page}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
-          <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8 }}>
+          <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8, borderRadius: 16 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
             <div>Este ejercicio aún no tiene preguntas configuradas.</div>
             <div style={{ fontSize: 13 }}>El profesor las añadirá pronto.</div>
@@ -6331,15 +6555,19 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
     );
   }
 
+  const allAnswered = answeredCount === questions.length;
+
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
-      <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
+
+        <SessionHint modelId="cuestionario" />
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
@@ -6349,16 +6577,17 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          {/* Minimapa de preguntas */}
-          <div style={{ position: "relative", height: 28, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", userSelect: "none" }}>
+          {/* Minimapa de preguntas — toca un bloque para saltar a su fragmento */}
+          <div style={{ position: "relative", height: 30, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", userSelect: "none" }}>
             {questions.map((q, idx) => {
               const isLock = lockedQuestion?.id === q.id;
+              const answered = answers[q.id] !== undefined && answers[q.id] !== "";
               return (
                 <div key={q.id}
                   onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
                   title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
-                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: C.quiz, opacity: isLock ? 1 : 0.45, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
-                  <span style={{ fontSize: 7, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>P{idx + 1}</span>
+                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: answered ? C.fnT : C.quiz, opacity: isLock ? 1 : 0.5, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.9)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
+                  <span style={{ fontSize: 8, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>{idx + 1}</span>
                 </div>
               );
             })}
@@ -6366,10 +6595,11 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
           </div>
 
           {lockedQuestion ? (
-            <div style={{ ...S.row, gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "6px 0 8px", flexWrap: "wrap" }}>
-              <span>🔒 Fragmento activo: {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)}</span>
-              <span style={{ color: C.muted, fontSize: 11 }}>(bucle automático)</span>
-              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11 }}>Liberar</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
+                🔒 Fragmento {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)} · bucle
+              </span>
+              <button onClick={unlockAudio} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
             </div>
           ) : <div style={{ height: 8 }} />}
 
@@ -6378,7 +6608,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               <CircleButton onClick={() => seekTo(lockedQuestion ? lockedQuestion.audioStart : 0)} title="Volver al inicio">⏮</CircleButton>
             </div>
             <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
               {playing ? "❚❚" : "▶"}
             </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
@@ -6387,26 +6617,23 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
           </div>
         </section>
 
-        <div style={{ ...S.row, gap: 8, marginBottom: 12, fontSize: 13, color: C.muted }}>
-          <span>{answeredCount} de {questions.length} {questions.length === 1 ? "pregunta respondida" : "preguntas respondidas"}</span>
-          <div style={{ flex: 1, height: 4, background: C.line, borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%`, background: C.fnT, borderRadius: 2, transition: "width .3s" }} />
-          </div>
-        </div>
-
         {questions.map((q, idx) => {
           const isExpanded = expandedId === q.id;
           const isLocked   = lockedQuestion?.id === q.id;
           const answered   = answers[q.id] !== undefined && answers[q.id] !== "";
           return (
             <div key={q.id} onMouseDown={(e) => e.stopPropagation()}
-              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8, padding: "14px 16px" }}>
+              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 12, marginBottom: 8, padding: "14px 16px", transition: "border-color .15s" }}>
               <div style={{ cursor: "pointer" }}
                 onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}>
-                {/* Fila de metadatos — chip + ✓ + chevron */}
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-                  <Chip>Pregunta {idx + 1}</Chip>
-                  {answered && <span style={{ background: "rgba(63,155,91,0.14)", color: C.fnT, fontFamily: F.sans, fontSize: 11, fontWeight: 600, borderRadius: 4, padding: "2px 7px" }}>✓</span>}
+                {/* Fila de metadatos — número + estado + chevron */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: answered ? C.fnT : `${C.quiz}1A`, color: answered ? C.paper : C.quiz, fontFamily: F.sans, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                    {answered ? "✓" : idx + 1}
+                  </span>
+                  <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
+                    {q.type === "test" ? "Opción múltiple" : "Respuesta abierta"} · {fmt(q.audioStart)}–{fmt(q.audioEnd)}
+                  </span>
                   <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
                 {/* Texto de la pregunta — serif grande */}
@@ -6416,14 +6643,14 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               {isExpanded && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
                   {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                       {q.options.map((opt) => {
                         const isSel = answers[q.id] === opt.id;
                         return (
-                          <button key={opt.id}
+                          <button key={opt.id} className="fa-pressable"
                             onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1px solid ${isSel ? C.ink : C.line}`, borderRadius: 7, padding: "9px 12px", cursor: "pointer", textAlign: "left", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 11, color: isSel ? "rgba(255,255,255,0.55)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
+                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
                             {opt.text}
                           </button>
                         );
@@ -6431,7 +6658,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
                     </div>
                   )}
                   {q.type === "desarrollo" && (
-                    <textarea style={{ ...S.input, minHeight: 90, resize: "vertical", lineHeight: 1.5 }}
+                    <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
                       placeholder="Escribe tu respuesta aquí…"
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
@@ -6442,14 +6669,21 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
             </div>
           );
         })}
-
-        <div style={{ ...S.row, justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 6, marginBottom: 24 }}>
-          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, flex: "1 1 200px" }}>
-            Haz clic en una pregunta para ver su fragmento en la waveform · Espacio = Play/Pausa
-          </div>
-          <PillSubmitButton onClick={handleSubmit}>Entregar</PillSubmitButton>
-        </div>
       </div>
+
+      <StickyActionBar
+        info={
+          <>
+            <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: allAnswered ? C.fnT : C.ink }}>
+              {answeredCount} / {questions.length} {allAnswered ? "· completo" : "respondidas"}
+            </span>
+            <div style={{ height: 4, background: C.line, borderRadius: 2, overflow: "hidden", marginTop: 3, maxWidth: 160 }}>
+              <div style={{ height: "100%", width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%`, background: allAnswered ? C.fnT : C.quiz, borderRadius: 2, transition: "width .3s" }} />
+            </div>
+          </>
+        }>
+        <BarSubmitButton onClick={handleSubmit} accent={C.quiz}>Entregar</BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
@@ -7278,7 +7512,7 @@ function TeacherDash({
 
   return (
     <div style={S.app}>
-      <div style={{ ...S.page, padding: isMobile ? "18px 14px 80px" : S.page.padding }}>
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {/* Cabecera editorial */}
         <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
