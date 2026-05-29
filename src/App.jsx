@@ -5575,6 +5575,30 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
 
+// Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
+function SchemaPlayhead({ timeRef, duration }) {
+  const lineRef = useRef(null);
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      if (lineRef.current && duration > 0) {
+        const pct = Math.min(100, (timeRef.current / duration) * 100);
+        lineRef.current.style.left = `${pct}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [timeRef, duration]);
+  return (
+    <div ref={lineRef} style={{
+      position: "absolute", top: 0, left: 0, width: 2, height: "100%",
+      background: C.danger, opacity: 0.75, pointerEvents: "none", zIndex: 10,
+      transform: "translateX(-50%)", borderRadius: 1,
+    }} />
+  );
+}
+
 function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }) {
   const dur = exercise.duration;
   const tc  = result.teacherCorrection;
@@ -5589,6 +5613,9 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
   const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
   const [quizScore,    setQuizScore]    = useState(tc?.totalScore ?? "");
 
+  // Audio — siempre incondicional (reglas de hooks)
+  const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
+
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
     const blocks      = result.blocks || [];
@@ -5598,6 +5625,11 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
     const activeLevels = SCHEMA_LEVELS.filter((lv) =>
       !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
     );
+
+    const handleTimelineClick = (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      seekTo(((e.clientX - rect.left) / rect.width) * exercise.duration);
+    };
 
     const SchemaStrip = ({ title: stripTitle, bks }) => (
       <div style={{ marginBottom: 14 }}>
@@ -5609,16 +5641,18 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
             <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
+                <div
+                  onClick={hasAudio ? handleTimelineClick : undefined}
+                  style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden", cursor: hasAudio ? "pointer" : "default" }}>
                   {lvBlocks.map((b, i) => {
                     const lPct = (b.start / exercise.duration) * 100;
                     const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
                     const { bg, textColor } = schemaBlockColor(b, bks);
                     if (lv.id === 3) {
                       return (
-                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden", pointerEvents: "none" }}>
                           <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>{b.label}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
                           </div>
                           {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
                         </div>
@@ -5626,17 +5660,18 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                     }
                     if (lv.id === 4) {
                       return (
-                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden" }}>
-                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", pointerEvents: "none" }}>{b.label}</span>
+                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden", pointerEvents: "none" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
                         </div>
                       );
                     }
                     return (
-                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px", pointerEvents: "none" }}>{b.label}</span>
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
+                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px" }}>{b.label}</span>
                       </div>
                     );
                   })}
+                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={exercise.duration} />}
                 </div>
               </div>
               {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
@@ -5661,6 +5696,25 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
       </div>
     );
 
+    const AudioBar = () => hasAudio ? (
+      <div style={{ ...S.card, marginBottom: 16, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={togglePlay}
+            disabled={!audioReady}
+            style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: audioReady ? C.ink : C.line, color: C.paper, cursor: audioReady ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, transition: "background .15s" }}>
+            {playing ? "⏸" : "▶"}
+          </button>
+          <div
+            onClick={handleTimelineClick}
+            style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / exercise.duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
+          </div>
+          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(exercise.duration)}</span>
+        </div>
+      </div>
+    ) : null;
+
     // ── Vista del profesor ────────────────────────────────────────────────────
     if (isTeacherMode) {
       const handleSave = () => onSaveCorrection?.(student?.id, exercise.id, {
@@ -5683,6 +5737,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                 <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>de bloques dentro del margen</div>
               </div>
             )}
+
+            <AudioBar />
 
             {(blocks.length > 0 || hasKey) && (
               <div style={{ ...S.card, marginBottom: 16 }}>
@@ -5779,6 +5835,8 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
               </div>
             )}
           </div>
+
+          <AudioBar />
 
           {(blocks.length > 0 || showRefSchema) && (
             <div style={S.card}>
