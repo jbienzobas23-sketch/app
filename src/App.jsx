@@ -7061,7 +7061,7 @@ function CoursesTab({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                       <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
                       <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
-                      <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))}>Eliminar</DangerOutlineButton>
+                      <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} title={`Eliminar curso "${course.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
                     </div>
                   </div>
                 </div>
@@ -7097,7 +7097,7 @@ function CoursesTab({
                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                                     <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
                                     <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
-                                    <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))}>Eliminar</DangerOutlineButton>
+                                    <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} title={`Eliminar unidad "${unit.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
                                   </div>
                                 </div>
 
@@ -7123,7 +7123,7 @@ function CoursesTab({
                                                     onClick={() => onSelectExercise(ex.id)}>{ex.title}</span>
                                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                                                     <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
-                                                    <DangerOutlineButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))}>Quitar</DangerOutlineButton>
+                                                    <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} title={`Quitar "${ex.title}" de la unidad`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
                                                   </div>
                                                 </div>
                                               </div>
@@ -7157,64 +7157,73 @@ function CoursesTab({
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
 function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
   const [expandedStudents, setExpandedStudents] = useState(new Set());
+  const [expandedGroups,   setExpandedGroups]   = useState(() => new Set(groups.map((g) => g.id)));
   const toggleExpand = (id) =>
     setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleGroup = (id) =>
+    setExpandedGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const renderStudentCard = (s) => {
-    const sRes      = results[s.id] || {};
-    const isOpen    = expandedStudents.has(s.id);
-    const doneCount = exercises.filter((ex) => sRes[ex.id]).length;
+    const sRes    = results[s.id] || {};
+    const isOpen  = expandedStudents.has(s.id);
+    const doneExs = exercises.filter((ex) => sRes[ex.id]);
     return (
       <div key={s.id} style={S.card}>
-        <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
-            <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+        {/* Cabecera siempre visible: nombre + toggle + eliminar */}
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {s.displayName}
+          </div>
+          <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+            {exercises.length > 0 && (
+              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 10px" }}>
+                {isOpen ? "▲" : "▼"}
+              </button>
+            )}
+            <button
+              onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))}
+              title={`Eliminar alumno "${s.displayName}"`}
+              style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+          </div>
+        </div>
+
+        {/* Detalle: solo visible al desplegar */}
+        {isOpen && (
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
               <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
               <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
                 {s.credType === "pin" ? "PIN" : "Contraseña"}
               </span>
               {exercises.length > 0 && (
                 <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
-                  {doneCount}/{exercises.length} ejs.
+                  {doneExs.length}/{exercises.length} ejs.
                 </span>
               )}
+              <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
             </div>
-          </div>
-          <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-            {exercises.length > 0 && (
-              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>
-                {isOpen ? "▲ Ocultar" : "▼ Ejercicios"}
-              </button>
-            )}
-            <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear</button>
-            <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
-          </div>
-        </div>
-
-        {isOpen && exercises.length > 0 && (
-          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            {exercises.map((ex) => {
-              const r = sRes[ex.id];
-              const needsCorrection = r && !r.teacherCorrection?.corrected && (
-                r.type === "esquema" ||
-                (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
-              );
-              return (
-                <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
-                  <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                    {needsCorrection && (
-                      <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
-                    )}
-                    {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
-                    {r && (
-                      <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {doneExs.length === 0
+              ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
+              : doneExs.map((ex) => {
+                  const r = sRes[ex.id];
+                  const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                    r.type === "esquema" ||
+                    (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+                  );
+                  return (
+                    <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                      <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                        {needsCorrection && (
+                          <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                        )}
+                        <ScoreBadge score={r.score} />
+                        <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                      </div>
+                    </div>
+                  );
+                })
+            }
           </div>
         )}
       </div>
@@ -7245,18 +7254,28 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
 
       {groups.map((group) => {
         const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
+        const isGroupOpen   = expandedGroups.has(group.id);
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap" }}>
+            <div
+              onClick={() => toggleGroup(group.id)}
+              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
               <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
-              <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
-              <button onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))} style={{ ...S.btnDanger, fontSize: 12, padding: "4px 10px" }}>Eliminar</button>
+              <Chevron open={isGroupOpen} rotate90WhenClosed size={14} />
+              <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
+                <button
+                  onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))}
+                  title={`Eliminar grupo "${group.name}"`}
+                  style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+              </div>
             </div>
-            {groupStudents.length === 0
-              ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
-              : groupStudents.map(renderStudentCard)
-            }
+            {isGroupOpen && (
+              groupStudents.length === 0
+                ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
+                : groupStudents.map(renderStudentCard)
+            )}
           </div>
         );
       })}
