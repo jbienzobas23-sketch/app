@@ -153,7 +153,7 @@ const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
   app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
-  page:       { maxWidth: 740, margin: "0 auto", padding: "22px 24px 80px" },
+  page:       { maxWidth: 740, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
   h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
@@ -226,14 +226,16 @@ const SCHEMA_DEFAULT_LABELS = {
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
   4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
-// Calcula { bg, textColor } para cualquier bloque de esquema, replicando el sistema de colores del ejercicio real
-function schemaBlockColor(b, allBlocks) {
+// Calcula { bg, textColor } para cualquier bloque de esquema, replicando el sistema de colores del ejercicio real.
+// paletteId: "auto"/null → colores automáticos por etiqueta; "p1".."p5" → paleta seleccionada.
+function schemaBlockColor(b, allBlocks, paletteId = SCHEMA_PALETTE_DEFAULT) {
   if (b.customColor) return harmonyBlockColors(null, b.customColor);
   if (b.level === 3)  return harmonyBlockColors(b.label, SCHEMA_LEVELS[2].color);
-  if (b.level === 1)  return harmonyBlockColors(null, partBlockColor(b.label));
+  if (b.level === 1)  return harmonyBlockColors(null, partColorFromPalette(b.label, paletteId));
   if (b.level === 2) {
     const parent = allBlocks.find(p => p.level === 1 && p.start <= b.start + 0.01 && p.end > b.start + 0.01);
-    return harmonyBlockColors(null, lightenColor(parent ? (parent.customColor || partBlockColor(parent.label)) : SCHEMA_LEVELS[1].color, 18, -8));
+    const parentColor = parent ? (parent.customColor || partColorFromPalette(parent.label, paletteId)) : SCHEMA_LEVELS[1].color;
+    return harmonyBlockColors(null, phraseColorFromPalette(b.label, parentColor, paletteId));
   }
   return { bg: SCHEMA_LEVELS.find(l => l.id === b.level)?.color ?? "#999", textColor: "#fff" };
 }
@@ -367,6 +369,127 @@ function partBlockColor(label) {
   if(/^d[''`´'']?[\d''`´'']*$/.test(s)) return '#90B050'; // verde oliva (≈82°)
   if(/^e[''`´'']?[\d''`´'']*$/.test(s)) return '#A87060'; // terracota oscuro
   return '#9090A4'; // fallback neutro
+}
+
+// ─── Paletas seleccionables (color.adobe.com) ────────────────────────────────
+// Cada paleta define 4 colores base para las PARTES, en el orden A · B · C · D
+// (el color de la izquierda en la imagen = A, el segundo = B, etc.).
+// Las funciones formales con nombre comparten ranura con sus letras:
+//   Exposición / Reexposición / Recapitulación → ranura de A (0)
+//   Desarrollo                                   → ranura de B (1)
+// Intro · Coda · Puente / Transición se dejan en gris neutro (no son temas).
+// La relación PARTE → FRASES sigue la imagen "Relación partes a frases":
+//   · la PARTE usa el color base (intenso, columna 1)
+//   · la frase "a" es la versión MÁS CLARA  (columna 2)
+//   · la frase "b" es la versión INTERMEDIA (columna 3)
+// y así sucesivamente para c, d, e… aclarando progresivamente.
+const SCHEMA_PALETTES = [
+  { id: "p1", name: "Paleta 1", parts: ["#F78584", "#9FC2FF", "#FFD269", "#98D897"] },
+  { id: "p2", name: "Paleta 2", parts: ["#A0EB6E", "#FFAA32", "#FF5C91", "#48BBCD"] },
+  { id: "p3", name: "Paleta 3", parts: ["#F1C1D2", "#C1D9BA", "#F25480", "#D882E0"] },
+  { id: "p4", name: "Paleta 4", parts: ["#5FB7EF", "#A67597", "#CBE0F8", "#64C6B9"] },
+  { id: "p5", name: "Paleta 5", parts: ["#6A4698", "#576B35", "#3B6275", "#7C5065"] },
+];
+// Paleta por defecto del esquema.
+const SCHEMA_PALETTE_DEFAULT = "p1";
+const getSchemaPalette = (id) => SCHEMA_PALETTES.find(p => p.id === id) || null;
+
+// Devuelve la paleta efectiva: la del ejercicio si existe, si no la preferencia
+// del usuario, y por último la de por defecto (P1).
+function effectivePaletteId(exercise, userPref) {
+  return (exercise && exercise.schemaPalette) || userPref || SCHEMA_PALETTE_DEFAULT;
+}
+
+// Genera hasta 8 colores de CATEGORÍA a partir de los 4 colores base de la
+// paleta. Los 4 primeros son los colores tal cual; del 5º al 8º se derivan
+// oscureciendo/aclarando para mantener contraste con texto blanco en los botones.
+function getCategoryColorsFromPalette(paletteId) {
+  const pal = getSchemaPalette(paletteId) || SCHEMA_PALETTES[0];
+  const base = pal.parts;
+  const out = [...base];
+  // Variantes para índices 4..7 (oscurecidas un poco respecto a las base).
+  for (let i = 0; i < base.length && out.length < 8; i++) {
+    out.push(lightenColor(base[i], -16, 6));
+  }
+  return out.slice(0, 8);
+}
+
+// Devuelve una copia del ejercicio con los colores de los botones de cada
+// categoría reasignados según la paleta activa (por índice de botón). No muta
+// el original. También fija schemaPalette para que el esquema use la misma.
+function applyPaletteToExercise(exercise, paletteId) {
+  if (!exercise) return exercise;
+  const colors = getCategoryColorsFromPalette(paletteId);
+  const recolorButtons = (buttons) =>
+    Array.isArray(buttons)
+      ? buttons.map((b, i) => ({ ...b, color: colors[i % colors.length] }))
+      : buttons;
+  const next = { ...exercise, schemaPalette: paletteId };
+  if (Array.isArray(exercise.categories))
+    next.categories = exercise.categories.map(c => ({ ...c, buttons: recolorButtons(c.buttons) }));
+  if (Array.isArray(exercise.modes))
+    next.modes = exercise.modes.map(c => ({ ...c, buttons: recolorButtons(c.buttons) }));
+  return next;
+}
+
+// Devuelve el índice de ranura A/B/C/D (0..3) para una etiqueta de PARTE,
+// o null si es una sección neutra (intro/coda/puente) sin color temático.
+function partSlotIndex(label) {
+  const s = (label ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/^reex|^recap|^expo/.test(s))      return 0;            // A / Exposición / Reexposición
+  if (/^desa/.test(s))                   return 1;            // B / Desarrollo
+  if (/^intro|^coda|^puente|^trans|^brid/.test(s)) return null; // neutras
+  const m = s.match(/^([a-z])[''`´'']?[\d''`´'']*$/);          // a/b/c/d/e con primas
+  if (m) return (m[1].charCodeAt(0) - 97) % 4;               // a→0 … e→0 (vuelve a A)
+  return null;
+}
+
+// Índice de frase a partir de su letra: a→0, b→1, c→2…  (null si no aplica)
+function phraseSlotIndex(label) {
+  const s = (label ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const m = s.match(/^([a-z])[''`´'']?[\d''`´'']*$/);
+  return m ? (m[1].charCodeAt(0) - 97) : null;
+}
+
+// Color de una PARTE según la paleta activa (o automático si paletteId="auto"/null).
+function partColorFromPalette(label, paletteId) {
+  const pal = getSchemaPalette(paletteId);
+  if (!pal) return partBlockColor(label);                    // modo automático original
+  const slot = partSlotIndex(label);
+  if (slot == null) return '#9CA0AC';                        // neutra → gris
+  return pal.parts[slot] ?? pal.parts[0];
+}
+
+// Color de una FRASE según su parte madre y la paleta activa.
+// Implementa la relación "partes a frases" de la imagen de referencia:
+//   · la parte es el color base
+//   · la frase "a" es la MÁS CLARA, la "b" INTERMEDIA, etc.
+// En la imagen roja de referencia (parte L≈74%) la frase a llega a L≈90% y la
+// b a L≈82%: es decir recorre ~64% y ~31% del trayecto que queda HASTA blanco.
+// Trabajamos con FRACCIONES de ese margen (no incrementos fijos) para que la
+// relación se conserve igual en colores intensos (P5) y en pasteles (P1/P3),
+// sin que las frases se saturen en blanco ni se confundan con la parte.
+function phraseColorFromPalette(phraseLabel, parentPartColor, paletteId) {
+  const pal = getSchemaPalette(paletteId);
+  const idx = phraseSlotIndex(phraseLabel);
+  if (!pal) {
+    // Modo automático: se mantiene el aclarado uniforme original.
+    return lightenColor(parentPartColor, 18, -8);
+  }
+  // Fracción del margen L→100 que recorre cada frase, y leve desaturación.
+  // a = más clara, b = intermedia; c/d/e continúan alternando.
+  const STEPS = [
+    [0.64, -7],  // a → la más clara
+    [0.31, -2],  // b → intermedia
+    [0.80, -10], // c → casi pastel
+    [0.47, -4],  // d → media-clara
+    [0.92, -12], // e → muy pálida
+  ];
+  const [frac, sAdd] = STEPS[idx != null && idx < STEPS.length ? idx : 0] ?? STEPS[0];
+  const [h, s, l] = _hexToHsl(parentPartColor);
+  const newL = l + (100 - l) * frac;            // recorre parte del camino a blanco
+  const newS = Math.max(0, Math.min(100, s + sAdd));
+  return _hslToHex(h, newS, newL);
 }
 
 const INIT_EXERCISES = [
@@ -804,10 +927,51 @@ function useInjectFonts() {
     if (!document.querySelector('style[data-fa-anim]')) {
       const style = document.createElement("style");
       style.setAttribute("data-fa-anim", "1");
-      style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}";
+      style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
+        + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
+        + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"
+        + ".fa-noscroll::-webkit-scrollbar{display:none;height:0;width:0}"
+        + ".fa-noscroll{-ms-overflow-style:none}"
+        // Sticky bar: pushes a safe spacer below the page so the bar never hides content
+        + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
+        + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
+        + ".fa-pressable:active{transform:scale(.97)}";
       document.head.appendChild(style);
     }
+    // Asegura el viewport responsive en móvil (si el HTML host no lo define)
+    if (!document.querySelector('meta[name="viewport"]')) {
+      const meta = document.createElement("meta");
+      meta.name = "viewport";
+      meta.content = "width=device-width, initial-scale=1, viewport-fit=cover";
+      document.head.appendChild(meta);
+    }
   }, []);
+}
+
+// Hook responsive: devuelve true cuando el viewport es estrecho (móvil).
+// La app usa estilos en línea (no CSS/media queries), así que las vistas
+// ramifican su layout leyendo este valor. Usa matchMedia y se resuscribe a
+// los cambios de tamaño/orientación.
+function useIsMobile(maxWidth = 640) {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia(query);
+    const onChange = (e) => setIsMobile(e.matches);
+    setIsMobile(mql.matches);
+    // addEventListener es el API moderno; addListener para Safari antiguo
+    if (mql.addEventListener) mql.addEventListener("change", onChange);
+    else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+  return isMobile;
 }
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
@@ -958,6 +1122,169 @@ const disabledStyle = (canSave) => ({
   opacity: canSave ? 1 : 0.45,
   cursor:  canSave ? "pointer" : "not-allowed",
 });
+
+// ── Primitivos de sesión S2 ───────────────────────────────────────────────────
+// Estos primitivos unifican las tres vistas de ejercicio (interactivo /
+// cuestionario / esquema) para que la lógica de interacción sea obvia y el
+// flujo esté pensado para móvil: cabecera con el modelo visible, banner de
+// ayuda destacado y barra de acción inferior fija (alcanzable con el pulgar).
+
+// Punto de tiempo abreviado para "0:07" sin minutos cuando es corto
+const SESSION_MODEL_META = {
+  interactivo:  { color: C.fnT, label: "Interactivo",  hint: "Mantén pulsado el botón de la función (o su tecla) mientras suena el audio para marcar cada fragmento.", verb: "marca categorías en vivo" },
+  cuestionario: { color: C.fnS, label: "Cuestionario", hint: "Toca una pregunta para saltar a su fragmento de audio y escucharlo en bucle, luego responde.", verb: "responde sobre fragmentos" },
+  esquema:      { color: C.fnD, label: "Esquema",       hint: "Arrastra sobre cualquier pista para crear un bloque. Doble toque para renombrarlo; selecciónalo para moverlo o cambiar su color.", verb: "dibuja la forma musical" },
+};
+
+// Cabecera unificada de sesión: volver + título + píldora del modelo activo.
+// Sustituye/clarifica a ExercisePageHeader en las vistas de ejercicio S2.
+function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
+  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+  return (
+    <div style={{
+      background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0,
+      position: "sticky", top: 0, zIndex: 55,
+      paddingTop: "env(safe-area-inset-top, 0px)",
+    }}>
+      <div style={{ padding: "9px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={onBack} aria-label="Volver" className="fa-pressable" style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontFamily: F.sans, fontSize: 13, color: C.ink2, padding: "6px 4px",
+          flexShrink: 0, display: "flex", alignItems: "center", gap: 4, marginLeft: -4,
+        }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>←</span>
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: C.ink,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.25,
+          }}>{exercise.title}</div>
+          {exercise.composerName && exercise.showComposer !== false && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
+              {exercise.composerName}
+            </div>
+          )}
+        </div>
+        {rightSlot}
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
+          background: `${meta.color}14`, border: `1px solid ${meta.color}40`,
+          borderRadius: 999, padding: "4px 11px",
+          fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: meta.color,
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+          {meta.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Banner de ayuda destacado y descartable, al inicio del área de trabajo.
+// Hace evidente el modelo de interacción de un vistazo, sin sustituir el texto
+// fino de pie ya existente (que se mantiene como recordatorio).
+function SessionHint({ modelId, extra = null, storageKeyless = true }) {
+  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+  const storeKey = `fa_hint_seen_${modelId}`;
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(storeKey) !== "1"; } catch { return true; }
+  });
+  // El banner aclaratorio del modelo solo aparece la primera vez que se accede a
+  // ese tipo de ejercicio; se marca como visto al mostrarse (también evita que
+  // reaparezca al alternar modelos en ejercicios híbridos).
+  useEffect(() => {
+    if (!open) return;
+    try { localStorage.setItem(storeKey, "1"); } catch {}
+  }, [open, storeKey]);
+  if (!open) return null;
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 10,
+      background: `${meta.color}0E`, border: `1px solid ${meta.color}33`,
+      borderRadius: 12, padding: "11px 12px 11px 14px", marginBottom: 12,
+      animation: "faHintIn .25s ease",
+    }}>
+      <span aria-hidden style={{
+        flexShrink: 0, marginTop: 1,
+        width: 20, height: 20, borderRadius: "50%",
+        background: meta.color, color: C.paper,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: F.serif, fontSize: 13, fontWeight: 700, lineHeight: 1,
+      }}>i</span>
+      <div style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 12.5, lineHeight: 1.5, color: C.ink2 }}>
+        {meta.hint}{extra ? <> {extra}</> : null}
+      </div>
+      <button onClick={() => setOpen(false)} aria-label="Ocultar ayuda" className="fa-pressable" style={{
+        flexShrink: 0, background: "transparent", border: "none", cursor: "pointer",
+        color: meta.color, fontSize: 16, lineHeight: 1, padding: "0 2px", marginTop: -1, opacity: 0.7,
+      }}>✕</button>
+    </div>
+  );
+}
+
+// Barra de acción inferior fija. Garantiza que la acción principal (Entregar /
+// Guardar clave) esté siempre visible y al alcance del pulgar en móvil.
+// `secondary` permite añadir controles a la izquierda (deshacer, borrar…).
+function StickyActionBar({ children, secondary = null, info = null }) {
+  return (
+    <div className="fa-sticky-bar" style={{
+      background: "rgba(255,255,255,0.86)",
+      backdropFilter: "saturate(180%) blur(12px)",
+      WebkitBackdropFilter: "saturate(180%) blur(12px)",
+      borderTop: `1px solid ${C.line}`,
+      marginTop: 14,
+      padding: "10px 16px",
+      paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
+      boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
+    }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+        {secondary}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+          {info}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Botón submit grande para la barra fija — variante full-bleed amigable al pulgar
+function BarSubmitButton({ onClick, children, disabled = false, accent = C.ink }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="fa-pressable" style={{
+      background: accent, color: C.paper, border: `1px solid ${accent}`,
+      borderRadius: 999, padding: "11px 18px 11px 22px",
+      fontSize: 14, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+      fontFamily: FONT_SANS, flexShrink: 0,
+      display: "inline-flex", alignItems: "center", gap: 9,
+      opacity: disabled ? 0.45 : 1,
+    }}>
+      {children}
+      <span style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 22, height: 22, borderRadius: "50%",
+        background: "rgba(251,250,246,0.20)", fontSize: 13,
+      }}>→</span>
+    </button>
+  );
+}
+
+// Botón circular compacto para la barra de acción (deshacer / borrar)
+function BarIconButton({ onClick, disabled, title, children, danger = false }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={title} className="fa-pressable" style={{
+      width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+      background: C.paper, border: `1px solid ${danger ? "rgba(184,74,58,0.4)" : C.line}`,
+      color: danger ? C.danger : C.ink2,
+      cursor: disabled ? "not-allowed" : "pointer",
+      opacity: disabled ? 0.35 : 1,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 17, lineHeight: 1, fontFamily: FONT_SANS,
+    }}>
+      {children}
+    </button>
+  );
+}
 
 // ── Primitivos del sistema editorial V1 ──────────────────────────────────────
 
@@ -1565,8 +1892,11 @@ function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onF
 // Pantalla inicial: selección de rol
 function HomeView({ onTeacher, onStudent }) {
   return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px))" }}>
       <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+        <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 600, fontStyle: "italic", color: C.muted, marginBottom: 14, letterSpacing: "0.01em" }}>
+          Funciones armónicas
+        </div>
         <h1 style={{ fontFamily: F.sans, fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1.0, margin: 0 }}>
           Análisis<br />auditivo
         </h1>
@@ -1854,6 +2184,7 @@ function ModelToggleBar({ models, activeIdx, onSwitch }) {
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
 function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const [open, setOpen] = useState(false);
+  const isMobile  = useIsMobile();
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
   const isQuiz    = modelOf(ex) === "cuestionario";
@@ -1863,10 +2194,26 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const isDone    = result != null;
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
-  const hasManualModel = exModels.includes("esquema") || (exModels.includes("cuestionario") && exQs.some((q) => q.type === "desarrollo"));
+
+  const actionButtons = (
+    <>
+      {isDone && onViewCorrection && (
+        <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }} className="fa-pressable"
+          style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto", color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+          {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+        </button>
+      )}
+      <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }} className="fa-pressable"
+        style={isDone
+          ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }
+          : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }}>
+        {isDone ? "Repetir" : "Iniciar →"}
+      </button>
+    </>
+  );
 
   return (
-    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
       {exModels.length > 1 ? (
         <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
@@ -1877,36 +2224,48 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
-          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 12px 12px 14px" : "11px 14px", cursor: "pointer", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontFamily: F.sans, fontSize: 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            <span style={{ fontFamily: F.sans, fontSize: isMobile ? 15.5 : 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {ex.title}
             </span>
-            {ex.composerName && ex.showComposer !== false && (
-              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, display: "block", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {ex.composerName}
+            {/* Línea meta inline: tipo + autor + estado — visible sin desplegar */}
+            <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, overflow: "hidden" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />
+                <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
+                  {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
+                </span>
               </span>
-            )}
+              {ex.composerName && ex.showComposer !== false && (
+                <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  · {ex.composerName}
+                </span>
+              )}
+            </span>
           </div>
-          <Chevron open={open} />
-          {isDone && onViewCorrection && (
-            <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }}
-              style={{ ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
-              {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
-            </button>
+          {isDone && score != null && (
+            <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }}
-            style={isDone
-              ? { ...S.btn, fontSize: 12, padding: "6px 13px", flexShrink: 0 }
-              : { ...S.btnPrimary, fontSize: 12, padding: "6px 13px", flexShrink: 0 }}>
-            {isDone ? "Repetir" : "Iniciar →"}
-          </button>
+          {isDone && score == null && (
+            <StatusCircle done />
+          )}
+          <Chevron open={open} />
+          {/* En escritorio, los botones van en línea; en móvil bajan a su propia fila */}
+          {!isMobile && actionButtons}
         </div>
+
+        {isMobile && (
+          <div style={{ display: "flex", gap: 8, padding: "0 12px 12px 14px" }}>
+            {actionButtons}
+          </div>
+        )}
+
         {open && (
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
             <MetaItem label="Tipo">
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
-              {meta.label}
+              {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
             </MetaItem>
             <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
             {isQuiz
@@ -1926,7 +2285,8 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
 }
 
 // Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, tab = "all", onTab }) {
+function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }) {
+  const isMobile = useIsMobile();
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
@@ -1961,30 +2321,33 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
 
   return (
     <div style={S.app}>
-      <div style={S.page}>
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {user.isGuest && (
-          <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>· Los resultados no se guardan al salir</span>
           </div>
         )}
 
         {/* Cabecera editorial */}
-        <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
+        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
             <Overline>Alumno</Overline>
-            <h1 style={{ ...S.h1 }}>{user.displayName}</h1>
+            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+            {onUpdatePalette && (
+              <PaletteMenuButton current={user.defaultPalette || SCHEMA_PALETTE_DEFAULT} onSelect={onUpdatePalette} />
+            )}
             {!user.isGuest && onChangeTeacher && (
-              <GhostButton onClick={onChangeTeacher}>Cambiar profesor</GhostButton>
+              <GhostButton onClick={onChangeTeacher}>{isMobile ? "Profesor" : "Cambiar profesor"}</GhostButton>
             )}
             <GhostButton onClick={onLogout}>Salir</GhostButton>
           </div>
         </div>
 
         {/* Pestañas */}
-        <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22 }}>
+        <div className="fa-noscroll" style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22, overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
           <TabBar tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]} value={view} onChange={setView} />
         </div>
 
@@ -2019,11 +2382,11 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                 const courseOpen  = openCourseIds.has(course.id);
                 return (
                   <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
-                    <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                    <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: isMobile ? "16px 16px" : "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0 }}>
-                            <span style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>{course.name}</span>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: F.serif, fontSize: isMobile ? 23 : 30, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.05, wordBreak: "break-word" }}>{course.name}</span>
                             <Chevron open={courseOpen} rotate90WhenClosed size={14} />
                           </div>
                           {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888" }}>{course.description}</div>}
@@ -2032,26 +2395,28 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                     </div>
 
                     {courseOpen && (
-                      <div style={{ padding: "20px 0 24px 24px" }}>
+                      <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
                         {courseUnits.length === 0
-                          ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: 24 }}>Este curso no tiene unidades todavía.</p>
+                          ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
                           : courseUnits.map((unit, unitIdx) => {
                               const isOpen     = openUnitIds.has(unit.id);
                               const isLastUnit = unitIdx === courseUnits.length - 1;
                               const unitNum    = String(unitIdx + 1).padStart(2, "0");
+                              const railW      = isMobile ? 40 : 52;
+                              const numW       = isMobile ? 30 : 36;
                               return (
                                 <div key={unit.id} style={{ display: "flex", marginBottom: isLastUnit ? 0 : 28 }}>
                                   {/* Riel */}
-                                  <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{unitNum}</div>
+                                  <div style={{ width: railW, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                    <div style={{ width: numW, height: numW, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: isMobile ? 14 : 17, fontWeight: 600 }}>{unitNum}</div>
                                     {(!isLastUnit || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
                                   </div>
                                   {/* Contenido */}
                                   <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
-                                    <div onClick={() => toggleUnit(unit.id)} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: isOpen ? 12 : 0, paddingRight: 20, cursor: "pointer", userSelect: "none" }}>
-                                      <span style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
+                                    <div onClick={() => toggleUnit(unit.id)} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: isOpen ? 12 : 0, paddingRight: isMobile ? 12 : 20, cursor: "pointer", userSelect: "none" }}>
+                                      <span style={{ fontFamily: F.serif, fontSize: isMobile ? 18 : 23, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
                                       <Chevron open={isOpen} rotate90WhenClosed />
-                                      <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2 }}>
+                                      <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2, flexShrink: 0 }}>
                                         {unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}
                                       </span>
                                     </div>
@@ -2063,8 +2428,8 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                                               const ex = exercises.find((e) => e.id === eid);
                                               if (!ex || ex.hidden) return null;
                                               return (
-                                                <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -52 }}>
-                                                  <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                                <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -railW }}>
+                                                  <div style={{ width: railW, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
                                                     <StatusCircle done={results[ex.id] != null} />
                                                   </div>
                                                   <ExerciseRow ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
@@ -2145,7 +2510,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
         timeRef.current       = dur;
-        playOffsetRef.current = dur;
+        playOffsetRef.current = 0;   // reset para que el siguiente play empiece desde el inicio
         setTime(dur);
         setPlaying(false);
       }
@@ -2232,7 +2597,14 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
           lastSetTimeRef.current = performance.now();
           startSource(lq.audioStart);
         } else {
-          const effectiveDur = Math.min(bufferRef.current?.duration ?? dur, dur);
+          // Techo de la línea de tiempo (0..dur). `dur` es la duración del
+          // ejercicio/fragmento que ve el alumno; el buffer puede contener más
+          // (archivo completo) o menos audio. El límite reproducible real desde
+          // el inicio del fragmento es (bufferDuration - fragmentStart); nunca
+          // debemos pasar de ahí ni de `dur`.
+          const bufDur      = bufferRef.current?.duration ?? dur;
+          const playable    = Math.max(0, bufDur - fragmentStart);
+          const effectiveDur = Math.min(dur, playable);
           const t = Math.min(effectiveDur, rawT);
           timeRef.current = t;             // siempre actualizar ref (canvas lo lee directo)
           const now = performance.now();
@@ -2241,8 +2613,9 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
             setTime(t);
           }
           if (!lq && rawT >= effectiveDur) {
-            timeRef.current = effectiveDur;
-            setTime(effectiveDur);         // fin de audio: sin throttle
+            timeRef.current       = effectiveDur;
+            playOffsetRef.current = 0;   // reset para que el siguiente play empiece desde el inicio
+            setTime(effectiveDur);       // fin de audio: sin throttle
             setPlaying(false);
             return;
           }
@@ -2272,6 +2645,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         startSource(playOffsetRef.current);
         setPlaying(true);
       }
+    }).catch(() => {
+      pendingToggleRef.current = false;    // liberar el lock aunque ctx.resume() falle
     });
   };
 
@@ -2335,7 +2710,7 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
     if (!playing) { cancelAnimationFrame(rafRef.current); return; }
     const tick = () => {
       const audio = audioRef.current;
-      if (!audio) return;
+      if (!audio) { rafRef.current = requestAnimationFrame(tick); return; }
       const t = audio.currentTime;
       setCurrentTime(t);
       const e = endRef.current;
@@ -2378,34 +2753,32 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
     return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
   };
 
-  // Clic/arrastre en la barra para seek
+  // Clic/arrastre en la barra para seek (ratón + touch, con limpieza garantizada)
   const beginSeek = (e) => {
-    e.preventDefault();
-    const t = getT(e.clientX);
-    if (audioRef.current) { audioRef.current.currentTime = t; }
-    setCurrentTime(t);
-    const onMove = (ev) => {
-      const tv = getT(ev.clientX);
-      if (audioRef.current) audioRef.current.currentTime = tv;
-      setCurrentTime(tv);
-    };
-    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup",   onUp);
+    startPointerDrag(e, {
+      onStart: (ev, getX) => {
+        const t = getT(getX(ev));
+        if (audioRef.current) audioRef.current.currentTime = t;
+        setCurrentTime(t);
+      },
+      onMove: (ev, getX) => {
+        const tv = getT(getX(ev));
+        if (audioRef.current) audioRef.current.currentTime = tv;
+        setCurrentTime(tv);
+      },
+    });
   };
 
-  // Arrastre de handles de fragmento
+  // Arrastre de handles de fragmento (ratón + touch, con limpieza garantizada)
   const beginDrag = (e, which) => {
-    e.preventDefault();
     e.stopPropagation();
-    const onMove = (ev) => {
-      const raw = Math.round(getT(ev.clientX) * 10) / 10;
-      if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
-      else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
-    };
-    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup",   onUp);
+    startPointerDrag(e, {
+      onMove: (ev, getX) => {
+        const raw = Math.round(getT(getX(ev)) * 10) / 10;
+        if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
+        else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
+      },
+    });
   };
 
   // Reproducción libre (sin límite de fragmento)
@@ -2418,6 +2791,11 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
       setFragPlayMode(false);
     } else {
       setFragPlayMode(false);
+      // Si el audio llegó al final, rebobinar antes de reproducir de nuevo
+      if (audio.ended || audio.currentTime >= (audio.duration || totalDuration)) {
+        audio.currentTime = 0;
+        setCurrentTime(0);
+      }
       audio.play().catch(() => {});
       setPlaying(true);
     }
@@ -2526,7 +2904,7 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
         )}
 
         {/* La barra principal (clicable para seek) */}
-        <div ref={barRef} onMouseDown={beginSeek}
+        <div ref={barRef} onMouseDown={beginSeek} onTouchStart={beginSeek}
           style={{ position: "relative", height: 32, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
 
           {/* Región del fragmento */}
@@ -2557,13 +2935,13 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
 
           {/* Handle izquierdo */}
           {start != null && startPct != null && (
-            <div onMouseDown={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
+            <div onMouseDown={(e) => beginDrag(e, "start")} onTouchStart={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
               <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
             </div>
           )}
           {/* Handle derecho */}
           {end != null && endPct != null && (
-            <div onMouseDown={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
+            <div onMouseDown={(e) => beginDrag(e, "end")} onTouchStart={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
               <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
             </div>
           )}
@@ -2617,7 +2995,7 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
 function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
-  colorByFn, questionRegion,
+  colorByFn, questionRegion, answerBand = false,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -2628,7 +3006,7 @@ function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion,
+    colorByFn, questionRegion, answerBand,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -2639,6 +3017,7 @@ function WaveformDisplay({
     const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
+    const BAND_H = 16, BAND_GAP = 6;   // banda de respuesta alineada con la onda (se desplaza con ella)
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -2671,10 +3050,12 @@ function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
-      const W = rect.width, H = rect.height, mid = H / 2;
+      const W = rect.width, H = rect.height;
+      const waveAreaH = ab ? H - (BAND_H + BAND_GAP) : H;
+      const mid = waveAreaH / 2;
       const barW = W / NUM_BARS, drawW = barW * 0.7, offsetX = barW * 0.15;
       const pxPerSec = W / VISIBLE_SECS;
       const centerK  = Math.floor(t / secPerBar);
@@ -2702,6 +3083,36 @@ function WaveformDisplay({
         }
         ctx.fillStyle = (fn && cmap && cmap[fn]) ? cmap[fn] : "rgba(26,25,21,0.28)";
         drawPill(xLeft, mid - h, drawW, h * 2);
+      }
+
+      // Banda de respuesta: bloques coloreados alineados con la onda, en la misma
+      // coordenada de scroll (cursor centrado), de modo que se mueven con ella.
+      if (ab) {
+        const bandTop = waveAreaH + BAND_GAP;
+        ctx.fillStyle = "rgba(26,25,21,0.06)";
+        drawPill(0, bandTop, W, BAND_H);
+        ctx.font = `700 10px ${FONT_MONO}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        for (let j = 0; j < ivs.length; j++) {
+          const iv = ivs[j];
+          const x1 = (iv.start - t) * pxPerSec + W / 2;
+          const x2 = (Math.min(iv.end, dur) - t) * pxPerSec + W / 2;
+          if (x2 <= 0 || x1 >= W) continue;
+          const cx1 = Math.max(0, x1), cx2 = Math.min(W, x2), bw = cx2 - cx1;
+          if (bw < 0.5) continue;
+          ctx.globalAlpha = iv.id === "live" ? 0.5 : 1;
+          ctx.fillStyle = (cmap && cmap[iv.fn]) || "rgba(26,25,21,0.4)";
+          drawPill(cx1, bandTop, bw, BAND_H);
+          if (bw > 14) {
+            ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
+            ctx.fillStyle = C.paper;
+            ctx.fillText(iv.fn, (cx1 + cx2) / 2, bandTop + BAND_H / 2 + 0.5);
+          }
+          ctx.globalAlpha = 1;
+        }
+        ctx.textAlign = "start";
+        ctx.textBaseline = "alphabetic";
       }
 
       if (qr) {
@@ -2741,7 +3152,7 @@ function WaveformDisplay({
 
   return (
     <canvas ref={canvasRef}
-      style={{ display: "block", width: "100%", height: 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
+      style={{ display: "block", width: "100%", height: answerBand ? 104 : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     />
@@ -2752,8 +3163,9 @@ function WaveformDisplay({
 
 // Botonera de funciones (T/S/D…) pulsables con tecla
 function FunctionButtons({ buttons, pressing, onDown, onUp }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 12, marginBottom: 14 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 10, marginBottom: 4 }}>
       {buttons.map((b) => {
         const isActive = pressing?.fn === b.id;
         return (
@@ -2767,15 +3179,16 @@ function FunctionButtons({ buttons, pressing, onDown, onUp }) {
               background: isActive ? b.color : C.paper,
               border:     `1.5px solid ${isActive ? b.color : C.line}`,
               color:      isActive ? C.paper : b.color,
-              borderRadius: 14, padding: "16px 8px", cursor: "pointer",
+              borderRadius: 16, padding: isMobile ? "20px 8px" : "18px 8px", cursor: "pointer",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-              transition: "background .08s, color .08s, border-color .08s, transform .08s",
-              transform: isActive ? "translateY(1px)" : "translateY(0)",
-              userSelect: "none", touchAction: "none",
+              transition: "background .08s, color .08s, border-color .08s, transform .08s, box-shadow .08s",
+              transform: isActive ? "scale(0.97)" : "scale(1)",
+              boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
+              userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
             }}>
-            <span style={{ fontSize: 28, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>
-            <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>{b.key.toUpperCase()}</span>
+            <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>
+            {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
           </button>
         );
       })}
@@ -3075,24 +3488,46 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   const SWITCH_GAP = 8;
   const gutter     = showSwitch ? SWITCH_W + SWITCH_GAP : 0;
 
+  // Conteo de fragmentos marcados (todas las categorías) para la barra de acción
+  const markedCount = Object.values(intervalsByCategory).reduce((n, arr) => n + (arr?.length || 0), 0) + (pressing ? 1 : 0);
+  const submitLabel = mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar";
+
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
-      <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
 
+        {mode === "student" && <SessionHint modelId="interactivo" extra={<>Pulsa <b>Espacio</b> para reproducir o pausar.</>} />}
+
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
-              colorByFn={colorByFn}
+              colorByFn={colorByFn} answerBand
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
+            </div>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Resumen completo de la respuesta — vista global de toda la grabación */}
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "12px 14px", marginBottom: 12 }}>
           <div style={{ position: "relative" }}>
             {showSwitch && (
               <div role="tablist" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SWITCH_W, display: "flex", flexDirection: "column", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, boxSizing: "border-box" }}>
@@ -3129,50 +3564,40 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               ))}
             </div>
           )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
-            </div>
-            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-              {playing ? "❚❚" : "▶"}
-            </CircleButton>
-            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
-            </div>
-          </div>
         </section>
 
         {selected && selectedIv && (
-          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 4px" }}>
-            <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
+            <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
             {exCategory.buttons.map((b) => {
               const isSel = selectedIv.fn === b.id;
               return (
-                <button key={b.id}
+                <button key={b.id} className="fa-pressable"
                   onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
-                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "4px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
+                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
                   {b.id}
                 </button>
               );
             })}
             <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
-            <button onClick={deleteSelected} style={{ ...S.btnDanger, marginLeft: "auto", padding: "4px 12px", fontSize: 12 }}>Eliminar</button>
+            <button onClick={deleteSelected} className="fa-pressable" style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 13px", fontSize: 12 }}>Eliminar</button>
           </div>
         )}
 
         <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} />
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, flex: "1 1 240px", minWidth: 200 }}>
-            Mantén pulsado el botón (o tecla) mientras suena · Espacio = Play/Pausa
-          </div>
-          <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
-          </PillSubmitButton>
-        </div>
       </div>
+
+      <StickyActionBar
+        info={
+          <>
+            <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+              {markedCount === 0 ? "Sin marcas todavía" : `${markedCount} ${markedCount === 1 ? "fragmento marcado" : "fragmentos marcados"}`}
+            </span>
+            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Mantén pulsada la función mientras suena</span>
+          </>
+        }>
+        <BarSubmitButton onClick={handleSubmit}>{submitLabel}</BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
@@ -3534,6 +3959,19 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
   const [viewMode, setViewMode] = useState("completa");
   const viewModeRef = useRef("completa");
   viewModeRef.current = viewMode;
+
+  // ── Paleta de color elegida por el alumno para los bloques del esquema ──────
+  // "p1".."p5" = paletas de Adobe.
+  const [schemaPalette, setSchemaPalette] = useState(exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteRef = useRef(null);
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onDown = (e) => { if (paletteRef.current && !paletteRef.current.contains(e.target)) setPaletteOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
+  }, [paletteOpen]);
 
   // ── Estado de la banda de repetición ────────────────────────────────────
   // bandDrag = null
@@ -4599,7 +5037,10 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
         phPct = ((time - seg.rep.second.start) / (seg.rep.second.end - seg.rep.second.start)) * 100;
     }
 
-    const _blockH    = lvId >= 3 ? 32 : 50;
+    // Altura real del bloque por nivel: la pista mide 62 (Partes) / 52 (Frases)
+    // / 44 (resto) y el bloque va con top:6 bottom:6, así que su alto = pista − 12.
+    const _trackH    = lvId === 1 ? 62 : lvId === 2 ? 52 : 44;
+    const _blockH    = lvId >= 3 ? 32 : _trackH - 12;
     const _hndH      = Math.round(_blockH * 2 / 3);
     const _hndTop    = 6 + Math.round((_blockH - _hndH) / 2);
     const hStyle = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
@@ -4653,12 +5094,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           ? { bg: lv.color, textColor: "#FFFFFF" }
           : block.customColor ? harmonyBlockColors(null, block.customColor)
           : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
-          : lv.id === 1 ? harmonyBlockColors(null, partBlockColor(block.label))
+          : lv.id === 1 ? harmonyBlockColors(null, partColorFromPalette(block.label, schemaPalette))
           : lv.id === 2 ? (() => {
               const partB = blocks.find(b => b.level === 1 && !b.isPreview &&
                 b.start <= block.start + 0.01 && b.end > block.start + 0.01 &&
                 (block.repeatId ? b.repeatId === block.repeatId && b.pass === block.pass : !b.repeatId));
-              return harmonyBlockColors(null, lightenColor(partB ? partBlockColor(partB.label) : lv.color, 18, -8));
+              const parentColor = partB ? (partB.customColor || partColorFromPalette(partB.label, schemaPalette)) : lv.color;
+              return harmonyBlockColors(null, phraseColorFromPalette(block.label, parentColor, schemaPalette));
             })()
           : { bg: lv.color, textColor: "#FFFFFF" };
 
@@ -4848,24 +5290,12 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     window.addEventListener('touchmove', move, { passive: false }); window.addEventListener('touchend', up);
   };
 
-  const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps });
+  const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps, schemaPalette });
 
   // ── JSX principal ────────────────────────────────────────────────────────
   return (
     <div style={S.app}>
-      {/* Cabecera */}
-      <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
-        <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
-            <span>Volver</span>
-          </button>
-          <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{exercise.title}</div>
-          </div>
-        </div>
-      </div>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="esquema" />
 
       {showRepModal && (
         <RepeatManagerModal
@@ -4875,11 +5305,13 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
         {modelToggleNode}
+
+        {!listenOnly && mode === "student" && <SessionHint modelId="esquema" />}
 
         {/* Sección de audio */}
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
@@ -4948,6 +5380,42 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
             </div>
           )}
         </section>
+
+        {/* Selector de paleta — discreto y desplegable. Solo si hay nivel de
+            Partes o Frases activo (afecta a esos niveles, no a Armonía/Texto). */}
+        {!listenOnly && activeLevels.some(lv => lv.id === 1 || lv.id === 2) && (
+          <div ref={paletteRef} style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, position: "relative" }}
+            onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+            {(() => { const cur = getSchemaPalette(schemaPalette) || SCHEMA_PALETTES[0]; return (
+              <button type="button" onClick={() => setPaletteOpen(o => !o)} className="fa-pressable"
+                title="Cambiar paleta de color"
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 9px 4px 8px", borderRadius: 8, cursor: "pointer", background: C.paper2, border: `1px solid ${C.line}`, fontFamily: F.sans }}>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted }}>Paleta</span>
+                <span style={{ display: "inline-flex", borderRadius: 3, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+                  {cur.parts.map((c, i) => <span key={i} style={{ width: 9, height: 12, background: c, display: "block" }} />)}
+                </span>
+                <Chevron open={paletteOpen} size={11} color={C.muted} />
+              </button>
+            ); })()}
+            {paletteOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 30, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 168 }}>
+                {SCHEMA_PALETTES.map(pal => {
+                  const active = schemaPalette === pal.id;
+                  return (
+                    <button key={pal.id} type="button" onClick={() => { setSchemaPalette(pal.id); setPaletteOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", borderRadius: 7, cursor: "pointer", background: active ? C.paper2 : "transparent", border: "none", fontFamily: F.sans, textAlign: "left", width: "100%" }}>
+                      <span style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+                        {pal.parts.map((c, i) => <span key={i} style={{ width: 13, height: 16, background: c, display: "block" }} />)}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? C.ink : C.ink2 }}>{pal.name}</span>
+                      {active && <span style={{ fontSize: 12, color: C.ink, flexShrink: 0 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Regla + pistas (layout flex-segmentado) */}
         <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: schemaZoom > 1 ? 4 : 12, position: "relative" }}
@@ -5455,18 +5923,19 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
         {/* Panel de selección de bloque */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {selBlock && !selBlock.isPreview && selLv ? (
-            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}
+            <div style={{ background: C.paper, border: `1px solid ${selLv.color}40`, borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, flexWrap: "wrap" }}
               onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: selLv.color, flexShrink: 0 }} />
-              <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
-              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>
-                {selLv.sub} {fmt(selBlock.start)}-{fmt(selBlock.end)} dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: selLv.color, flexShrink: 0 }} />
+              <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
+              <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
+                {selLv.sub} · {fmt(selBlock.start)}–{fmt(selBlock.end)} · dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
               </span>
               {/* Selector de color */}
               {selBlock.level !== 4 && (() => {
                 const { bg: swatchBg } = selBlock.customColor
                   ? harmonyBlockColors(null, selBlock.customColor)
                   : selLv.id === 3 ? harmonyBlockColors(selBlock.label, selLv.color)
+                  : (selLv.id === 1 || selLv.id === 2) ? schemaBlockColor(selBlock, blocks, schemaPalette)
                   : { bg: selLv.color };
                 return (
                   <span title="Cambiar color" style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
@@ -5483,57 +5952,47 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
                 );
               })()}
               {selBlock.level !== 4 && selBlock.customColor && (
-                <button title="Restablecer color automático"
+                <button title="Restablecer color automático" className="fa-pressable"
                   onClick={() => setBlocks(prev => { const selB = prev.find(b => b.id === selected); return prev.map(b => { if (b.id === selected) return { ...b, customColor: undefined }; if (selB?.pass === "first" && b.mirrorId === selected) return { ...b, customColor: undefined }; return b; }); })}
-                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 9px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
               )}
               {selBlock.pass !== "second" && (
-                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }}
-                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
+                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} className="fa-pressable"
+                  style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
               )}
               {selBlock.pass === "second" && (
                 <span style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>texto igual al original</span>
               )}
-              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }}
-                style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>Eliminar</button>
+              <button onClick={() => { setHistory(prev => [...prev, blocksRef.current]); setBlocks(prev => prev.filter(b => b.id !== selected)); setSelected(null); }} className="fa-pressable"
+                style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.danger }}>Eliminar</button>
             </div>
           ) : selectedRepId ? (() => {
             const rep = localReps.find(r => r.id === selectedRepId);
             if (!rep) return null;
             return (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "4px 0" }}
+              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", background: C.paper, border: `1px solid ${C.fnS}40`, borderRadius: 12, padding: "10px 14px" }}
                 onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
-                  <span style={{ fontFamily: FONT_SERIF, fontSize: 14, fontWeight: 700, color: C.ink }}>Repetición</span>
-                  <span style={{ fontSize: 11, color: C.muted }}>
-                    {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
-                  </span>
-                </div>
-                <span style={{ fontSize: 11, color: C.muted2, flex: 1 }}>Supr o ⌫ para borrar</span>
-                <button
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
+                <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>Repetición</span>
+                <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
+                  {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
+                </span>
+                <button className="fa-pressable"
                   onClick={() => { deleteRepeat(selectedRepId); setSelectedRepId(null); }}
-                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.danger }}>
+                  style={{ border: `1px solid ${C.danger}`, background: "transparent", borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.danger }}>
                   Eliminar
                 </button>
               </div>
             );
           })() : (
-            <div style={{ flex: 1, fontSize: 12, color: C.muted, padding: "6px 4px" }}>
+            <div style={{ flex: 1, fontSize: 12.5, color: C.muted, padding: "8px 10px", lineHeight: 1.5 }}>
               {blocks.filter(b => !b.isPreview).length === 0
-                ? "Arrastra en cualquier pista para crear un bloque. Doble clic para renombrar."
-                : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""}. Selecciona uno para editar.`}
+                ? "Arrastra sobre cualquier pista para crear un bloque · doble toque para renombrar."
+                : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""} · selecciona uno para editarlo.`}
             </div>
           )}
-          <button onClick={undo} disabled={history.length === 0} title="Deshacer"
-            style={{ ...S.btn, padding: "8px 12px", fontSize: 16, lineHeight: 1, opacity: history.length === 0 ? 0.35 : 1, cursor: history.length === 0 ? "not-allowed" : "pointer" }}>↩</button>
-          <button onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Empezar de nuevo"
-            style={{ ...S.btn, fontSize: 12, opacity: blocks.filter(b => !b.isPreview).length === 0 ? 0.35 : 1, cursor: blocks.filter(b => !b.isPreview).length === 0 ? "not-allowed" : "pointer" }}>✕ Borrar todo</button>
-          <PillSubmitButton onClick={handleSubmit}>
-            {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado →" : "Entregar"}
-          </PillSubmitButton>
 
-          {/* Área de texto (nivel 4) */}
+          {/* Área de texto (nivel 4) — ancho completo bajo el panel de selección */}
           {selBlock?.level === 4 && !selBlock.isPreview && (
             <div style={{ width: "100%", marginTop: 4 }}
               onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
@@ -5569,11 +6028,64 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
 
       </div>
+
+      <StickyActionBar
+        secondary={listenOnly ? null : (
+          <div style={{ display: "flex", gap: 8 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+            <BarIconButton onClick={undo} disabled={history.length === 0} title="Deshacer">↩</BarIconButton>
+            <BarIconButton onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Borrar todo" danger>✕</BarIconButton>
+          </div>
+        )}
+        info={
+          listenOnly ? (
+            <>
+              <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+                {(() => { const n = schemaMarks.length; return n === 0 ? "Sin marcas todavía" : `${n} ${n === 1 ? "marca" : "marcas"}`; })()}
+              </span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Toca la regla para añadir una marca</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
+                {(() => { const n = blocks.filter(b => !b.isPreview).length; return n === 0 ? "Sin bloques todavía" : `${n} ${n === 1 ? "bloque" : "bloques"}`; })()}
+              </span>
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Arrastra en una pista para crear</span>
+            </>
+          )
+        }>
+        <BarSubmitButton onClick={handleSubmit} accent={C.fnD}>
+          {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar"}
+        </BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
 
 // ═══ 10. CORRECTION VIEW · QUESTIONNAIRE VIEW ═══════════════════════════════
+
+// Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
+function SchemaPlayhead({ timeRef, duration }) {
+  const lineRef = useRef(null);
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      if (lineRef.current && duration > 0) {
+        const pct = Math.min(100, (timeRef.current / duration) * 100);
+        lineRef.current.style.left = `${pct}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [timeRef, duration]);
+  return (
+    <div ref={lineRef} style={{
+      position: "absolute", top: 0, left: 0, width: 2, height: "100%",
+      background: C.danger, opacity: 0.75, pointerEvents: "none", zIndex: 10,
+      transform: "translateX(-50%)", borderRadius: 1,
+    }} />
+  );
+}
 
 function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }) {
   const dur = exercise.duration;
@@ -5589,17 +6101,27 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
   const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
   const [quizScore,    setQuizScore]    = useState(tc?.totalScore ?? "");
 
+  // Audio — siempre incondicional (reglas de hooks)
+  const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
+
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
     const blocks      = result.blocks || [];
     const schemaKey   = exercise.schemaKey || [];
     const hasKey      = schemaKey.length > 0;
     const ps          = result.placementScore ?? null;
+    const studentPalette = result.schemaPalette || SCHEMA_PALETTE_DEFAULT;   // paleta elegida por el alumno
+    const keyPalette     = exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT;  // paleta de la clave (profesor)
     const activeLevels = SCHEMA_LEVELS.filter((lv) =>
       !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
     );
 
-    const SchemaStrip = ({ title: stripTitle, bks }) => (
+    const handleTimelineClick = (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      seekTo(((e.clientX - rect.left) / rect.width) * exercise.duration);
+    };
+
+    const SchemaStrip = ({ title: stripTitle, bks, paletteId = studentPalette }) => (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
         {activeLevels.map((lv) => {
@@ -5609,16 +6131,18 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
             <div key={lv.id} style={{ marginBottom: lv.id === 4 ? 14 : 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: lv.color, minWidth: 56, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
-                <div style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden" }}>
+                <div
+                  onClick={hasAudio ? handleTimelineClick : undefined}
+                  style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden", cursor: hasAudio ? "pointer" : "default" }}>
                   {lvBlocks.map((b, i) => {
                     const lPct = (b.start / exercise.duration) * 100;
                     const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
-                    const { bg, textColor } = schemaBlockColor(b, bks);
+                    const { bg, textColor } = schemaBlockColor(b, bks, paletteId);
                     if (lv.id === 3) {
                       return (
-                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                        <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden", pointerEvents: "none" }}>
                           <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none" }}>{b.label}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
                           </div>
                           {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
                         </div>
@@ -5626,23 +6150,24 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
                     }
                     if (lv.id === 4) {
                       return (
-                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden" }}>
-                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", pointerEvents: "none" }}>{b.label}</span>
+                        <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px", overflow: "hidden", pointerEvents: "none" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
                         </div>
                       );
                     }
                     return (
-                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px", pointerEvents: "none" }}>{b.label}</span>
+                      <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
+                        <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px" }}>{b.label}</span>
                       </div>
                     );
                   })}
+                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={exercise.duration} />}
                 </div>
               </div>
               {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
                 <div style={{ paddingLeft: 66, marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
                   {lvBlocks.filter(b => b.bodyText).map((b, i) => {
-                    const { bg } = schemaBlockColor(b, bks);
+                    const { bg } = schemaBlockColor(b, bks, paletteId);
                     return (
                       <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -5660,6 +6185,25 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
         })}
       </div>
     );
+
+    const AudioBar = () => hasAudio ? (
+      <div style={{ ...S.card, marginBottom: 16, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={togglePlay}
+            disabled={!audioReady}
+            style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: audioReady ? C.ink : C.line, color: C.paper, cursor: audioReady ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, transition: "background .15s" }}>
+            {playing ? "⏸" : "▶"}
+          </button>
+          <div
+            onClick={handleTimelineClick}
+            style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / exercise.duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
+          </div>
+          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(exercise.duration)}</span>
+        </div>
+      </div>
+    ) : null;
 
     // ── Vista del profesor ────────────────────────────────────────────────────
     if (isTeacherMode) {
@@ -5684,9 +6228,11 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
               </div>
             )}
 
+            <AudioBar />
+
             {(blocks.length > 0 || hasKey) && (
               <div style={{ ...S.card, marginBottom: 16 }}>
-                {hasKey && <><SchemaStrip title="Referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+                {hasKey && <><SchemaStrip title="Referencia (profesor)" bks={schemaKey} paletteId={keyPalette} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
                 {blocks.length > 0 && <SchemaStrip title="Esquema del alumno" bks={blocks} />}
               </div>
             )}
@@ -5780,9 +6326,11 @@ function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis
             )}
           </div>
 
+          <AudioBar />
+
           {(blocks.length > 0 || showRefSchema) && (
             <div style={S.card}>
-              {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+              {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} paletteId={keyPalette} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
               {!showRefSchema && hasKey && (
                 <p style={{ textAlign: "center", color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
                   El esquema de referencia estará disponible cuando el profesor corrija el ejercicio.
@@ -6213,9 +6761,9 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   if (questions.length === 0) {
     return (
       <div style={S.app}>
+        <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
         <div style={S.page}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
-          <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8 }}>
+          <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "3rem 1rem", lineHeight: 1.8, borderRadius: 16 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
             <div>Este ejercicio aún no tiene preguntas configuradas.</div>
             <div style={{ fontSize: 13 }}>El profesor las añadirá pronto.</div>
@@ -6225,15 +6773,19 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
     );
   }
 
+  const allAnswered = answeredCount === questions.length;
+
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
-      <ExercisePageHeader exercise={exercise} onBack={onBack} />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px 60px" }}>
+      <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
 
         {modelToggleNode}
 
         {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
+
+        <SessionHint modelId="cuestionario" />
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
@@ -6243,16 +6795,17 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          {/* Minimapa de preguntas */}
-          <div style={{ position: "relative", height: 28, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", userSelect: "none" }}>
+          {/* Minimapa de preguntas — toca un bloque para saltar a su fragmento */}
+          <div style={{ position: "relative", height: 30, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", userSelect: "none" }}>
             {questions.map((q, idx) => {
               const isLock = lockedQuestion?.id === q.id;
+              const answered = answers[q.id] !== undefined && answers[q.id] !== "";
               return (
                 <div key={q.id}
                   onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
                   title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
-                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: C.quiz, opacity: isLock ? 1 : 0.45, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.85)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
-                  <span style={{ fontSize: 7, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>P{idx + 1}</span>
+                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: answered ? C.fnT : C.quiz, opacity: isLock ? 1 : 0.5, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.9)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
+                  <span style={{ fontSize: 8, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>{idx + 1}</span>
                 </div>
               );
             })}
@@ -6260,10 +6813,11 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
           </div>
 
           {lockedQuestion ? (
-            <div style={{ ...S.row, gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "6px 0 8px", flexWrap: "wrap" }}>
-              <span>🔒 Fragmento activo: {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)}</span>
-              <span style={{ color: C.muted, fontSize: 11 }}>(bucle automático)</span>
-              <button onClick={unlockAudio} style={{ ...S.btn, padding: "2px 10px", fontSize: 11 }}>Liberar</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
+                🔒 Fragmento {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)} · bucle
+              </span>
+              <button onClick={unlockAudio} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
             </div>
           ) : <div style={{ height: 8 }} />}
 
@@ -6272,7 +6826,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               <CircleButton onClick={() => seekTo(lockedQuestion ? lockedQuestion.audioStart : 0)} title="Volver al inicio">⏮</CircleButton>
             </div>
             <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-              primary size={48} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
               {playing ? "❚❚" : "▶"}
             </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
@@ -6281,26 +6835,23 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
           </div>
         </section>
 
-        <div style={{ ...S.row, gap: 8, marginBottom: 12, fontSize: 13, color: C.muted }}>
-          <span>{answeredCount} de {questions.length} {questions.length === 1 ? "pregunta respondida" : "preguntas respondidas"}</span>
-          <div style={{ flex: 1, height: 4, background: C.line, borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%`, background: C.fnT, borderRadius: 2, transition: "width .3s" }} />
-          </div>
-        </div>
-
         {questions.map((q, idx) => {
           const isExpanded = expandedId === q.id;
           const isLocked   = lockedQuestion?.id === q.id;
           const answered   = answers[q.id] !== undefined && answers[q.id] !== "";
           return (
             <div key={q.id} onMouseDown={(e) => e.stopPropagation()}
-              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8, padding: "14px 16px" }}>
+              style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 12, marginBottom: 8, padding: "14px 16px", transition: "border-color .15s" }}>
               <div style={{ cursor: "pointer" }}
                 onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}>
-                {/* Fila de metadatos — chip + ✓ + chevron */}
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-                  <Chip>Pregunta {idx + 1}</Chip>
-                  {answered && <span style={{ background: "rgba(63,155,91,0.14)", color: C.fnT, fontFamily: F.sans, fontSize: 11, fontWeight: 600, borderRadius: 4, padding: "2px 7px" }}>✓</span>}
+                {/* Fila de metadatos — número + estado + chevron */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: answered ? C.fnT : `${C.quiz}1A`, color: answered ? C.paper : C.quiz, fontFamily: F.sans, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                    {answered ? "✓" : idx + 1}
+                  </span>
+                  <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
+                    {q.type === "test" ? "Opción múltiple" : "Respuesta abierta"} · {fmt(q.audioStart)}–{fmt(q.audioEnd)}
+                  </span>
                   <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
                 {/* Texto de la pregunta — serif grande */}
@@ -6310,14 +6861,14 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
               {isExpanded && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
                   {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                       {q.options.map((opt) => {
                         const isSel = answers[q.id] === opt.id;
                         return (
-                          <button key={opt.id}
+                          <button key={opt.id} className="fa-pressable"
                             onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1px solid ${isSel ? C.ink : C.line}`, borderRadius: 7, padding: "9px 12px", cursor: "pointer", textAlign: "left", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 11, color: isSel ? "rgba(255,255,255,0.55)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
+                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
                             {opt.text}
                           </button>
                         );
@@ -6325,7 +6876,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
                     </div>
                   )}
                   {q.type === "desarrollo" && (
-                    <textarea style={{ ...S.input, minHeight: 90, resize: "vertical", lineHeight: 1.5 }}
+                    <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
                       placeholder="Escribe tu respuesta aquí…"
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
@@ -6336,14 +6887,21 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
             </div>
           );
         })}
-
-        <div style={{ ...S.row, justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 6, marginBottom: 24 }}>
-          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, flex: "1 1 200px" }}>
-            Haz clic en una pregunta para ver su fragmento en la waveform · Espacio = Play/Pausa
-          </div>
-          <PillSubmitButton onClick={handleSubmit}>Entregar</PillSubmitButton>
-        </div>
       </div>
+
+      <StickyActionBar
+        info={
+          <>
+            <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: allAnswered ? C.fnT : C.ink }}>
+              {answeredCount} / {questions.length} {allAnswered ? "· completo" : "respondidas"}
+            </span>
+            <div style={{ height: 4, background: C.line, borderRadius: 2, overflow: "hidden", marginTop: 3, maxWidth: 160 }}>
+              <div style={{ height: "100%", width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%`, background: allAnswered ? C.fnT : C.quiz, borderRadius: 2, transition: "width .3s" }} />
+            </div>
+          </>
+        }>
+        <BarSubmitButton onClick={handleSubmit} accent={C.quiz}>Entregar</BarSubmitButton>
+      </StickyActionBar>
     </div>
   );
 }
@@ -6445,7 +7003,10 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
         }
       }
       return true;
-    });
+    })
+    // Los ejercicios ocultos se muestran siempre por debajo de los visibles
+    // (orden estable: conservan su orden relativo dentro de cada grupo).
+    .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
   }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
 
   const hasFilters = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
@@ -6495,6 +7056,7 @@ function CoursesTab({
   onSelectExercise,
   askConfirm,
 }) {
+  const isMobile = useIsMobile();
   const [openCourseIds, setOpenCourseIds] = useState(() => new Set(courses.map((c) => c.id)));
   const toggleCourse = (id) => setOpenCourseIds((s) => toggleInSet(s, id));
   const toggleUnit   = (id) => setOpenUnitIds((s) => toggleInSet(s, id));
@@ -6514,11 +7076,11 @@ function CoursesTab({
             return (
               <div key={course.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
                 {/* Cabecera del curso */}
-                <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                <div onClick={() => toggleCourse(course.id)} style={{ cursor: "pointer", userSelect: "none", padding: isMobile ? "16px 16px" : "20px 24px", borderBottom: courseOpen ? `1px solid ${C.line}` : "none" }}>
+                  <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: isMobile ? 12 : 16 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: course.description ? 6 : 0, flexWrap: "wrap" }}>
-                        <span style={{ fontFamily: F.serif, fontSize: 28, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>{course.name}</span>
+                        <span style={{ fontFamily: F.serif, fontSize: isMobile ? 22 : 28, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.05, wordBreak: "break-word" }}>{course.name}</span>
                         <Chevron open={courseOpen} rotate90WhenClosed size={14} />
                         {(() => {
                           const vis = course.visibility || "teacher";
@@ -6535,41 +7097,43 @@ function CoursesTab({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                       <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
                       <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
-                      <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))}>Eliminar</DangerOutlineButton>
+                      <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} title={`Eliminar curso "${course.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
                     </div>
                   </div>
                 </div>
 
                 {/* Unidades — riel tipográfico */}
                 {courseOpen && (
-                  <div style={{ padding: "20px 0 24px 24px" }}>
+                  <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
                     {courseUnits.length === 0
-                      ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: 24 }}>Este curso no tiene unidades todavía.</p>
+                      ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
                       : courseUnits.map((unit, unitIdx) => {
                           const isOpen     = openUnitIds.has(unit.id);
                           const isLast     = unitIdx === courseUnits.length - 1;
                           const unitNum    = String(unitIdx + 1).padStart(2, "0");
                           const unitExs    = unit.exerciseIds.map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
+                          const railW      = isMobile ? 40 : 52;
+                          const numW       = isMobile ? 30 : 36;
 
                           return (
                             <div key={unit.id} style={{ display: "flex", marginBottom: isLast ? 0 : 28 }}>
                               {/* Riel */}
-                              <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{unitNum}</div>
+                              <div style={{ width: railW, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                <div style={{ width: numW, height: numW, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: isMobile ? 14 : 17, fontWeight: 600 }}>{unitNum}</div>
                                 {(!isLast || isOpen) && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
                               </div>
                               {/* Contenido */}
                               <div style={{ flex: 1, paddingTop: 5, minWidth: 0 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isOpen ? 12 : 0, paddingRight: 20 }}>
-                                  <div onClick={() => toggleUnit(unit.id)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none", fontFamily: F.serif, fontSize: 22, fontWeight: 600, letterSpacing: "-0.01em" }}>
+                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 8 : 10, marginBottom: isOpen ? 12 : 0, paddingRight: isMobile ? 12 : 20 }}>
+                                  <div onClick={() => toggleUnit(unit.id)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none", fontFamily: F.serif, fontSize: isMobile ? 18 : 22, fontWeight: 600, letterSpacing: "-0.01em" }}>
                                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit.name}</span>
                                     <Chevron open={isOpen} rotate90WhenClosed />
-                                    <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2 }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}</span>
+                                    <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 400, color: C.muted, marginLeft: 2, flexShrink: 0 }}>{unit.exerciseIds.length} {unit.exerciseIds.length === 1 ? "ej." : "ejs."}</span>
                                   </div>
                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                                     <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
                                     <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
-                                    <DangerOutlineButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))}>Eliminar</DangerOutlineButton>
+                                    <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} title={`Eliminar unidad "${unit.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
                                   </div>
                                 </div>
 
@@ -6584,17 +7148,19 @@ function CoursesTab({
                                           const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
                                           const keyReady = isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
                                           return (
-                                            <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -52 }}>
-                                              <div style={{ width: 52, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
+                                            <div key={ex.id} style={{ display: "flex", alignItems: "flex-start", marginLeft: -railW }}>
+                                              <div style={{ width: railW, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 13 }}>
                                                 <StatusCircle done={keyReady} />
                                               </div>
                                               <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
                                                 <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
-                                                <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
+                                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 8 : 10, padding: isMobile ? "10px 12px" : "10px 14px" }}>
                                                   <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
                                                     onClick={() => onSelectExercise(ex.id)}>{ex.title}</span>
-                                                  <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
-                                                  <DangerOutlineButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))}>Quitar</DangerOutlineButton>
+                                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                                    <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
+                                                    <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} title={`Quitar "${ex.title}" de la unidad`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+                                                  </div>
                                                 </div>
                                               </div>
                                             </div>
@@ -6627,64 +7193,72 @@ function CoursesTab({
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
 function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
   const [expandedStudents, setExpandedStudents] = useState(new Set());
+  const [expandedGroups,   setExpandedGroups]   = useState(() => new Set(groups.map((g) => g.id)));
   const toggleExpand = (id) =>
     setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleGroup = (id) =>
+    setExpandedGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const renderStudentCard = (s) => {
-    const sRes      = results[s.id] || {};
-    const isOpen    = expandedStudents.has(s.id);
-    const doneCount = exercises.filter((ex) => sRes[ex.id]).length;
+    const sRes    = results[s.id] || {};
+    const isOpen  = expandedStudents.has(s.id);
+    const doneExs = exercises.filter((ex) => sRes[ex.id]);
     return (
-      <div key={s.id} style={S.card}>
-        <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.displayName}</div>
-            <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+      <div
+        key={s.id}
+        onClick={() => exercises.length > 0 && toggleExpand(s.id)}
+        style={{ ...S.card, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
+        {/* Cabecera siempre visible */}
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {s.displayName}
+          </div>
+          <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+            {exercises.length > 0 && <Chevron open={isOpen} rotate90WhenClosed size={13} />}
+            <button
+              onClick={(e) => { e.stopPropagation(); askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id)); }}
+              title={`Eliminar alumno "${s.displayName}"`}
+              style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+          </div>
+        </div>
+
+        {/* Detalle: solo visible al desplegar */}
+        {isOpen && (
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
               <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
               <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
                 {s.credType === "pin" ? "PIN" : "Contraseña"}
               </span>
               {exercises.length > 0 && (
                 <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
-                  {doneCount}/{exercises.length} ejs.
+                  {doneExs.length}/{exercises.length} ejs.
                 </span>
               )}
+              <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
             </div>
-          </div>
-          <div style={{ ...S.row, gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-            {exercises.length > 0 && (
-              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>
-                {isOpen ? "▲ Ocultar" : "▼ Ejercicios"}
-              </button>
-            )}
-            <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear</button>
-            <button onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))} style={S.btnDanger}>Eliminar</button>
-          </div>
-        </div>
-
-        {isOpen && exercises.length > 0 && (
-          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            {exercises.map((ex) => {
-              const r = sRes[ex.id];
-              const needsCorrection = r && !r.teacherCorrection?.corrected && (
-                r.type === "esquema" ||
-                (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
-              );
-              return (
-                <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
-                  <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                    {needsCorrection && (
-                      <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
-                    )}
-                    {r ? <ScoreBadge score={r.score} /> : <span style={{ ...S.badge, background: C.line, color: C.muted2 }}>—</span>}
-                    {r && (
-                      <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {doneExs.length === 0
+              ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
+              : doneExs.map((ex) => {
+                  const r = sRes[ex.id];
+                  const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                    r.type === "esquema" ||
+                    (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+                  );
+                  return (
+                    <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                      <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                        {needsCorrection && (
+                          <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                        )}
+                        <ScoreBadge score={r.score} />
+                        <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                      </div>
+                    </div>
+                  );
+                })
+            }
           </div>
         )}
       </div>
@@ -6715,18 +7289,28 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
 
       {groups.map((group) => {
         const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
+        const isGroupOpen   = expandedGroups.has(group.id);
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap" }}>
+            <div
+              onClick={() => toggleGroup(group.id)}
+              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
               <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
-              <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
-              <button onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))} style={{ ...S.btnDanger, fontSize: 12, padding: "4px 10px" }}>Eliminar</button>
+              <Chevron open={isGroupOpen} rotate90WhenClosed size={14} />
+              <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
+                <button
+                  onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))}
+                  title={`Eliminar grupo "${group.name}"`}
+                  style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+              </div>
             </div>
-            {groupStudents.length === 0
-              ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
-              : groupStudents.map(renderStudentCard)
-            }
+            {isGroupOpen && (
+              groupStudents.length === 0
+                ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
+                : groupStudents.map(renderStudentCard)
+            )}
           </div>
         );
       })}
@@ -6958,16 +7542,92 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
 }
 
 // ── Pestaña: Ajustes ──────────────────────────────────────────────────────
-function SettingsTab({ margin, onMargin }) {
+function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }) {
+  const current = currentUser?.defaultPalette || SCHEMA_PALETTE_DEFAULT;
+  const setPalette = (id) => { if (currentUser) onUpdateUser({ ...currentUser, defaultPalette: id }); };
   return (
-    <div style={S.card}>
-      <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos</label>
-      <div style={S.row}>
-        <input type="range" min={0} max={3} step={0.5} value={margin}
-          onChange={(e) => onMargin(Number(e.target.value))} style={{ flex: 1 }} />
-        <span style={{ minWidth: 40, textAlign: "center", fontWeight: 600, color: C.fnD }}>{margin}s</span>
+    <>
+      <div style={S.card}>
+        <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos</label>
+        <div style={S.row}>
+          <input type="range" min={0} max={3} step={0.5} value={margin}
+            onChange={(e) => onMargin(Number(e.target.value))} style={{ flex: 1 }} />
+          <span style={{ minWidth: 40, textAlign: "center", fontWeight: 600, color: C.fnD }}>{margin}s</span>
+        </div>
+        <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Por defecto: 1 segundo.</p>
       </div>
-      <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Por defecto: 1 segundo.</p>
+      <PalettePreferenceCard current={current} onSelect={setPalette} />
+    </>
+  );
+}
+
+// Tarjeta reutilizable de selección de paleta por defecto (profesor y alumno).
+function PalettePreferenceCard({ current, onSelect }) {
+  return (
+    <div style={{ ...S.card, marginTop: 14 }}>
+      <label style={S.label}>Paleta de color por defecto</label>
+      <p style={{ color: C.muted, fontSize: 12, margin: "0 0 12px" }}>
+        Define los colores de los bloques del esquema y de los botones de categorías en tus ejercicios. Por defecto: Paleta 1.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {SCHEMA_PALETTES.map((pal) => {
+          const active = (current || SCHEMA_PALETTE_DEFAULT) === pal.id;
+          return (
+            <button key={pal.id} type="button" onClick={() => onSelect(pal.id)} className="fa-pressable"
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 10, cursor: "pointer", background: active ? C.paper2 : C.paper, border: `1.5px solid ${active ? C.ink : C.line}`, transition: "all .12s", fontFamily: F.sans, textAlign: "left", width: "100%" }}>
+              <span style={{ display: "inline-flex", borderRadius: 5, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+                {pal.parts.map((c, i) => <span key={i} style={{ width: 22, height: 22, background: c, display: "block" }} />)}
+              </span>
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: active ? 700 : 500, color: active ? C.ink : C.ink2 }}>{pal.name}</span>
+              {active && <span style={{ fontSize: 14, color: C.ink, flexShrink: 0 }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Botón compacto con desplegable para elegir la paleta por defecto (cabeceras).
+function PaletteMenuButton({ current, onSelect, label = "Paleta" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
+  }, [open]);
+  const cur = getSchemaPalette(current) || SCHEMA_PALETTES[0];
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      <button type="button" onClick={() => setOpen(o => !o)} className="fa-pressable"
+        title="Paleta de color por defecto"
+        style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, cursor: "pointer", background: C.paper, border: `1px solid ${C.rail}`, fontFamily: F.sans }}>
+        <span style={{ display: "inline-flex", borderRadius: 3, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)" }}>
+          {cur.parts.map((c, i) => <span key={i} style={{ width: 9, height: 12, background: c, display: "block" }} />)}
+        </span>
+        <Chevron open={open} size={11} color={C.muted} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 172 }}>
+          <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, padding: "4px 8px 6px" }}>{label}</div>
+          {SCHEMA_PALETTES.map((pal) => {
+            const active = (current || SCHEMA_PALETTE_DEFAULT) === pal.id;
+            return (
+              <button key={pal.id} type="button" onClick={() => { onSelect(pal.id); setOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", borderRadius: 7, cursor: "pointer", background: active ? C.paper2 : "transparent", border: "none", fontFamily: F.sans, textAlign: "left", width: "100%" }}>
+                <span style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+                  {pal.parts.map((c, i) => <span key={i} style={{ width: 13, height: 16, background: c, display: "block" }} />)}
+                </span>
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? C.ink : C.ink2 }}>{pal.name}</span>
+                {active && <span style={{ fontSize: 12, color: C.ink, flexShrink: 0 }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -7037,6 +7697,7 @@ function TeacherDash({
   tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }) {
   const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
+  const isMobile = useIsMobile();
 
   const students = useMemo(() =>
     (users || []).filter((u) => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
@@ -7091,6 +7752,9 @@ function TeacherDash({
     const { student, exercise: va_ex, result: va_result } = viewingAnswer;
     const freshVa      = exercises.find((e) => e.id === va_ex.id) || va_ex;
     const freshResult  = (results[student.id] || {})[va_ex.id] || va_result;
+    // El profesor ve los colores con la paleta que usó el alumno al entregar.
+    const vaPalette    = effectivePaletteId({ schemaPalette: freshResult?.schemaPalette }, null);
+    const freshVaPal   = applyPaletteToExercise(freshVa, vaPalette);
     return (
       <div style={S.app}>
         <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -7102,7 +7766,7 @@ function TeacherDash({
         </div>
         <CorrectionView
           key={JSON.stringify(freshResult.teacherCorrection)}
-          exercise={freshVa}
+          exercise={freshVaPal}
           result={freshResult}
           margin={margin}
           onBack={() => setViewingAnswer(null)}
@@ -7166,21 +7830,34 @@ function TeacherDash({
 
   return (
     <div style={S.app}>
-      <div style={S.page}>
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {/* Cabecera editorial */}
-        <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
+        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
             <Overline>{isAdmin ? "Administrador" : "Profesor"}</Overline>
-            <h1 style={{ ...S.h1 }}>{currentUser?.displayName}</h1>
+            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</h1>
           </div>
-          <GhostButton onClick={onLogout}>Salir</GhostButton>
+          <div style={{ flexShrink: 0 }}><GhostButton onClick={onLogout}>Salir</GhostButton></div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
-          <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
-          <div style={{ flex: 1 }} />
-          <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
-        </div>
+        {isMobile ? (
+          // Móvil: una sola tira de pestañas con scroll horizontal (sin separador
+          // que colapse ni pestañas recortadas). El borde inferior se mantiene.
+          <div className="fa-noscroll" style={{
+            display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`,
+            marginBottom: 22, gap: 0, overflowX: "auto", flexWrap: "nowrap",
+            WebkitOverflowScrolling: "touch", scrollbarWidth: "none",
+          }}>
+            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
+            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
+            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
+            <div style={{ flex: 1 }} />
+            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
+          </div>
+        )}
 
         {tab === "exercises" && (
           <ExercisesTab exercises={exercises} audioLibrary={audioLibrary}
@@ -7242,7 +7919,7 @@ function TeacherDash({
             askConfirm={askConfirm} />
         )}
 
-        {tab === "settings" && <SettingsTab margin={margin} onMargin={onMargin} />}
+        {tab === "settings" && <SettingsTab margin={margin} onMargin={onMargin} currentUser={currentUser} onUpdateUser={onUpdateUser} />}
 
         {tab === "users" && isAdmin && (
           <UsersTab currentUser={currentUser} teachers={teachers}
@@ -7911,7 +8588,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
                             {blocks.map((b, i) => {
                               const lPct = (b.start / exercise.duration) * 100;
                               const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
-                              const { bg, textColor } = schemaBlockColor(b, key);
+                              const { bg, textColor } = schemaBlockColor(b, key, exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT);
                               if (lv.id === 3) {
                                 return (
                                   <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
@@ -9295,15 +9972,18 @@ export default function App() {
   const removeUser = (userId) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
+    let changedGroups = [];
     setGroups((prev) => {
+      changedGroups = [];
       const next = prev.map((g) => {
         if (!g.studentIds?.includes(userId)) return g;
         const updated = { ...g, studentIds: g.studentIds.filter((id) => id !== userId) };
-        dbUpsertGroup(updated);
+        changedGroups.push(updated);
         return updated;
       });
       return next;
     });
+    changedGroups.forEach((g) => dbUpsertGroup(g));
     dbDeleteUser(userId);
     dbDeleteResultsForUser(userId);
   };
@@ -9316,12 +9996,14 @@ export default function App() {
 
   // ─── Correction save ─────────────────────────────────────────────────────
   const saveCorrection = (studentId, exerciseId, correction) => {
+    let saved = null;
     setResults((prev) => {
       const existing = (prev[studentId] || {})[exerciseId] || {};
       const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
-      dbUpsertResult(studentId, exerciseId, updated);
+      saved = updated;
       return { ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } };
     });
+    if (saved) dbUpsertResult(studentId, exerciseId, saved);
   };
 
   // ─── Groups ──────────────────────────────────────────────────────────────
@@ -9344,22 +10026,29 @@ export default function App() {
   };
 
   const updateExercise = (id, patch) => {
+    let updated = null;
     setExercises((prev) => {
       const next = prev.map((e) => e.id === id ? { ...e, ...patch } : e);
-      const updated = next.find((e) => e.id === id);
-      if (updated) dbUpsertExercise(updated);
+      updated = next.find((e) => e.id === id) || null;
       return next;
     });
+    if (updated) dbUpsertExercise(updated);
   };
 
   const deleteExercise = (id) => {
     setExercises((prev) => prev.filter((e) => e.id !== id));
-    // BUG FIX: leer units con callback evita race condition con setUnits anteriores
+    let changedUnits = [];
     setUnits((prev) => {
-      const next = prev.map((u) => ({ ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) }));
-      next.forEach((u, i) => { if (u.exerciseIds.length !== prev[i].exerciseIds.length) dbUpsertUnit(u); });
+      changedUnits = [];
+      const next = prev.map((u) => {
+        if (!u.exerciseIds.includes(id)) return u;
+        const nu = { ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) };
+        changedUnits.push(nu);
+        return nu;
+      });
       return next;
     });
+    changedUnits.forEach((u) => dbUpsertUnit(u));
     setResults((prev) => {
       const next = {};
       for (const uid of Object.keys(prev)) {
@@ -9388,12 +10077,13 @@ export default function App() {
     dbDeleteCategory(id);
   };
   const toggleGlobalCategory = (id) => {
+    let cat = null;
     setCategories((prev) => {
       const updated = prev.map((c) => c.id === id ? { ...c, global: !c.global } : c);
-      const cat = updated.find((c) => c.id === id);
-      if (cat) dbUpsertCategory(cat);
+      cat = updated.find((c) => c.id === id) || null;
       return updated;
     });
+    if (cat) dbUpsertCategory(cat);
   };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
@@ -9413,12 +10103,13 @@ export default function App() {
   // ─── Units (con fix de race condition usando setState callback) ─────────
   const addUnit = (newUnit, courseId) => {
     setUnits((prev) => [...prev, newUnit]);
+    let updatedCourse = null;
     setCourses((prev) => {
       const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c);
-      const updatedCourse = next.find((c) => c.id === courseId);
-      if (updatedCourse) dbUpsertCourse(updatedCourse);
+      updatedCourse = next.find((c) => c.id === courseId) || null;
       return next;
     });
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
     dbUpsertUnit(newUnit);
   };
 
@@ -9429,35 +10120,38 @@ export default function App() {
 
   const deleteUnit = (unitId, courseId) => {
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
+    let updatedCourse = null;
     setCourses((prev) => {
       const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c);
-      const updatedCourse = next.find((c) => c.id === courseId);
-      if (updatedCourse) dbUpsertCourse(updatedCourse);
+      updatedCourse = next.find((c) => c.id === courseId) || null;
       return next;
     });
+    if (updatedCourse) dbUpsertCourse(updatedCourse);
     dbDeleteUnit(unitId);
   };
 
   const addExercisesToUnit = (unitId, exIds) => {
+    let updated = null;
     setUnits((prev) => {
       const next = prev.map((u) => {
         if (u.id !== unitId) return u;
         const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
         return { ...u, exerciseIds: merged };
       });
-      const updated = next.find((u) => u.id === unitId);
-      if (updated) dbUpsertUnit(updated);
+      updated = next.find((u) => u.id === unitId) || null;
       return next;
     });
+    if (updated) dbUpsertUnit(updated);
   };
 
   const removeExerciseFromUnit = (unitId, exId) => {
+    let updated = null;
     setUnits((prev) => {
       const next = prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u);
-      const updated = next.find((u) => u.id === unitId);
-      if (updated) dbUpsertUnit(updated);
+      updated = next.find((u) => u.id === unitId) || null;
       return next;
     });
+    if (updated) dbUpsertUnit(updated);
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
@@ -9490,7 +10184,12 @@ export default function App() {
   }, [user, route]);
 
   const openCorrection = (ex) => {
-    const stored = userResults[ex.id];
+    // Calcular el resultado almacenado de forma local: no depende del `const
+    // userResults` declarado más abajo en el cuerpo del componente, lo que
+    // evita una referencia frágil en la zona muerta temporal (TDZ).
+    const stored = user?.isGuest
+      ? guestResults[ex.id]
+      : (results[user?.id] || {})[ex.id];
     if (!stored) return;
     setLastResult(stored);
     navigate(`/alumno/ejercicio/${ex.id}/correccion`);
@@ -9528,10 +10227,11 @@ export default function App() {
     if (!exCtx) return;
     const ex      = freshExercise(exCtx.exercise);
     const isGuest = user?.isGuest;
+    const activePalette = effectivePaletteId(ex, user?.defaultPalette);
 
     // Cuestionario
     if (payload?.type === "cuestionario") {
-      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, timestamp: Date.now() };
+      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, schemaPalette: activePalette, timestamp: Date.now() };
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
       } else if (user) {
@@ -9546,14 +10246,14 @@ export default function App() {
     // Esquema
     if (payload?.type === "esquema") {
       if (payload.mode === "record") {
-        // El profesor guarda el esquema como modelo de referencia
-        updateExercise(ex.id, { schemaKey: payload.blocks });
+        // El profesor guarda el esquema como modelo de referencia (con su paleta)
+        updateExercise(ex.id, { schemaKey: payload.blocks, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT });
         navigate("/profesor");
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
       const placementScore = calcSchemaPlacementScore(ex.schemaKey, payload.blocks);
-      const data = { type: "esquema", blocks: payload.blocks, placementScore, timestamp: Date.now() };
+      const data = { type: "esquema", blocks: payload.blocks, placementScore, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real
         if (isGuest) {
@@ -9608,6 +10308,7 @@ export default function App() {
       intervals:  mainIvs,
       score:      mainScore,
       extras,
+      schemaPalette: activePalette,
       timestamp:  Date.now(),
     };
     // eslint-disable-next-line no-unused-vars
@@ -9758,19 +10459,22 @@ export default function App() {
     if (!exCtx) return <NotFound to={back} />;
     const exModels = modelsOf(exCtx.exercise);
     const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
+    // Paleta efectiva = la del ejercicio, o la preferida por el usuario, o P1.
+    const sessionPalette = effectivePaletteId(exCtx.exercise, user?.defaultPalette);
+    const sessionExercise = applyPaletteToExercise(exCtx.exercise, sessionPalette);
     // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
     if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
-      return <MultiModelSessionView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+      return <MultiModelSessionView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
     }
     // Ejercicio de un solo modelo (o modo record/preview con el modelo primario)
     const m = exModels[0];
     if (m === "esquema") {
-      return <SchemaExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+      return <SchemaExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
     }
     if (exCtx.mode === "student" && m === "cuestionario") {
-      return <QuestionnaireView exercise={exCtx.exercise} onSubmit={submitAnswer} onBack={onBack} />;
+      return <QuestionnaireView exercise={sessionExercise} onSubmit={submitAnswer} onBack={onBack} />;
     }
-    return <ExerciseView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+    return <ExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
   }
 
   // ── Gestor de preguntas (cuestionario) ──
@@ -9795,9 +10499,10 @@ export default function App() {
       return <NotFound to={exCtx ? `/alumno/ejercicio/${exCtx.exercise.id}` : back} />;
     }
     const wasPreview = route.params.from === "teacher";
+    const corrPalette = effectivePaletteId({ schemaPalette: lastResult?.schemaPalette }, user?.defaultPalette);
     return (
       <CorrectionView
-        exercise={freshExercise(exCtx.exercise)}
+        exercise={applyPaletteToExercise(freshExercise(exCtx.exercise), corrPalette)}
         result={lastResult} margin={margin}
         onBack={() => { setLastResult(null); navigate(wasPreview ? "/profesor" : "/alumno"); }}
       />
@@ -9821,6 +10526,7 @@ export default function App() {
         onViewCorrection={openCorrection}
         onLogout={onLogout}
         onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
+        onUpdatePalette={(id) => updateUser({ ...user, defaultPalette: id })}
       />
     );
   }
