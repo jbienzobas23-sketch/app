@@ -7169,19 +7169,17 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
     const doneExs = exercises.filter((ex) => sRes[ex.id]);
     return (
       <div key={s.id} style={S.card}>
-        {/* Cabecera siempre visible: nombre + toggle + eliminar */}
-        <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
+        {/* Cabecera siempre visible: click en cualquier punto abre/cierra */}
+        <div
+          onClick={() => exercises.length > 0 && toggleExpand(s.id)}
+          style={{ ...S.row, justifyContent: "space-between", gap: 10, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {s.displayName}
           </div>
           <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-            {exercises.length > 0 && (
-              <button onClick={() => toggleExpand(s.id)} style={{ ...S.btn, fontSize: 12, padding: "5px 10px" }}>
-                {isOpen ? "▲" : "▼"}
-              </button>
-            )}
+            {exercises.length > 0 && <Chevron open={isOpen} rotate90WhenClosed size={13} />}
             <button
-              onClick={() => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id))}
+              onClick={(e) => { e.stopPropagation(); askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id)); }}
               title={`Eliminar alumno "${s.displayName}"`}
               style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
           </div>
