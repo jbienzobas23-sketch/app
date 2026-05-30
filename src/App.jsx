@@ -9812,6 +9812,8 @@ export default function App() {
 
   // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
   const supabaseRef = useRef(null);
+  // Contador de escrituras en vuelo hacia Supabase.
+  const pendingSavesRef = useRef(0);
 
   // Estado global
   const [exercises,    setExercises]    = useState(INIT_EXERCISES);
@@ -9924,28 +9926,44 @@ export default function App() {
     })();
   }, []);
 
+  // Advierte al usuario si recarga mientras hay escrituras en vuelo.
+  useEffect(() => {
+    const handler = (e) => {
+      if (pendingSavesRef.current > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   // ─── Helpers de upsert ───────────────────────────────────────────────────
   // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
   // simplemente retornan sin hacer nada: el estado React ya se actualizó.
+
   const dbUpsertExercise = async (ex) => {
     const sb = supabaseRef.current; if (!sb) return;
     // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
     // eslint-disable-next-line no-unused-vars
     const { waveformData, ...rest } = ex;
-    await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    pendingSavesRef.current++;
+    const { error } = await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    pendingSavesRef.current--;
+    if (error) console.error("[fa_exercises] Error al guardar:", error.message, ex.id);
   };
   const dbDeleteExercise = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
 
-  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").upsert({ id: u.id, data: u }); };
+  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_users").upsert({ id: u.id, data: u }); if (error) console.error("[fa_users] Error al guardar:", error.message); };
   const dbDeleteUser   = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
 
-  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").upsert({ id: c.id, data: c }); };
+  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_categories").upsert({ id: c.id, data: c }); if (error) console.error("[fa_categories] Error al guardar:", error.message); };
   const dbDeleteCategory = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
 
-  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").upsert({ id: c.id, data: c }); };
+  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_courses").upsert({ id: c.id, data: c }); if (error) console.error("[fa_courses] Error al guardar:", error.message); };
   const dbDeleteCourse = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
 
-  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").upsert({ id: u.id, data: u }); };
+  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_units").upsert({ id: u.id, data: u }); if (error) console.error("[fa_units] Error al guardar:", error.message); };
   const dbDeleteUnit = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
 
   const dbUpsertResult = async (userId, exerciseId, data) => {
