@@ -2510,7 +2510,7 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       const lq = loopRegionRef?.current;
       if (!lq && playingRef.current) {
         timeRef.current       = dur;
-        playOffsetRef.current = dur;
+        playOffsetRef.current = 0;   // reset para que el siguiente play empiece desde el inicio
         setTime(dur);
         setPlaying(false);
       }
@@ -2613,8 +2613,9 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
             setTime(t);
           }
           if (!lq && rawT >= effectiveDur) {
-            timeRef.current = effectiveDur;
-            setTime(effectiveDur);         // fin de audio: sin throttle
+            timeRef.current       = effectiveDur;
+            playOffsetRef.current = 0;   // reset para que el siguiente play empiece desde el inicio
+            setTime(effectiveDur);       // fin de audio: sin throttle
             setPlaying(false);
             return;
           }
@@ -2644,6 +2645,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
         startSource(playOffsetRef.current);
         setPlaying(true);
       }
+    }).catch(() => {
+      pendingToggleRef.current = false;    // liberar el lock aunque ctx.resume() falle
     });
   };
 
