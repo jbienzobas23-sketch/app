@@ -1185,7 +1185,17 @@ function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
 // fino de pie ya existente (que se mantiene como recordatorio).
 function SessionHint({ modelId, extra = null, storageKeyless = true }) {
   const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
-  const [open, setOpen] = useState(true);
+  const storeKey = `fa_hint_seen_${modelId}`;
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(storeKey) !== "1"; } catch { return true; }
+  });
+  // El banner aclaratorio del modelo solo aparece la primera vez que se accede a
+  // ese tipo de ejercicio; se marca como visto al mostrarse (también evita que
+  // reaparezca al alternar modelos en ejercicios híbridos).
+  useEffect(() => {
+    if (!open) return;
+    try { localStorage.setItem(storeKey, "1"); } catch {}
+  }, [open, storeKey]);
   if (!open) return null;
   return (
     <div style={{
@@ -6954,7 +6964,10 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
         }
       }
       return true;
-    });
+    })
+    // Los ejercicios ocultos se muestran siempre por debajo de los visibles
+    // (orden estable: conservan su orden relativo dentro de cada grupo).
+    .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
   }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
 
   const hasFilters = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
