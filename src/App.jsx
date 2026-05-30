@@ -2995,7 +2995,7 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
 function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
-  colorByFn, questionRegion,
+  colorByFn, questionRegion, answerBand = false,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -3006,7 +3006,7 @@ function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion,
+    colorByFn, questionRegion, answerBand,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3017,6 +3017,7 @@ function WaveformDisplay({
     const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
+    const BAND_H = 16, BAND_GAP = 6;   // banda de respuesta alineada con la onda (se desplaza con ella)
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -3049,10 +3050,12 @@ function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
-      const W = rect.width, H = rect.height, mid = H / 2;
+      const W = rect.width, H = rect.height;
+      const waveAreaH = ab ? H - (BAND_H + BAND_GAP) : H;
+      const mid = waveAreaH / 2;
       const barW = W / NUM_BARS, drawW = barW * 0.7, offsetX = barW * 0.15;
       const pxPerSec = W / VISIBLE_SECS;
       const centerK  = Math.floor(t / secPerBar);
@@ -3080,6 +3083,36 @@ function WaveformDisplay({
         }
         ctx.fillStyle = (fn && cmap && cmap[fn]) ? cmap[fn] : "rgba(26,25,21,0.28)";
         drawPill(xLeft, mid - h, drawW, h * 2);
+      }
+
+      // Banda de respuesta: bloques coloreados alineados con la onda, en la misma
+      // coordenada de scroll (cursor centrado), de modo que se mueven con ella.
+      if (ab) {
+        const bandTop = waveAreaH + BAND_GAP;
+        ctx.fillStyle = "rgba(26,25,21,0.06)";
+        drawPill(0, bandTop, W, BAND_H);
+        ctx.font = `700 10px ${FONT_MONO}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        for (let j = 0; j < ivs.length; j++) {
+          const iv = ivs[j];
+          const x1 = (iv.start - t) * pxPerSec + W / 2;
+          const x2 = (Math.min(iv.end, dur) - t) * pxPerSec + W / 2;
+          if (x2 <= 0 || x1 >= W) continue;
+          const cx1 = Math.max(0, x1), cx2 = Math.min(W, x2), bw = cx2 - cx1;
+          if (bw < 0.5) continue;
+          ctx.globalAlpha = iv.id === "live" ? 0.5 : 1;
+          ctx.fillStyle = (cmap && cmap[iv.fn]) || "rgba(26,25,21,0.4)";
+          drawPill(cx1, bandTop, bw, BAND_H);
+          if (bw > 14) {
+            ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
+            ctx.fillStyle = C.paper;
+            ctx.fillText(iv.fn, (cx1 + cx2) / 2, bandTop + BAND_H / 2 + 0.5);
+          }
+          ctx.globalAlpha = 1;
+        }
+        ctx.textAlign = "start";
+        ctx.textBaseline = "alphabetic";
       }
 
       if (qr) {
@@ -3119,7 +3152,7 @@ function WaveformDisplay({
 
   return (
     <canvas ref={canvasRef}
-      style={{ display: "block", width: "100%", height: 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
+      style={{ display: "block", width: "100%", height: answerBand ? 104 : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     />
@@ -3475,10 +3508,26 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
-              colorByFn={colorByFn}
+              colorByFn={colorByFn} answerBand
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
+            </div>
+            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
+              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
+              {playing ? "❚❚" : "▶"}
+            </CircleButton>
+            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
+              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Resumen completo de la respuesta — vista global de toda la grabación */}
+        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "12px 14px", marginBottom: 12 }}>
           <div style={{ position: "relative" }}>
             {showSwitch && (
               <div role="tablist" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SWITCH_W, display: "flex", flexDirection: "column", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, boxSizing: "border-box" }}>
@@ -3515,19 +3564,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               ))}
             </div>
           )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
-            </div>
-            <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-              primary size={52} title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}>
-              {playing ? "❚❚" : "▶"}
-            </CircleButton>
-            <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
-            </div>
-          </div>
         </section>
 
         {selected && selectedIv && (
