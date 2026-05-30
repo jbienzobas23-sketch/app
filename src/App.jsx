@@ -185,6 +185,8 @@ const DEFAULT_CATEGORY = {
 const CATEGORY_COLORS = ["#3F9B5B","#2F6FB8","#C77A1A","#B84A3A","#9A4FB8","#C75A8E","#3A8CA8","#C9A33A"];
 const KEY_SEQUENCE    = ["a","s","d","f","j","k","l","g"];
 const VISIBLE_SECS    = 10;
+const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interactivo
+const IV_BAND_GAP     =  6;   // separación entre onda y banda
 const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
 
 const EXERCISE_MODELS = [
@@ -2996,6 +2998,7 @@ function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
+  selectedIvId = null, onBandPointerDown = null,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -3006,7 +3009,7 @@ function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion, answerBand,
+    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3017,7 +3020,7 @@ function WaveformDisplay({
     const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
-    const BAND_H = 16, BAND_GAP = 6;   // banda de respuesta alineada con la onda (se desplaza con ella)
+    const BAND_H = IV_BAND_H, BAND_GAP = IV_BAND_GAP;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -3050,7 +3053,7 @@ function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId } = stateRef.current;
       const t = tRef?.current ?? tState;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height;
@@ -3113,6 +3116,30 @@ function WaveformDisplay({
         }
         ctx.textAlign = "start";
         ctx.textBaseline = "alphabetic";
+
+        // Asas del intervalo seleccionado: solo visibles cuando hay selección
+        if (selId) {
+          const selIv = ivs.find((iv) => iv.id === selId);
+          if (selIv && selIv.id !== "live") {
+            const sx = (selIv.start - t) * pxPerSec + W / 2;
+            const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
+            const bandTop = waveAreaH + BAND_GAP;
+            const hw = 4, hh = Math.round(BAND_H * 0.72), hTop = bandTop + (BAND_H - hh) / 2;
+            for (const hx of [sx, ex]) {
+              if (hx < -4 || hx > W + 4) continue;
+              ctx.save();
+              ctx.fillStyle = "rgba(255,255,255,0.96)";
+              ctx.shadowColor = "rgba(0,0,0,0.38)";
+              ctx.shadowBlur = 4;
+              if (typeof ctx.roundRect === "function") {
+                ctx.beginPath(); ctx.roundRect(hx - hw / 2, hTop, hw, hh, hw / 2); ctx.fill();
+              } else {
+                ctx.fillRect(hx - hw / 2, hTop, hw, hh);
+              }
+              ctx.restore();
+            }
+          }
+        }
       }
 
       if (qr) {
@@ -3142,6 +3169,20 @@ function WaveformDisplay({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+
+    // Detectar si el puntero está en la zona de la banda de respuesta
+    const { answerBand: ab, onBandPointerDown: obpd } = stateRef.current;
+    if (ab && obpd) {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const y = clientY - rect.top;
+      if (y >= rect.height - IV_BAND_H - IV_BAND_GAP) {
+        e.stopPropagation();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        obpd(e, clientX, rect);
+        return;
+      }
+    }
+
     let anchorX = 0, anchorTime = 0;
     startPointerDrag(e, {
       onStart: (ev, getX) => { anchorX = getX(ev); anchorTime = stateRef.current.time; stateRef.current.onScrubBegin(); },
@@ -3152,7 +3193,7 @@ function WaveformDisplay({
 
   return (
     <canvas ref={canvasRef}
-      style={{ display: "block", width: "100%", height: answerBand ? 104 : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
+      style={{ display: "block", width: "100%", height: answerBand ? 80 + IV_BAND_GAP + IV_BAND_H : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     />
@@ -3341,8 +3382,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
   useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); }, [exercise.id]);
 
-  const timelineRef = useRef(null);
-
   // Cambio de categoría: cierra el intervalo en curso de la actual
   const switchCategory = (newId) => {
     if (newId === currentCategoryId) return;
@@ -3432,20 +3471,17 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
   const deleteSelected = () => { setIntervals((p) => p.filter((iv) => iv.id !== selected)); setSelected(null); };
 
-  // Drag de bordes de un intervalo (resize)
-  const beginDragEdge = (e, ivId, which) => {
-    e.stopPropagation();
+  // Drag de borde de intervalo desde la banda del canvas (resize)
+  const beginDragEdgeCanvas = (e, ivId, which, rect) => {
     setSelected(ivId);
-    const tl = timelineRef.current;
-    if (!tl) return;
-    const rect = tl.getBoundingClientRect();
-    const xToTime = (x) => Math.max(0, Math.min(dur, ((x - rect.left) / rect.width) * dur));
     const origIvs = intervals;
     const origIv  = origIvs.find((iv) => iv.id === ivId);
     if (!origIv) return;
+    const W = rect.width;
     startPointerDrag(e, {
       onMove: (ev, getX) => {
-        const t = xToTime(getX(ev));
+        const xRel = getX(ev) - rect.left;
+        const t = Math.max(0, Math.min(dur, timeRef.current + (xRel - W / 2) * VISIBLE_SECS / W));
         const updated = which === "start"
           ? { ...origIv, start: Math.min(origIv.end - 0.1, t) }
           : { ...origIv, end:   Math.max(origIv.start + 0.1, t) };
@@ -3454,39 +3490,58 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     });
   };
 
-  // Drag del cuerpo de un intervalo (mover)
-  const beginDragBody = (e, ivId) => {
-    e.stopPropagation();
-    const tl = timelineRef.current;
-    if (!tl) return;
-    const rect    = tl.getBoundingClientRect();
+  // Drag del cuerpo de intervalo desde la banda del canvas (mover)
+  const beginDragBodyCanvas = (e, ivId, rect) => {
+    setSelected(ivId);
     const origIvs = intervals;
     const iv0     = origIvs.find((iv) => iv.id === ivId);
     if (!iv0) return;
     const len = iv0.end - iv0.start;
-    let startX = 0, moved = false;
+    const W   = rect.width;
+    let x0 = null, moved = false;
     startPointerDrag(e, {
-      onStart: (ev, getX) => { startX = getX(ev); },
+      onStart: (ev, getX) => { x0 = getX(ev); },
       onMove:  (ev, getX) => {
-        const cx = getX(ev);
-        if (!moved && Math.abs(cx - startX) > 3) moved = true;
+        const x = getX(ev);
+        if (!moved && Math.abs(x - x0) > 3) moved = true;
         if (!moved) return;
-        const ns = Math.max(0, Math.min(dur - len, iv0.start + ((cx - startX) / rect.width) * dur));
-        const updated = { ...iv0, start: ns, end: ns + len };
-        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), updated), updated]);
+        const dt = (x - x0) * VISIBLE_SECS / W;
+        const ns = Math.max(0, Math.min(dur - len, iv0.start + dt));
+        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), { ...iv0, start: ns, end: ns + len }), { ...iv0, start: ns, end: ns + len }]);
       },
       onEnd: () => { if (!moved) setSelected((s) => s === ivId ? null : ivId); },
     });
   };
 
+  // Dispatcher de clicks/drag en la zona de banda de la onda
+  const handleBandPointerDown = (e, clientX, rect) => {
+    const W       = rect.width;
+    const pxPerSec = W / VISIBLE_SECS;
+    const t       = timeRef.current;
+    const xRel    = clientX - rect.left;
+    const timeAtClick = Math.max(0, Math.min(dur, t + (xRel - W / 2) * VISIBLE_SECS / W));
+    const EDGE_PX = 14;
+
+    // ¿Cerca del borde de un intervalo seleccionado?
+    if (selected) {
+      const selIv = intervals.find((iv) => iv.id === selected);
+      if (selIv && selIv.id !== "live") {
+        const sx = (selIv.start - t) * pxPerSec + W / 2;
+        const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
+        if (Math.abs(xRel - sx) < EDGE_PX) { beginDragEdgeCanvas(e, selected, "start", rect); return; }
+        if (Math.abs(xRel - ex) < EDGE_PX) { beginDragEdgeCanvas(e, selected, "end",   rect); return; }
+      }
+    }
+
+    // ¿Click sobre el cuerpo de algún intervalo?
+    const clicked = intervals.find((iv) => iv.id !== "live" && timeAtClick >= iv.start && timeAtClick <= iv.end);
+    if (clicked) { beginDragBodyCanvas(e, clicked.id, rect); }
+    else         { setSelected(null); }
+  };
+
   // Render
-  const pct        = (t) => `${(t / dur) * 100}%`;
   const allIv      = pressing ? [...intervals, { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(timeRef.current, dur) }] : intervals;
   const selectedIv = intervals.find((iv) => iv.id === selected);
-  const showSwitch = exCategories.length > 1;
-  const SWITCH_W   = 14;
-  const SWITCH_GAP = 8;
-  const gutter     = showSwitch ? SWITCH_W + SWITCH_GAP : 0;
 
   // Conteo de fragmentos marcados (todas las categorías) para la barra de acción
   const markedCount = Object.values(intervalsByCategory).reduce((n, arr) => n + (arr?.length || 0), 0) + (pressing ? 1 : 0);
@@ -3505,10 +3560,12 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         {mode === "student" && <SessionHint modelId="interactivo" extra={<>Pulsa <b>Espacio</b> para reproducir o pausar.</>} />}
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
-          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
+          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
+              selectedIvId={selected}
+              onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
@@ -3526,46 +3583,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         </section>
 
-        {/* Resumen completo de la respuesta — vista global de toda la grabación */}
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ position: "relative" }}>
-            {showSwitch && (
-              <div role="tablist" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SWITCH_W, display: "flex", flexDirection: "column", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, boxSizing: "border-box" }}>
-                {exCategories.map((m) => {
-                  const isActive = m.id === currentCategoryId;
-                  return (
-                    <button key={m.id} type="button" role="tab" aria-selected={isActive}
-                      onClick={() => switchCategory(m.id)} title={m.name}
-                      style={{ flex: "1 1 0", minHeight: 0, border: "none", padding: 0, borderRadius: 999, background: isActive ? C.ink : "transparent", cursor: "pointer" }} />
-                  );
-                })}
-              </div>
-            )}
-            {exCategories.map((m) => {
-              const isActive = m.id === currentCategoryId;
-              const ivs = isActive ? allIv : (intervalsByCategory[m.id] || (mode === "record" ? answerFor(exercise, m.id) : []));
-              return (
-                <IntervalStrip key={m.id}
-                  category={m} intervals={ivs} isActive={isActive}
-                  isFnStyle={m.id === "default"}
-                  gutter={gutter} duration={dur} time={time}
-                  selected={selected} mode={mode} exercise={exercise}
-                  onBeginDragBody={beginDragBody} onBeginDragEdge={beginDragEdge}
-                  onSelect={setSelected} timelineRef={timelineRef}
-                />
-              );
-            })}
-          </div>
-
-          {mode === "student" && exercise.showHint && answerFor(exercise, currentCategoryId).length > 0 && (
-            <div style={{ position: "relative", height: 6, marginTop: 6, marginLeft: gutter, marginRight: gutter }}>
-              {answerFor(exercise, currentCategoryId).map((iv, i) => (
-                <div key={i} style={{ position: "absolute", top: 0, bottom: 0, left: pct(iv.start), width: pct(iv.end - iv.start), background: C.muted2, opacity: 0.45, borderRadius: 2 }} />
-              ))}
-            </div>
-          )}
-        </section>
-
         {selected && selectedIv && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
             <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
@@ -3581,6 +3598,22 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             })}
             <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
             <button onClick={deleteSelected} className="fa-pressable" style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 13px", fontSize: 12 }}>Eliminar</button>
+          </div>
+        )}
+
+        {exCategories.length > 1 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {exCategories.map((m) => {
+              const isAct = m.id === currentCategoryId;
+              return (
+                <button key={m.id} onClick={() => switchCategory(m.id)}
+                  style={{ padding: "4px 14px", fontSize: 11, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999,
+                    border: `1.5px solid ${isAct ? C.ink : C.line}`, background: isAct ? C.ink : "transparent",
+                    color: isAct ? C.paper : C.muted, cursor: "pointer" }}>
+                  {m.name}
+                </button>
+              );
+            })}
           </div>
         )}
 
