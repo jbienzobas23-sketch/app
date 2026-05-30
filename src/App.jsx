@@ -2998,7 +2998,7 @@ function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
-  selectedIvId = null, onBandPointerDown = null,
+  selectedIvId = null, onBandPointerDown = null, pressing = null,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -3009,7 +3009,7 @@ function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
+    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown, pressing,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3053,8 +3053,11 @@ function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressing: pr } = stateRef.current;
       const t = tRef?.current ?? tState;
+      // El intervalo "en vivo" (botón pulsado) se calcula cada frame con el tiempo
+      // actual, de modo que crece de forma fluida a 75 fps (no a tirones de React).
+      const ivs = pr ? [...ivsBase, { id: "live", fn: pr.fn, start: pr.start, end: Math.min(t, dur) }] : ivsBase;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height;
       const waveAreaH = ab ? H - (BAND_H + BAND_GAP) : H;
@@ -3117,22 +3120,25 @@ function WaveformDisplay({
         ctx.textAlign = "start";
         ctx.textBaseline = "alphabetic";
 
-        // Asas del intervalo seleccionado: solo visibles cuando hay selección
+        // Asas del intervalo seleccionado: mismo aspecto que los bloques del
+        // esquema (barra blanca redondeada con sombra). Solo visibles si hay
+        // selección; ocupan toda la altura de la banda.
         if (selId) {
           const selIv = ivs.find((iv) => iv.id === selId);
           if (selIv && selIv.id !== "live") {
             const sx = (selIv.start - t) * pxPerSec + W / 2;
             const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
             const bandTop = waveAreaH + BAND_GAP;
-            const hw = 4, hh = Math.round(BAND_H * 0.72), hTop = bandTop + (BAND_H - hh) / 2;
+            const hw = SCHEMA_HND_VISUAL_W, hh = BAND_H, hTop = bandTop;
             for (const hx of [sx, ex]) {
-              if (hx < -4 || hx > W + 4) continue;
+              if (hx < -hw || hx > W + hw) continue;
               ctx.save();
-              ctx.fillStyle = "rgba(255,255,255,0.96)";
-              ctx.shadowColor = "rgba(0,0,0,0.38)";
+              ctx.fillStyle = "rgba(255,255,255,0.92)";
+              ctx.shadowColor = "rgba(0,0,0,0.20)";
               ctx.shadowBlur = 4;
+              ctx.shadowOffsetY = 1;
               if (typeof ctx.roundRect === "function") {
-                ctx.beginPath(); ctx.roundRect(hx - hw / 2, hTop, hw, hh, hw / 2); ctx.fill();
+                ctx.beginPath(); ctx.roundRect(hx - hw / 2, hTop, hw, hh, 5); ctx.fill();
               } else {
                 ctx.fillRect(hx - hw / 2, hTop, hw, hh);
               }
@@ -3509,7 +3515,8 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         const ns = Math.max(0, Math.min(dur - len, iv0.start + dt));
         setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), { ...iv0, start: ns, end: ns + len }), { ...iv0, start: ns, end: ns + len }]);
       },
-      onEnd: () => { if (!moved) setSelected((s) => s === ivId ? null : ivId); },
+      // La selección persiste tras soltar (igual que los bloques del esquema):
+      // no se hace toggle; para deseleccionar, pulsar en una zona vacía.
     });
   };
 
@@ -3540,7 +3547,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   };
 
   // Render
-  const allIv      = pressing ? [...intervals, { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(timeRef.current, dur) }] : intervals;
   const selectedIv = intervals.find((iv) => iv.id === selected);
 
   // Conteo de fragmentos marcados (todas las categorías) para la barra de acción
@@ -3561,10 +3567,10 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
-            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={intervals}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
-              selectedIvId={selected}
+              selectedIvId={selected} pressing={pressing}
               onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
