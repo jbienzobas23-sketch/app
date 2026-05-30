@@ -7168,11 +7168,12 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
     const isOpen  = expandedStudents.has(s.id);
     const doneExs = exercises.filter((ex) => sRes[ex.id]);
     return (
-      <div key={s.id} style={S.card}>
-        {/* Cabecera siempre visible: click en cualquier punto abre/cierra */}
-        <div
-          onClick={() => exercises.length > 0 && toggleExpand(s.id)}
-          style={{ ...S.row, justifyContent: "space-between", gap: 10, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
+      <div
+        key={s.id}
+        onClick={() => exercises.length > 0 && toggleExpand(s.id)}
+        style={{ ...S.card, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
+        {/* Cabecera siempre visible */}
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {s.displayName}
           </div>
@@ -7187,7 +7188,7 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
 
         {/* Detalle: solo visible al desplegar */}
         {isOpen && (
-          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
             <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
               <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
               <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
