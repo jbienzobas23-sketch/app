@@ -10044,13 +10044,9 @@ export default function App() {
   };
 
   const updateExercise = (id, patch) => {
-    let updated = null;
-    setExercises((prev) => {
-      const next = prev.map((e) => e.id === id ? { ...e, ...patch } : e);
-      updated = next.find((e) => e.id === id) || null;
-      return next;
-    });
-    if (updated) dbUpsertExercise(updated);
+    const current = exercises.find((e) => e.id === id);
+    setExercises((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
+    if (current) dbUpsertExercise({ ...current, ...patch });
   };
 
   const deleteExercise = (id) => {
@@ -10118,16 +10114,12 @@ export default function App() {
     dbDeleteCourse(id);
   };
 
-  // ─── Units (con fix de race condition usando setState callback) ─────────
+  // ─── Units ───────────────────────────────────────────────────────────────
   const addUnit = (newUnit, courseId) => {
+    const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => [...prev, newUnit]);
-    let updatedCourse = null;
-    setCourses((prev) => {
-      const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c);
-      updatedCourse = next.find((c) => c.id === courseId) || null;
-      return next;
-    });
-    if (updatedCourse) dbUpsertCourse(updatedCourse);
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: [...existingCourse.unitIds, newUnit.id] });
     dbUpsertUnit(newUnit);
   };
 
@@ -10137,39 +10129,30 @@ export default function App() {
   };
 
   const deleteUnit = (unitId, courseId) => {
+    const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
-    let updatedCourse = null;
-    setCourses((prev) => {
-      const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c);
-      updatedCourse = next.find((c) => c.id === courseId) || null;
-      return next;
-    });
-    if (updatedCourse) dbUpsertCourse(updatedCourse);
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: existingCourse.unitIds.filter((id) => id !== unitId) });
     dbDeleteUnit(unitId);
   };
 
   const addExercisesToUnit = (unitId, exIds) => {
-    let updated = null;
-    setUnits((prev) => {
-      const next = prev.map((u) => {
-        if (u.id !== unitId) return u;
-        const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
-        return { ...u, exerciseIds: merged };
-      });
-      updated = next.find((u) => u.id === unitId) || null;
-      return next;
-    });
-    if (updated) dbUpsertUnit(updated);
+    const existingUnit = units.find((u) => u.id === unitId);
+    setUnits((prev) => prev.map((u) => {
+      if (u.id !== unitId) return u;
+      const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
+      return { ...u, exerciseIds: merged };
+    }));
+    if (existingUnit) {
+      const merged = [...existingUnit.exerciseIds, ...exIds.filter((id) => !existingUnit.exerciseIds.includes(id))];
+      dbUpsertUnit({ ...existingUnit, exerciseIds: merged });
+    }
   };
 
   const removeExerciseFromUnit = (unitId, exId) => {
-    let updated = null;
-    setUnits((prev) => {
-      const next = prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u);
-      updated = next.find((u) => u.id === unitId) || null;
-      return next;
-    });
-    if (updated) dbUpsertUnit(updated);
+    const existingUnit = units.find((u) => u.id === unitId);
+    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u));
+    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: existingUnit.exerciseIds.filter((id) => id !== exId) });
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
