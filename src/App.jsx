@@ -152,7 +152,7 @@ const FONT_MONO  = "'Outfit', system-ui, sans-serif";
 const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
-  app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink, display: "flex", flexDirection: "column" },
+  app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
   page:       { maxWidth: 740, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
@@ -3536,7 +3536,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   const submitLabel = mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar";
 
   return (
-    <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
@@ -5319,7 +5319,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
   // ── JSX principal ────────────────────────────────────────────────────────
   return (
-    <div style={S.app}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="esquema" />
 
       {showRepModal && (
@@ -6801,7 +6801,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   const allAnswered = answeredCount === questions.length;
 
   return (
-    <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
