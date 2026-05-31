@@ -3267,7 +3267,7 @@ const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing,
       })}
     </div>
   );
-}
+}, fnButtonsEqual);
 
 function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const dur          = exercise.duration;
