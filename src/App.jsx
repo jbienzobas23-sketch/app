@@ -3444,6 +3444,15 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
   };
 
+  // Ref siempre-fresco para detectar si el tiempo actual cae sobre una pista.
+  // Se usa desde los handlers de teclado (que tienen closures estale) y desde
+  // los botones. Solo actúa cuando exercise.showHint está activado.
+  const snapHintRef = useRef(null);
+  snapHintRef.current = (t) => {
+    if (!exercise.showHint) return null;
+    return answerFor(exercise, currentCategoryId).find((h) => t >= h.start && t <= h.end) || null;
+  };
+
   // Teclado (mantén pulsada la tecla mientras suena)
   const togglePlayRef = useRef(togglePlay);
   useEffect(() => { togglePlayRef.current = togglePlay; });
@@ -3452,12 +3461,19 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       if (e.repeat) return;
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (btn) {
-        setPressing((p) => {
-          const now = timeRef.current;
-          if (p && p.fn === btn.id) return p;
-          if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-          return { fn: btn.id, start: now };
-        });
+        const now  = timeRef.current;
+        const hint = snapHintRef.current?.(now);
+        if (hint) {
+          // Snap: llena el bloque de pista completo al instante
+          setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
+          commitInterval(btn.id, hint.start, hint.end);
+        } else {
+          setPressing((p) => {
+            if (p && p.fn === btn.id) return p;
+            if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
+            return { fn: btn.id, start: now };
+          });
+        }
       }
       if (e.key === " ") { e.preventDefault(); togglePlayRef.current(); }
     };
@@ -3476,12 +3492,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exCategory]);
 
-  const handleFnDown = (fn) => setPressing((p) => {
-    const now = timeRef.current;
-    if (p && p.fn === fn) return p;
-    if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-    return { fn, start: now };
-  });
+  const handleFnDown = (fn) => {
+    const now  = timeRef.current;
+    const hint = snapHintRef.current?.(now);
+    if (hint) {
+      // Snap: cierra cualquier marcado en curso y llena la pista completa
+      setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
+      commitInterval(fn, hint.start, hint.end);
+      return;
+    }
+    setPressing((p) => {
+      if (p && p.fn === fn) return p;
+      if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
+      return { fn, start: now };
+    });
+  };
   const handleFnUp = (fn) => setPressing((p) => {
     if (!p || p.fn !== fn) return p;
     const end = timeRef.current;
