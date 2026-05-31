@@ -3269,33 +3269,19 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek,
           background: "rgba(26,25,21,0.05)", border: `1px solid ${C.line}`,
           overflow: "hidden", marginBottom: 6 }}>
           {hintIntervals.map((iv, i) => {
-            const btn   = hintCategory ? hintCategory.buttons.find((b) => b.id === iv.fn) : null;
-            const color = btn?.color || (colorByFn && colorByFn[iv.fn]) || C.muted2;
-            const w     = Math.max(0, Math.min(iv.end, duration) - iv.start);
-            const wPct  = (w / duration) * 100;
+            const w    = Math.max(0, Math.min(iv.end, duration) - iv.start);
+            const wPct = (w / duration) * 100;
             return (
               <div key={i} style={{
-                position: "absolute", top: 0, bottom: 0,
+                position: "absolute", top: 3, bottom: 3,
                 left: `${pct(iv.start)}%`, width: `${wPct}%`,
-                background: color, opacity: 0.55,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                overflow: "hidden",
-              }}>
-                {wPct > 3 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, fontFamily: FONT_MONO,
-                    color: C.paper, textShadow: "0 1px 2px rgba(0,0,0,0.4)",
-                    pointerEvents: "none", whiteSpace: "nowrap" }}>
-                    {iv.fn}
-                  </span>
-                )}
-              </div>
+                background: "transparent",
+                border: `1.5px solid ${C.ink}`,
+                borderRadius: 4,
+                boxSizing: "border-box",
+              }} />
             );
           })}
-          {/* Etiqueta */}
-          <span style={{ position: "absolute", top: 1, right: 5,
-            fontSize: 9, fontFamily: FONT_MONO, fontWeight: 600,
-            color: C.muted, letterSpacing: 0.5, pointerEvents: "none",
-            textTransform: "uppercase", opacity: 0.7 }}>pista</span>
         </div>
       )}
 
