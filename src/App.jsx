@@ -3077,10 +3077,25 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
       lastFrameTime = ts;
       const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressingRef: pRef, hintIntervals: hints } = stateRef.current;
       const t = tRef?.current ?? tState;
-      // Lee pressing del ref síncrono (nunca stale) en lugar del valor de React.
-      // Esto evita el salto visual de 1 frame al pisar/soltar una tecla.
+      // pressingRef puede tener tres estados:
+      //   null              → sin marcado
+      //   { fn, start }     → activo, intervalo crece en tiempo real
+      //   { fn, start, end }→ "congelado": tecla soltada, esperando que React
+      //                       confirme el intervalo en ivsBase (evita el salto
+      //                       de 1-2 frames entre "en vivo" y "comprometido").
       const pr = pRef?.current ?? null;
-      const ivs = pr ? [...ivsBase, { id: "live", fn: pr.fn, start: pr.start, end: Math.min(t, dur) }] : ivsBase;
+      let ivsForDraw = ivsBase;
+      if (pr && pr.end != null) {
+        // Estado congelado: comprobamos si React ya puso el intervalo en ivsBase
+        if (ivsBase.some(iv => iv.fn === pr.fn && iv.start === pr.start)) {
+          pRef.current = null;          // React al día → limpiamos
+        } else {
+          ivsForDraw = [...ivsBase, { id: "tmp-commit", fn: pr.fn, start: pr.start, end: pr.end }];
+        }
+      }
+      const ivs = (pr && pr.end == null)
+        ? [...ivsForDraw, { id: "live", fn: pr.fn, start: pr.start, end: Math.min(t, dur) }]
+        : ivsForDraw;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height;
       const waveAreaH = ab ? H - (BAND_H + BAND_GAP) : H;
@@ -3539,10 +3554,15 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (!btn) return;
       const p = pressingRef.current;
-      if (!p || p.fn !== btn.id) return;
+      if (!p || p.fn !== btn.id || p.end != null) return;
       const end = timeRef.current;
-      pressingRef.current = null; setPressing(null);
-      if (end - p.start > 0.1) commitInterval(btn.id, p.start, end);
+      setPressing(null);
+      if (end - p.start > 0.1) {
+        pressingRef.current = { fn: p.fn, start: p.start, end }; // congelar
+        commitInterval(btn.id, p.start, end);
+      } else {
+        pressingRef.current = null;
+      }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup",   up);
@@ -3568,16 +3588,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   };
   const handleFnUp = (fn) => {
     const p = pressingRef.current;
-    if (!p || p.fn !== fn) return;
+    if (!p || p.fn !== fn || p.end != null) return;
     const end = timeRef.current;
-    pressingRef.current = null; setPressing(null);
-    if (end - p.start > 0.1) commitInterval(fn, p.start, end);
+    setPressing(null);
+    if (end - p.start > 0.1) {
+      pressingRef.current = { fn: p.fn, start: p.start, end }; // congelar
+      commitInterval(fn, p.start, end);
+    } else {
+      pressingRef.current = null;
+    }
   };
 
   const handleSubmit = () => {
     let byCategory = intervalsByCategory;
     const p = pressingRef.current;
-    if (p) {
+    if (p && p.end == null) {   // solo si activo, no si congelado
       const end = timeRef.current;
       const cur = byCategory[currentCategoryId] || [];
       const newIv = { id: uid("iv"), fn: p.fn, start: p.start, end };
