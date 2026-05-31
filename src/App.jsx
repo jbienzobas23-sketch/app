@@ -3253,7 +3253,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 
     let anchorX = 0, anchorTime = 0;
     startPointerDrag(e, {
-      onStart: (ev, getX) => { anchorX = getX(ev); anchorTime = stateRef.current.time; stateRef.current.onScrubBegin(); },
+      onStart: (ev, getX) => { anchorX = getX(ev); anchorTime = stateRef.current.timeRef?.current ?? stateRef.current.time; stateRef.current.onScrubBegin(); },
       onMove:  (ev, getX) => { const delta = (getX(ev) - anchorX) * VISIBLE_SECS / rect.width; stateRef.current.onScrubTo(anchorTime - delta); },
       onEnd:   () => stateRef.current.onScrubEnd(),
     });
@@ -3314,12 +3314,12 @@ function AudioScrubber({ timeRef, duration, intervals, pressing, colorByFn, onSe
         if (pr) {
           const s = clamp(pr.start);
           const w = Math.max(0, clamp(Math.min(t, duration)) - s);
-          el.style.display = "block";
+          el.style.opacity = "0.5";
           el.style.left = s + "%";
           el.style.width = w + "%";
           el.style.background = (colorRef.current && colorRef.current[pr.fn]) || "rgba(26,25,21,0.3)";
         } else {
-          el.style.display = "none";
+          el.style.opacity = "0";
         }
       }
       raf = requestAnimationFrame(tick);
@@ -3342,9 +3342,10 @@ function AudioScrubber({ timeRef, duration, intervals, pressing, colorByFn, onSe
         <div style={{ position: "absolute", left: 0, right: 0,
           height: TRACK_H, borderRadius: TRACK_H / 2,
           background: "rgba(26,25,21,0.08)", overflow: "hidden" }}>
-          {/* Fill (tiempo transcurrido) — width vía rAF */}
+          {/* Fill (tiempo transcurrido) — width exclusivamente vía rAF;
+              no se incluye en JSX para que React no la resetee en re-renders */}
           <div ref={fillRef} style={{ position: "absolute", top: 0, bottom: 0, left: 0,
-            width: "0%", background: "rgba(26,25,21,0.18)", borderRadius: TRACK_H / 2 }} />
+            background: "rgba(26,25,21,0.18)", borderRadius: TRACK_H / 2 }} />
           {/* Intervalos marcados por el alumno */}
           {intervals.map((iv) => {
             const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
@@ -3357,13 +3358,13 @@ function AudioScrubber({ timeRef, duration, intervals, pressing, colorByFn, onSe
               }} />
             );
           })}
-          {/* Bloque "en vivo" — posición/anchura vía rAF */}
+          {/* Bloque "en vivo" — left/width/opacity exclusivamente vía rAF */}
           <div ref={liveRef} style={{ position: "absolute", top: 0, bottom: 0,
-            left: "0%", width: "0%", opacity: 0.5, borderRadius: 3, display: "none" }} />
+            opacity: 0, borderRadius: 3 }} />
         </div>
-        {/* Thumb — left vía rAF */}
+        {/* Thumb — left exclusivamente vía rAF */}
         <div ref={thumbRef} style={{
-          position: "absolute", left: "0%",
+          position: "absolute",
           transform: "translateX(-50%)",
           width: THUMB_D, height: THUMB_D,
           borderRadius: "50%",
