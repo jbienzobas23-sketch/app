@@ -3144,6 +3144,8 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
           }
         }
 
+        const nowMs = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        const ANIM_MS = 260;
         ctx.font = `700 10px ${FONT_MONO}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -3152,15 +3154,28 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
           const x1 = (iv.start - t) * pxPerSec + W / 2;
           const x2 = (Math.min(iv.end, dur) - t) * pxPerSec + W / 2;
           if (x2 <= 0 || x1 >= W) continue;
-          const cx1 = Math.max(0, x1), cx2 = Math.min(W, x2), bw = cx2 - cx1;
+
+          // Relleno animado (snap sobre pista): revela el bloque de izquierda a
+          // derecha y sube la opacidad con easeOutCubic. Sin _anim → instantáneo.
+          let animAlpha = 1, rightAbs = x2;
+          if (iv._anim) {
+            const prog = Math.min(1, (nowMs - iv._anim) / ANIM_MS);
+            const e = 1 - Math.pow(1 - prog, 3);
+            animAlpha = 0.3 + 0.7 * e;
+            rightAbs = x1 + (x2 - x1) * e;
+          }
+
+          const cx1 = Math.max(0, x1), cx2 = Math.min(W, rightAbs), bw = cx2 - cx1;
           if (bw < 0.5) continue;
-          ctx.globalAlpha = iv.id === "live" ? 0.5 : 1;
+          ctx.globalAlpha = (iv.id === "live" ? 0.5 : 1) * animAlpha;
           ctx.fillStyle = (cmap && cmap[iv.fn]) || "rgba(26,25,21,0.4)";
           drawPill(cx1, bandTop, bw, BAND_H);
-          if (bw > 14) {
+          // Etiqueta solo cuando el bloque ya está casi/totalmente revelado
+          const fullBw = Math.min(W, x2) - Math.max(0, x1);
+          if (fullBw > 14 && (!iv._anim || animAlpha > 0.85)) {
             ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
             ctx.fillStyle = C.paper;
-            ctx.fillText(iv.fn, (cx1 + cx2) / 2, bandTop + BAND_H / 2 + 0.5);
+            ctx.fillText(iv.fn, (Math.max(0, x1) + Math.min(W, x2)) / 2, bandTop + BAND_H / 2 + 0.5);
           }
           ctx.globalAlpha = 1;
         }
@@ -3259,9 +3274,16 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 // marcados como bloques de color y el cursor de posición actual.
 // Click o arrastre → seek inmediato.
 // Barra navegadora de audio: track + fill + thumb circular (estilo tradicional).
-// Si se pasan hintIntervals, muestra una tira de pistas encima del track.
-function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek }) {
-  const barRef = useRef(null);
+// El thumb, el fill y el bloque "en vivo" se posicionan vía rAF leyendo timeRef
+// directamente (60 fps), no la `time` de React (throttled ~10 fps): así el
+// reproductor se mueve fluido y sin saltitos durante el marcado.
+function AudioScrubber({ timeRef, duration, intervals, pressing, colorByFn, onSeek }) {
+  const barRef   = useRef(null);
+  const fillRef  = useRef(null);
+  const thumbRef = useRef(null);
+  const liveRef  = useRef(null);
+  const pressingRef = useRef(pressing); pressingRef.current = pressing;
+  const colorRef    = useRef(colorByFn); colorRef.current = colorByFn;
   const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
 
   const handlePointerDown = (e) => {
@@ -3278,9 +3300,33 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek 
     });
   };
 
-  // Intervalo "en vivo" (botón pulsado): crece hasta `time`
-  const liveIv = pressing ? { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(time, duration) } : null;
-  const allIvs = liveIv ? [...intervals, liveIv] : intervals;
+  // Bucle rAF: actualiza thumb/fill/live directamente sobre el DOM
+  useEffect(() => {
+    let raf;
+    const clamp = (t) => Math.max(0, Math.min(100, (t / duration) * 100));
+    const tick = () => {
+      const t = timeRef?.current || 0;
+      const p = clamp(t);
+      if (fillRef.current)  fillRef.current.style.width = p + "%";
+      if (thumbRef.current) thumbRef.current.style.left = p + "%";
+      const pr = pressingRef.current, el = liveRef.current;
+      if (el) {
+        if (pr) {
+          const s = clamp(pr.start);
+          const w = Math.max(0, clamp(Math.min(t, duration)) - s);
+          el.style.display = "block";
+          el.style.left = s + "%";
+          el.style.width = w + "%";
+          el.style.background = (colorRef.current && colorRef.current[pr.fn]) || "rgba(26,25,21,0.3)";
+        } else {
+          el.style.display = "none";
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [duration, timeRef]);
 
   const TRACK_H = 8;   // altura del track (px)
   const THUMB_D = 16;  // diámetro del thumb (px)
@@ -3296,28 +3342,28 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek 
         <div style={{ position: "absolute", left: 0, right: 0,
           height: TRACK_H, borderRadius: TRACK_H / 2,
           background: "rgba(26,25,21,0.08)", overflow: "hidden" }}>
-          {/* Fill (tiempo transcurrido) */}
-          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0,
-            width: `${pct(time)}%`, background: "rgba(26,25,21,0.18)",
-            borderRadius: TRACK_H / 2 }} />
-          {/* Intervalos marcados por el alumno (encima de las pistas) */}
-          {allIvs.map((iv) => {
+          {/* Fill (tiempo transcurrido) — width vía rAF */}
+          <div ref={fillRef} style={{ position: "absolute", top: 0, bottom: 0, left: 0,
+            width: "0%", background: "rgba(26,25,21,0.18)", borderRadius: TRACK_H / 2 }} />
+          {/* Intervalos marcados por el alumno */}
+          {intervals.map((iv) => {
             const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
             return (
               <div key={iv.id} style={{
                 position: "absolute", top: 0, bottom: 0,
                 left: `${pct(iv.start)}%`,
                 width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
-                background: color, opacity: iv.id === "live" ? 0.5 : 0.85,
-                borderRadius: 3,
+                background: color, opacity: 0.85, borderRadius: 3,
               }} />
             );
           })}
+          {/* Bloque "en vivo" — posición/anchura vía rAF */}
+          <div ref={liveRef} style={{ position: "absolute", top: 0, bottom: 0,
+            left: "0%", width: "0%", opacity: 0.5, borderRadius: 3, display: "none" }} />
         </div>
-        {/* Thumb */}
-        <div style={{
-          position: "absolute",
-          left: `${pct(time)}%`,
+        {/* Thumb — left vía rAF */}
+        <div ref={thumbRef} style={{
+          position: "absolute", left: "0%",
           transform: "translateX(-50%)",
           width: THUMB_D, height: THUMB_D,
           borderRadius: "50%",
@@ -3438,9 +3484,12 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     setCurrentCategoryId(newId);
   };
 
-  // Helper para añadir un intervalo nuevo (cerrando el actual)
-  const commitInterval = (fn, start, end) => {
+  // Helper para añadir un intervalo nuevo (cerrando el actual).
+  // opts.anim marca el intervalo con un timestamp para animar su aparición
+  // (relleno) en el canvas — se usa al hacer snap sobre una pista.
+  const commitInterval = (fn, start, end, opts) => {
     const newIv = { id: uid("iv"), fn, start, end };
+    if (opts?.anim) newIv._anim = (typeof performance !== "undefined" ? performance.now() : Date.now());
     setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
   };
 
@@ -3464,9 +3513,9 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         const now  = timeRef.current;
         const hint = snapHintRef.current?.(now);
         if (hint) {
-          // Snap: llena el bloque de pista completo al instante
+          // Snap: llena el bloque de pista completo al instante (con animación)
           setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
-          commitInterval(btn.id, hint.start, hint.end);
+          commitInterval(btn.id, hint.start, hint.end, { anim: true });
         } else {
           setPressing((p) => {
             if (p && p.fn === btn.id) return p;
@@ -3496,9 +3545,9 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     const now  = timeRef.current;
     const hint = snapHintRef.current?.(now);
     if (hint) {
-      // Snap: cierra cualquier marcado en curso y llena la pista completa
+      // Snap: cierra cualquier marcado en curso y llena la pista completa (animado)
       setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
-      commitInterval(fn, hint.start, hint.end);
+      commitInterval(fn, hint.start, hint.end, { anim: true });
       return;
     }
     setPressing((p) => {
@@ -3635,7 +3684,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
 
           <AudioScrubber
-            time={time} duration={dur}
+            timeRef={timeRef} duration={dur}
             intervals={intervals} pressing={pressing}
             colorByFn={colorByFn} onSeek={seekTo} />
 
