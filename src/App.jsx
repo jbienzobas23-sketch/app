@@ -3017,6 +3017,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
   selectedIvId = null, onBandPointerDown = null, pressing = null,
+  hintIntervals = [],
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -3027,7 +3028,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown, pressing,
+    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown, pressing, hintIntervals,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3071,7 +3072,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressing: pr } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressing: pr, hintIntervals: hints } = stateRef.current;
       const t = tRef?.current ?? tState;
       // El intervalo "en vivo" (botón pulsado) se calcula cada frame con el tiempo
       // actual, de modo que crece de forma fluida a 75 fps (no a tirones de React).
@@ -3115,6 +3116,34 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
         const bandTop = waveAreaH + BAND_GAP;
         ctx.fillStyle = "rgba(26,25,21,0.06)";
         drawPill(0, bandTop, W, BAND_H);
+
+        // Pistas: recuadros sin color (más oscuros que el fondo) con gap lateral
+        // y esquinas redondeadas. Se dibujan ANTES de las respuestas del alumno.
+        if (hints && hints.length) {
+          const GAP = 2.5;                    // separación horizontal entre bloques
+          const VI  = 3;                      // inset vertical (top y bottom)
+          const R   = 4;                      // radio de esquinas
+          for (let j = 0; j < hints.length; j++) {
+            const hv = hints[j];
+            const hx1 = (hv.start - t) * pxPerSec + W / 2 + GAP;
+            const hx2 = (Math.min(hv.end, dur) - t) * pxPerSec + W / 2 - GAP;
+            if (hx2 <= 0 || hx1 >= W) continue;
+            const cx1 = Math.max(0, hx1), cx2 = Math.min(W, hx2), bw = cx2 - cx1;
+            if (bw < 1) continue;
+            ctx.save();
+            ctx.fillStyle = "rgba(26,25,21,0.16)";
+            ctx.shadowColor = "rgba(0,0,0,0.18)";
+            ctx.shadowBlur = 3;
+            ctx.shadowOffsetY = 1;
+            if (typeof ctx.roundRect === "function") {
+              ctx.beginPath(); ctx.roundRect(cx1, bandTop + VI, bw, BAND_H - VI * 2, R); ctx.fill();
+            } else {
+              ctx.fillRect(cx1, bandTop + VI, bw, BAND_H - VI * 2);
+            }
+            ctx.restore();
+          }
+        }
+
         ctx.font = `700 10px ${FONT_MONO}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -3231,7 +3260,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 // Click o arrastre → seek inmediato.
 // Barra navegadora de audio: track + fill + thumb circular (estilo tradicional).
 // Si se pasan hintIntervals, muestra una tira de pistas encima del track.
-function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek, hintIntervals = [], hintCategory = null }) {
+function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek }) {
   const barRef = useRef(null);
   const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
 
@@ -3271,17 +3300,6 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek,
           <div style={{ position: "absolute", top: 0, bottom: 0, left: 0,
             width: `${pct(time)}%`, background: "rgba(26,25,21,0.18)",
             borderRadius: TRACK_H / 2 }} />
-          {/* Pistas: recuadros vacíos con apariencia similar a las respuestas */}
-          {hintIntervals.map((iv, i) => (
-            <div key={`hint-${i}`} style={{
-              position: "absolute", top: 1, bottom: 1,
-              left: `${pct(iv.start)}%`,
-              width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
-              background: "rgba(26,25,21,0.14)",
-              borderRadius: 3,
-              boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-            }} />
-          ))}
           {/* Intervalos marcados por el alumno (encima de las pistas) */}
           {allIvs.map((iv) => {
             const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
@@ -3586,6 +3604,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
               selectedIvId={selected} pressing={pressing}
+              hintIntervals={mode === "student" && exercise.showHint ? answerFor(exercise, currentCategoryId) : []}
               onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
@@ -3593,9 +3612,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           <AudioScrubber
             time={time} duration={dur}
             intervals={intervals} pressing={pressing}
-            colorByFn={colorByFn} onSeek={seekTo}
-            hintIntervals={mode === "student" && exercise.showHint ? answerFor(exercise, currentCategoryId) : []}
-            hintCategory={exCategory} />
+            colorByFn={colorByFn} onSeek={seekTo} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
