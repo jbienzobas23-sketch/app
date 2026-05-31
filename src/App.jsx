@@ -152,7 +152,7 @@ const FONT_MONO  = "'Outfit', system-ui, sans-serif";
 const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 const S = {
-  app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
+  app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink, display: "flex", flexDirection: "column" },
   page:       { maxWidth: 740, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
@@ -1234,7 +1234,7 @@ function StickyActionBar({ children, secondary = null, info = null }) {
       backdropFilter: "saturate(180%) blur(12px)",
       WebkitBackdropFilter: "saturate(180%) blur(12px)",
       borderTop: `1px solid ${C.line}`,
-      marginTop: 14,
+      marginTop: "auto",   // en flex-column empuja la barra al fondo
       padding: "10px 16px",
       paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
       boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
@@ -3226,6 +3226,61 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 
 // ═══ 9. EXERCISE VIEW (sesión interactiva) ══════════════════════════════════
 
+// Barra navegadora: muestra toda la duración del audio, los intervalos
+// marcados como bloques de color y el cursor de posición actual.
+// Click o arrastre → seek inmediato.
+function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek }) {
+  const barRef = useRef(null);
+  const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}%`;
+
+  const handlePointerDown = (e) => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const getT = (ev) => {
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      return Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
+    };
+    startPointerDrag(e, {
+      onStart: (ev) => onSeek(getT(ev)),
+      onMove:  (ev) => onSeek(getT(ev)),
+    });
+  };
+
+  // Intervalo en vivo (botón pulsado): se extiende hasta `time`
+  const liveIv = pressing ? { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(time, duration) } : null;
+  const allIvs = liveIv ? [...intervals, liveIv] : intervals;
+
+  return (
+    <div ref={barRef}
+      onMouseDown={handlePointerDown} onTouchStart={handlePointerDown}
+      style={{ position: "relative", height: 20, borderRadius: 6,
+        background: "rgba(26,25,21,0.06)", cursor: "pointer",
+        userSelect: "none", touchAction: "none", overflow: "hidden" }}>
+      {allIvs.map((iv) => {
+        const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
+        return (
+          <div key={iv.id} style={{
+            position: "absolute", top: 0, bottom: 0,
+            left: pct(iv.start),
+            width: pct(Math.max(0, Math.min(iv.end, duration) - iv.start)),
+            background: color, opacity: iv.id === "live" ? 0.5 : 0.82,
+          }} />
+        );
+      })}
+      {/* Cursor de posición actual */}
+      <div style={{
+        position: "absolute", top: 0, bottom: 0,
+        left: pct(time), width: 2,
+        background: "rgba(26,25,21,0.82)",
+        transform: "translateX(-1px)",
+        pointerEvents: "none",
+        borderRadius: 1,
+      }} />
+    </div>
+  );
+}
+
 // Compara props de FunctionButtons. Ignora la identidad de onDown/onUp (los
 // handlers se recrean en cada render pero su comportamiento solo depende de la
 // categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
@@ -3483,7 +3538,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   return (
     <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
         {modelToggleNode}
 
@@ -3502,7 +3557,12 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+          <AudioScrubber
+            time={time} duration={dur}
+            intervals={intervals} pressing={pressing}
+            colorByFn={colorByFn} onSeek={seekTo} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               {exCategories.length > 1 ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -5270,7 +5330,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
@@ -6743,7 +6803,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   return (
     <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
         {modelToggleNode}
 
