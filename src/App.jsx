@@ -2993,8 +2993,26 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
   );
 }
 
+// Compara props "estructurales" de WaveformDisplay. Ignora `time` y los
+// callbacks: el canvas redibuja en su propio bucle rAF leyendo timeRef, así que
+// un cambio de tiempo (hasta ~10 fps de React durante la reproducción) no
+// necesita re-render. Memoizar evita que el árbol se repinte 10 veces/seg y
+// elimina los tirones de la onda y de la banda de respuestas en vivo.
+function waveformPropsEqual(a, b) {
+  return a.allIntervals === b.allIntervals
+    && a.duration === b.duration
+    && a.waveformDuration === b.waveformDuration
+    && a.exerciseId === b.exerciseId
+    && a.waveformData === b.waveformData
+    && a.colorByFn === b.colorByFn
+    && a.answerBand === b.answerBand
+    && a.selectedIvId === b.selectedIvId
+    && a.pressing === b.pressing
+    && a.questionRegion === b.questionRegion;
+}
+
 // Canvas con forma de onda + cursor central + intervalos coloreados
-function WaveformDisplay({
+const WaveformDisplay = React.memo(function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
@@ -3204,12 +3222,20 @@ function WaveformDisplay({
       onTouchStart={handlePointerDown}
     />
   );
-}
+}, waveformPropsEqual);
 
 // ═══ 9. EXERCISE VIEW (sesión interactiva) ══════════════════════════════════
 
+// Compara props de FunctionButtons. Ignora la identidad de onDown/onUp (los
+// handlers se recrean en cada render pero su comportamiento solo depende de la
+// categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
+// Así la botonera no se repinta con cada tick de tiempo (~10 fps).
+function fnButtonsEqual(a, b) {
+  return a.buttons === b.buttons && a.pressing === b.pressing;
+}
+
 // Botonera de funciones (T/S/D…) pulsables con tecla
-function FunctionButtons({ buttons, pressing, onDown, onUp }) {
+const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp }) {
   const isMobile = useIsMobile();
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 10, marginBottom: 4 }}>
@@ -3477,7 +3503,22 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              {exCategories.length > 1 ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {exCategories.map((m) => {
+                    const isAct = m.id === currentCategoryId;
+                    return (
+                      <button key={m.id} onClick={() => switchCategory(m.id)}
+                        style={{ padding: "3px 10px", fontSize: 10.5, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999,
+                          border: `1.5px solid ${isAct ? C.ink : C.line}`, background: isAct ? C.ink : "transparent",
+                          color: isAct ? C.paper : C.muted, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : <span />}
               <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
             </div>
             <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
@@ -3505,22 +3546,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             })}
             <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
             <button onClick={deleteSelected} className="fa-pressable" style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 13px", fontSize: 12 }}>Eliminar</button>
-          </div>
-        )}
-
-        {exCategories.length > 1 && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {exCategories.map((m) => {
-              const isAct = m.id === currentCategoryId;
-              return (
-                <button key={m.id} onClick={() => switchCategory(m.id)}
-                  style={{ padding: "4px 14px", fontSize: 11, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999,
-                    border: `1.5px solid ${isAct ? C.ink : C.line}`, background: isAct ? C.ink : "transparent",
-                    color: isAct ? C.paper : C.muted, cursor: "pointer" }}>
-                  {m.name}
-                </button>
-              );
-            })}
           </div>
         )}
 
