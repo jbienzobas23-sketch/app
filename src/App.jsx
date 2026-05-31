@@ -3253,37 +3253,13 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek,
   const liveIv = pressing ? { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(time, duration) } : null;
   const allIvs = liveIv ? [...intervals, liveIv] : intervals;
 
-  const TRACK_H  = 8;   // altura del track (px)
-  const THUMB_D  = 16;  // diámetro del thumb (px)
-  const HINT_H   = 22;  // altura de la tira de pistas
-  const hasHints = hintIntervals.length > 0;
+  const TRACK_H = 8;   // altura del track (px)
+  const THUMB_D = 16;  // diámetro del thumb (px)
 
   return (
     <div ref={barRef}
       onMouseDown={handlePointerDown} onTouchStart={handlePointerDown}
       style={{ userSelect: "none", touchAction: "none", cursor: "pointer" }}>
-
-      {/* ── Tira de pistas (solo cuando showHint=true y hay clave) ─── */}
-      {hasHints && (
-        <div style={{ position: "relative", height: HINT_H, borderRadius: 6,
-          background: "rgba(26,25,21,0.05)", border: `1px solid ${C.line}`,
-          overflow: "hidden", marginBottom: 6 }}>
-          {hintIntervals.map((iv, i) => {
-            const w    = Math.max(0, Math.min(iv.end, duration) - iv.start);
-            const wPct = (w / duration) * 100;
-            return (
-              <div key={i} style={{
-                position: "absolute", top: 3, bottom: 3,
-                left: `${pct(iv.start)}%`, width: `${wPct}%`,
-                background: "transparent",
-                border: `1.5px solid ${C.ink}`,
-                borderRadius: 4,
-                boxSizing: "border-box",
-              }} />
-            );
-          })}
-        </div>
-      )}
 
       {/* ── Track + thumb ──────────────────────────────────────────── */}
       <div style={{ position: "relative", height: THUMB_D + 4, display: "flex", alignItems: "center" }}>
@@ -3295,7 +3271,18 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek,
           <div style={{ position: "absolute", top: 0, bottom: 0, left: 0,
             width: `${pct(time)}%`, background: "rgba(26,25,21,0.18)",
             borderRadius: TRACK_H / 2 }} />
-          {/* Intervalos marcados */}
+          {/* Pistas: recuadros vacíos con apariencia similar a las respuestas */}
+          {hintIntervals.map((iv, i) => (
+            <div key={`hint-${i}`} style={{
+              position: "absolute", top: 1, bottom: 1,
+              left: `${pct(iv.start)}%`,
+              width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
+              background: "rgba(26,25,21,0.14)",
+              borderRadius: 3,
+              boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
+            }} />
+          ))}
+          {/* Intervalos marcados por el alumno (encima de las pistas) */}
           {allIvs.map((iv) => {
             const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
             return (
@@ -3304,6 +3291,7 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek,
                 left: `${pct(iv.start)}%`,
                 width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
                 background: color, opacity: iv.id === "live" ? 0.5 : 0.85,
+                borderRadius: 3,
               }} />
             );
           })}
