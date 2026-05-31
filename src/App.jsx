@@ -3229,9 +3229,11 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 // Barra navegadora: muestra toda la duración del audio, los intervalos
 // marcados como bloques de color y el cursor de posición actual.
 // Click o arrastre → seek inmediato.
-function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek }) {
+// Barra navegadora de audio: track + fill + thumb circular (estilo tradicional).
+// Si se pasan hintIntervals, muestra una tira de pistas encima del track.
+function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek, hintIntervals = [], hintCategory = null }) {
   const barRef = useRef(null);
-  const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}%`;
+  const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
 
   const handlePointerDown = (e) => {
     const bar = barRef.current;
@@ -3247,36 +3249,93 @@ function AudioScrubber({ time, duration, intervals, pressing, colorByFn, onSeek 
     });
   };
 
-  // Intervalo en vivo (botón pulsado): se extiende hasta `time`
+  // Intervalo "en vivo" (botón pulsado): crece hasta `time`
   const liveIv = pressing ? { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(time, duration) } : null;
   const allIvs = liveIv ? [...intervals, liveIv] : intervals;
+
+  const TRACK_H  = 8;   // altura del track (px)
+  const THUMB_D  = 16;  // diámetro del thumb (px)
+  const HINT_H   = 22;  // altura de la tira de pistas
+  const hasHints = hintIntervals.length > 0;
 
   return (
     <div ref={barRef}
       onMouseDown={handlePointerDown} onTouchStart={handlePointerDown}
-      style={{ position: "relative", height: 20, borderRadius: 6,
-        background: "rgba(26,25,21,0.06)", cursor: "pointer",
-        userSelect: "none", touchAction: "none", overflow: "hidden" }}>
-      {allIvs.map((iv) => {
-        const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
-        return (
-          <div key={iv.id} style={{
-            position: "absolute", top: 0, bottom: 0,
-            left: pct(iv.start),
-            width: pct(Math.max(0, Math.min(iv.end, duration) - iv.start)),
-            background: color, opacity: iv.id === "live" ? 0.5 : 0.82,
-          }} />
-        );
-      })}
-      {/* Cursor de posición actual */}
-      <div style={{
-        position: "absolute", top: 0, bottom: 0,
-        left: pct(time), width: 2,
-        background: "rgba(26,25,21,0.82)",
-        transform: "translateX(-1px)",
-        pointerEvents: "none",
-        borderRadius: 1,
-      }} />
+      style={{ userSelect: "none", touchAction: "none", cursor: "pointer" }}>
+
+      {/* ── Tira de pistas (solo cuando showHint=true y hay clave) ─── */}
+      {hasHints && (
+        <div style={{ position: "relative", height: HINT_H, borderRadius: 6,
+          background: "rgba(26,25,21,0.05)", border: `1px solid ${C.line}`,
+          overflow: "hidden", marginBottom: 6 }}>
+          {hintIntervals.map((iv, i) => {
+            const btn   = hintCategory ? hintCategory.buttons.find((b) => b.id === iv.fn) : null;
+            const color = btn?.color || (colorByFn && colorByFn[iv.fn]) || C.muted2;
+            const w     = Math.max(0, Math.min(iv.end, duration) - iv.start);
+            const wPct  = (w / duration) * 100;
+            return (
+              <div key={i} style={{
+                position: "absolute", top: 0, bottom: 0,
+                left: `${pct(iv.start)}%`, width: `${wPct}%`,
+                background: color, opacity: 0.55,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                overflow: "hidden",
+              }}>
+                {wPct > 3 && (
+                  <span style={{ fontSize: 10, fontWeight: 700, fontFamily: FONT_MONO,
+                    color: C.paper, textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                    pointerEvents: "none", whiteSpace: "nowrap" }}>
+                    {iv.fn}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {/* Etiqueta */}
+          <span style={{ position: "absolute", top: 1, right: 5,
+            fontSize: 9, fontFamily: FONT_MONO, fontWeight: 600,
+            color: C.muted, letterSpacing: 0.5, pointerEvents: "none",
+            textTransform: "uppercase", opacity: 0.7 }}>pista</span>
+        </div>
+      )}
+
+      {/* ── Track + thumb ──────────────────────────────────────────── */}
+      <div style={{ position: "relative", height: THUMB_D + 4, display: "flex", alignItems: "center" }}>
+        {/* Track */}
+        <div style={{ position: "absolute", left: 0, right: 0,
+          height: TRACK_H, borderRadius: TRACK_H / 2,
+          background: "rgba(26,25,21,0.08)", overflow: "hidden" }}>
+          {/* Fill (tiempo transcurrido) */}
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0,
+            width: `${pct(time)}%`, background: "rgba(26,25,21,0.18)",
+            borderRadius: TRACK_H / 2 }} />
+          {/* Intervalos marcados */}
+          {allIvs.map((iv) => {
+            const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
+            return (
+              <div key={iv.id} style={{
+                position: "absolute", top: 0, bottom: 0,
+                left: `${pct(iv.start)}%`,
+                width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
+                background: color, opacity: iv.id === "live" ? 0.5 : 0.85,
+              }} />
+            );
+          })}
+        </div>
+        {/* Thumb */}
+        <div style={{
+          position: "absolute",
+          left: `${pct(time)}%`,
+          transform: "translateX(-50%)",
+          width: THUMB_D, height: THUMB_D,
+          borderRadius: "50%",
+          background: C.paper,
+          border: `2px solid rgba(26,25,21,0.75)`,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+          pointerEvents: "none",
+          zIndex: 1,
+        }} />
+      </div>
     </div>
   );
 }
@@ -3560,7 +3619,9 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           <AudioScrubber
             time={time} duration={dur}
             intervals={intervals} pressing={pressing}
-            colorByFn={colorByFn} onSeek={seekTo} />
+            colorByFn={colorByFn} onSeek={seekTo}
+            hintIntervals={mode === "student" && exercise.showHint ? answerFor(exercise, currentCategoryId) : []}
+            hintCategory={exCategory} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
