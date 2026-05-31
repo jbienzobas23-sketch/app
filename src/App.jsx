@@ -3007,8 +3007,9 @@ function waveformPropsEqual(a, b) {
     && a.colorByFn === b.colorByFn
     && a.answerBand === b.answerBand
     && a.selectedIvId === b.selectedIvId
-    && a.pressing === b.pressing
     && a.questionRegion === b.questionRegion;
+  // pressing ya no se comprueba: el canvas lo lee de pressingRef (síncrono),
+  // así WaveformDisplay no se re-renderiza al pisar/soltar un botón.
 }
 
 // Canvas con forma de onda + cursor central + intervalos coloreados
@@ -3016,7 +3017,8 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
-  selectedIvId = null, onBandPointerDown = null, pressing = null,
+  selectedIvId = null, onBandPointerDown = null,
+  pressingRef: pressingRefProp = null,
   hintIntervals = [],
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
@@ -3028,7 +3030,8 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown, pressing, hintIntervals,
+    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
+    pressingRef: pressingRefProp, hintIntervals,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3072,10 +3075,11 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressing: pr, hintIntervals: hints } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressingRef: pRef, hintIntervals: hints } = stateRef.current;
       const t = tRef?.current ?? tState;
-      // El intervalo "en vivo" (botón pulsado) se calcula cada frame con el tiempo
-      // actual, de modo que crece de forma fluida a 75 fps (no a tirones de React).
+      // Lee pressing del ref síncrono (nunca stale) en lugar del valor de React.
+      // Esto evita el salto visual de 1 frame al pisar/soltar una tecla.
+      const pr = pRef?.current ?? null;
       const ivs = pr ? [...ivsBase, { id: "live", fn: pr.fn, start: pr.start, end: Math.min(t, dur) }] : ivsBase;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height;
@@ -3277,13 +3281,13 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
 // El thumb, el fill y el bloque "en vivo" se posicionan vía rAF leyendo timeRef
 // directamente (60 fps), no la `time` de React (throttled ~10 fps): así el
 // reproductor se mueve fluido y sin saltitos durante el marcado.
-function AudioScrubber({ timeRef, duration, intervals, pressing, colorByFn, onSeek }) {
+// pressingRef: el mismo ref síncrono de ExerciseView (nunca stale, sin delay de React).
+function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, onSeek }) {
   const barRef   = useRef(null);
   const fillRef  = useRef(null);
   const thumbRef = useRef(null);
   const liveRef  = useRef(null);
-  const pressingRef = useRef(pressing); pressingRef.current = pressing;
-  const colorRef    = useRef(colorByFn); colorRef.current = colorByFn;
+  const colorRef = useRef(colorByFn); colorRef.current = colorByFn;
   const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
 
   const handlePointerDown = (e) => {
@@ -3494,14 +3498,17 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
   };
 
-  // Ref siempre-fresco para detectar si el tiempo actual cae sobre una pista.
-  // Se usa desde los handlers de teclado (que tienen closures estale) y desde
-  // los botones. Solo actúa cuando exercise.showHint está activado.
+  // Ref siempre-fresco para detecting si el tiempo actual cae sobre una pista.
   const snapHintRef = useRef(null);
   snapHintRef.current = (t) => {
     if (!exercise.showHint) return null;
     return answerFor(exercise, currentCategoryId).find((h) => t >= h.start && t <= h.end) || null;
   };
+
+  // Ref síncrono del estado de pressing. Se actualiza ANTES de llamar a setState,
+  // por lo que el canvas lo lee sin esperar el ciclo de re-render de React (~16 ms).
+  // Esto elimina el salto visual de 1 frame al pisar o soltar un botón.
+  const pressingRef = useRef(null);
 
   // Teclado (mantén pulsada la tecla mientras suena)
   const togglePlayRef = useRef(togglePlay);
@@ -3514,27 +3521,28 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         const now  = timeRef.current;
         const hint = snapHintRef.current?.(now);
         if (hint) {
-          // Snap: llena el bloque de pista completo al instante (con animación)
-          setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
+          const p = pressingRef.current;
+          pressingRef.current = null; setPressing(null);
+          if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
           commitInterval(btn.id, hint.start, hint.end, { anim: true });
         } else {
-          setPressing((p) => {
-            if (p && p.fn === btn.id) return p;
-            if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-            return { fn: btn.id, start: now };
-          });
+          const p = pressingRef.current;
+          if (p && p.fn === btn.id) return;       // ya pulsado
+          const newP = { fn: btn.id, start: now };
+          pressingRef.current = newP; setPressing(newP);
+          if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
         }
       }
       if (e.key === " ") { e.preventDefault(); togglePlayRef.current(); }
     };
     const up = (e) => {
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
-      if (btn) setPressing((p) => {
-        if (!p || p.fn !== btn.id) return p;
-        const end = timeRef.current;
-        if (end - p.start > 0.1) commitInterval(btn.id, p.start, end);
-        return null;
-      });
+      if (!btn) return;
+      const p = pressingRef.current;
+      if (!p || p.fn !== btn.id) return;
+      const end = timeRef.current;
+      pressingRef.current = null; setPressing(null);
+      if (end - p.start > 0.1) commitInterval(btn.id, p.start, end);
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup",   up);
@@ -3546,30 +3554,33 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     const now  = timeRef.current;
     const hint = snapHintRef.current?.(now);
     if (hint) {
-      // Snap: cierra cualquier marcado en curso y llena la pista completa (animado)
-      setPressing((p) => { if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now); return null; });
+      const p = pressingRef.current;
+      pressingRef.current = null; setPressing(null);
+      if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
       commitInterval(fn, hint.start, hint.end, { anim: true });
       return;
     }
-    setPressing((p) => {
-      if (p && p.fn === fn) return p;
-      if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-      return { fn, start: now };
-    });
+    const p = pressingRef.current;
+    if (p && p.fn === fn) return;
+    const newP = { fn, start: now };
+    pressingRef.current = newP; setPressing(newP);
+    if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
   };
-  const handleFnUp = (fn) => setPressing((p) => {
-    if (!p || p.fn !== fn) return p;
+  const handleFnUp = (fn) => {
+    const p = pressingRef.current;
+    if (!p || p.fn !== fn) return;
     const end = timeRef.current;
+    pressingRef.current = null; setPressing(null);
     if (end - p.start > 0.1) commitInterval(fn, p.start, end);
-    return null;
-  });
+  };
 
   const handleSubmit = () => {
     let byCategory = intervalsByCategory;
-    if (pressing) {
+    const p = pressingRef.current;
+    if (p) {
       const end = timeRef.current;
       const cur = byCategory[currentCategoryId] || [];
-      const newIv = { id: uid("iv"), fn: pressing.fn, start: pressing.start, end };
+      const newIv = { id: uid("iv"), fn: p.fn, start: p.start, end };
       byCategory = { ...byCategory, [currentCategoryId]: [...resolveOverlap(cur, newIv), newIv] };
     }
     const touched = Object.entries(byCategory);
@@ -3678,7 +3689,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={intervals}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
-              selectedIvId={selected} pressing={pressing}
+              selectedIvId={selected} pressingRef={pressingRef}
               hintIntervals={mode === "student" && exercise.showHint ? answerFor(exercise, currentCategoryId) : []}
               onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
@@ -3686,7 +3697,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
           <AudioScrubber
             timeRef={timeRef} duration={dur}
-            intervals={intervals} pressing={pressing}
+            intervals={intervals} pressingRef={pressingRef}
             colorByFn={colorByFn} onSeek={seekTo} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
