@@ -189,18 +189,62 @@ const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interac
 const IV_BAND_GAP     =  6;   // separación entre onda y banda
 const EMPTY_IVS       = [];   // referencia estable para listas de intervalos vacías
 
-// Cifrado de bajo para inversiones (categorías con hasFigures).
-// `top`/`bot` son los dígitos apilados como se escriben en análisis armónico.
-const FIGURES = [
-  { id: "",    label: "—",  top: "",  bot: ""  },  // fundamental (tríada)
-  { id: "6",   label: "6",  top: "6", bot: ""  },  // 1ª inversión tríada
-  { id: "6/4", label: "⁶₄", top: "6", bot: "4" },  // 2ª inversión tríada
-  { id: "7",   label: "7",  top: "7", bot: ""  },  // séptima en estado fundamental
-  { id: "6/5", label: "⁶₅", top: "6", bot: "5" },  // 1ª inversión séptima
-  { id: "4/3", label: "⁴₃", top: "4", bot: "3" },  // 2ª inversión séptima
-  { id: "2",   label: "2",  top: "2", bot: ""  },  // 3ª inversión séptima
-];
-const figureOf = (id) => FIGURES.find((f) => f.id === (id || "")) || FIGURES[0];
+// ─── Cifrado de bajo para inversiones (categorías con hasFigures) ────────────
+// Cada cifra se compone de hasta dos "glifos" apilados (top/bot). Cada glifo es
+// { d: dígito, pre: "+"|"♭"|"", strike: bool } para reproducir el cifrado real
+// (dígitos tachados de las séptimas de dominante/disminuida, prefijos +/♭).
+const g = (d, opts = {}) => ({ d, pre: opts.pre || "", strike: !!opts.strike });
+
+// Grupos de cifrado. `kind` identifica la familia; cada item lleva id único
+// (kind+inversión) para guardarse en la marca y comparar en corrección.
+const FIG_GROUPS = {
+  triada: { label: null, items: [
+    { id: "t0", top: null,      bot: null },              // fundamental
+    { id: "t1", top: g("6"),    bot: null },              // 6
+    { id: "t2", top: g("6"),    bot: g("4") },            // 6/4
+  ]},
+  dia: { label: "7ª diatónica", items: [
+    { id: "d0", top: g("7"),    bot: null },
+    { id: "d1", top: g("6"),    bot: g("5") },
+    { id: "d2", top: g("4"),    bot: g("3") },
+    { id: "d3", top: g("2"),    bot: null },
+  ]},
+  dom: { label: "7ª de dominante", items: [
+    { id: "D0", top: g("7"),               bot: g("+") },
+    { id: "D1", top: g("6"),               bot: g("5", { strike: true }) },
+    { id: "D2", top: g("6", { pre: "+" }), bot: null },
+    { id: "D3", top: g("4", { pre: "+" }), bot: null },
+  ]},
+  semi: { label: "7ª semidisminuida", items: [
+    { id: "s0", top: g("7"),               bot: g("5", { strike: true }) },
+    { id: "s1", top: g("5"),               bot: g("6", { pre: "+" }) },
+    { id: "s2", top: g("3"),               bot: g("4", { pre: "+" }) },
+    { id: "s3", top: g("4"),               bot: g("2", { pre: "+" }) },
+  ]},
+  dim: { label: "7ª disminuida", items: [
+    { id: "x0", top: g("7", { strike: true }), bot: null },
+    { id: "x1", top: g("6", { pre: "+" }),     bot: g("5", { strike: true }) },
+    { id: "x2", top: g("4", { pre: "+" }),     bot: g("3", { pre: "♭" }) },
+    { id: "x3", top: g("2", { pre: "+" }),     bot: null },
+  ]},
+};
+
+// Índice id → item (con su kind), para lookup O(1).
+const FIG_BY_ID = {};
+for (const [kind, grp] of Object.entries(FIG_GROUPS)) {
+  for (const it of grp.items) FIG_BY_ID[it.id] = { ...it, kind };
+}
+// Compatibilidad con marcas antiguas (fig en formato "6", "6/4", "7"…).
+const FIG_LEGACY = { "": "t0", "6": "t1", "6/4": "t2", "7": "d0", "6/5": "d1", "4/3": "d2", "2": "d3" };
+const figureOf = (id) => FIG_BY_ID[id] || FIG_BY_ID[FIG_LEGACY[id || ""]] || FIG_BY_ID.t0;
+const isTriadFig = (id) => (figureOf(id).kind === "triada");
+
+// Qué grupos de cuatríada ofrece cada grado (además de la tríada).
+const quadGroupsForDegree = (fn) => {
+  if (fn === "V")   return ["dia", "dom"];
+  if (fn === "VII") return ["dia", "semi", "dim"];
+  return ["dia"];
+};
 const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
 
 const EXERCISE_MODELS = [
@@ -3108,6 +3152,26 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
       }
     };
 
+    // Dibuja un glifo de cifrado { d, pre, strike } centrado verticalmente en cy,
+    // con su borde izquierdo en x. Devuelve el ancho dibujado. fs = font size.
+    const drawGlyph = (glyph, x, cy, fs) => {
+      if (!glyph) return 0;
+      ctx.font = `700 ${fs}px ${FONT_MONO}`;
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      let gx = x;
+      if (glyph.pre) { ctx.fillText(glyph.pre, gx, cy); gx += ctx.measureText(glyph.pre).width + 0.5; }
+      const dw = ctx.measureText(glyph.d).width;
+      ctx.fillText(glyph.d, gx, cy);
+      if (glyph.strike) {
+        ctx.save();
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(0.8, fs / 9);
+        ctx.beginPath(); ctx.moveTo(gx - 0.5, cy + fs * 0.18); ctx.lineTo(gx + dw + 0.5, cy - fs * 0.18); ctx.stroke();
+        ctx.restore();
+      }
+      return (gx - x) + dw;
+    };
+
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
@@ -3227,24 +3291,28 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
             ctx.fillStyle = C.paper;
             const cx = (Math.max(0, x1) + Math.min(W, x2)) / 2;
             const cy = bandTop + BAND_H / 2 + 0.5;
-            const fg = figureOf(iv.fig);
-            if (fg.top) {
-              // Romano + cifrado de bajo apilado a la derecha (estilo análisis)
-              const figW = 6;                       // ancho reservado para los dígitos
-              ctx.textAlign = "right";
+            const fg = iv.fig != null ? figureOf(iv.fig) : null;
+            if (fg && fg.top) {
+              // Romano + cifrado de bajo apilado a la derecha (estilo análisis).
+              // El conjunto se centra: romano a la izquierda, dígitos a la derecha.
+              const fs = 7;
               ctx.font = `700 10px ${FONT_MONO}`;
-              ctx.fillText(iv.fn, cx + figW - 1, cy);
-              ctx.textAlign = "left";
-              ctx.font = `700 7px ${FONT_MONO}`;
+              const romW = ctx.measureText(iv.fn).width;
+              const figW = 9;                         // ancho aproximado del bloque de cifra
+              const totalW = romW + 1 + figW;
+              const startX = cx - totalW / 2;
+              ctx.textAlign = "left"; ctx.textBaseline = "middle";
+              ctx.fillText(iv.fn, startX, cy);
+              const fx = startX + romW + 1;
               if (fg.bot) {
-                ctx.fillText(fg.top, cx + figW, cy - 3.5);
-                ctx.fillText(fg.bot, cx + figW, cy + 3.5);
+                drawGlyph(fg.top, fx, cy - 4, fs);
+                drawGlyph(fg.bot, fx, cy + 4, fs);
               } else {
-                ctx.fillText(fg.top, cx + figW, cy);
+                drawGlyph(fg.top, fx, cy, fs);
               }
-              ctx.textAlign = "center";
-              ctx.font = `700 10px ${FONT_MONO}`;
             } else {
+              ctx.textAlign = "center"; ctx.textBaseline = "middle";
+              ctx.font = `700 10px ${FONT_MONO}`;
               ctx.fillText(iv.fn, cx, cy);
             }
           }
@@ -3456,6 +3524,30 @@ function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, o
 // Así la botonera no se repinta con cada tick de tiempo (~10 fps).
 function fnButtonsEqual(a, b) {
   return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows;
+}
+
+// Renderiza un cifrado (item de FIG_GROUPS) como glifos apilados, con soporte
+// de prefijo (+/♭) y dígito tachado. Para botones del banner de edición.
+function FigureLabel({ item, color = "currentColor", size = 13 }) {
+  if (!item || (!item.top && !item.bot)) return <span style={{ color, fontSize: size }}>—</span>;
+  const Glyph = ({ glyph }) => {
+    if (!glyph) return null;
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", lineHeight: 1 }}>
+        {glyph.pre && <span style={{ fontSize: size * 0.82 }}>{glyph.pre}</span>}
+        <span style={{ position: "relative", display: "inline-block" }}>
+          {glyph.d}
+          {glyph.strike && <span style={{ position: "absolute", left: -1, right: -1, top: "48%", height: Math.max(1, size / 11), background: color, transform: "rotate(-18deg)" }} />}
+        </span>
+      </span>
+    );
+  };
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 0.95, fontFamily: FONT_MONO, fontWeight: 700, fontSize: size, color }}>
+      {item.top && <Glyph glyph={item.top} />}
+      {item.bot && <Glyph glyph={item.bot} />}
+    </span>
+  );
 }
 
 // Botonera de funciones (T/S/D…) pulsables con tecla
@@ -3821,37 +3913,74 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         </section>
 
-        {selected && selectedIv && (
-          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
-            {exCategory.buttons.map((b) => {
-              const isSel = selectedIv.fn === b.id;
-              return (
-                <button key={b.id} className="fa-pressable"
-                  onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
-                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
-                  {b.id}
-                </button>
-              );
-            })}
+        {selected && selectedIv && (() => {
+          const setFig = (figId) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
+          const curFig = selectedIv.fig;
+          const isQuad = exCategory.hasFigures && curFig != null && !isTriadFig(curFig);
+          // Botón de inversión que muestra el cifrado real (FigureLabel)
+          const FigBtn = ({ item }) => {
+            const isSel = curFig === item.id;
+            return (
+              <button key={item.id} className="fa-pressable" onClick={() => setFig(item.id)}
+                style={{ background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 8, minWidth: 34, height: 34, padding: "2px 8px", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} />
+              </button>
+            );
+          };
+          return (
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
+            {/* Fila 1: grados + eliminar */}
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+              {exCategory.buttons.map((b) => {
+                const isSel = selectedIv.fn === b.id;
+                return (
+                  <button key={b.id} className="fa-pressable"
+                    onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
+                    style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
+                    {b.id}
+                  </button>
+                );
+              })}
+              <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+                style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
+            </div>
+
             {exCategory.hasFigures && (
               <>
-                <span style={{ width: 1, alignSelf: "stretch", background: C.line, margin: "0 2px" }} />
-                {FIGURES.map((f) => {
-                  const isSel = (selectedIv.fig || "") === f.id;
-                  return (
-                    <button key={f.id} className="fa-pressable" title={f.id === "" ? "Estado fundamental" : `Cifrado ${f.id}`}
-                      onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: f.id } : iv))}
-                      style={{ background: isSel ? C.ink : C.paper, color: isSel ? C.paper : C.ink2, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 8, minWidth: 30, padding: "4px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, lineHeight: 1 }}>
-                      {f.label}
-                    </button>
-                  );
-                })}
+                {/* Fila 2: toggle Tríada / Cuatríada */}
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {[{ k: "triada", label: "Tríada" }, { k: "quad", label: "Cuatríada" }].map(({ k, label }) => {
+                    const active = k === "triada" ? !isQuad : isQuad;
+                    return (
+                      <button key={k} className="fa-pressable"
+                        onClick={() => setFig(k === "triada" ? "t0" : FIG_GROUPS[quadGroupsForDegree(selectedIv.fn)[0]].items[0].id)}
+                        style={{ padding: "4px 14px", fontSize: 11.5, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: `1.5px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: active ? C.paper : C.muted, cursor: "pointer" }}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Fila 3: inversiones según tríada o cuatríada */}
+                {!isQuad ? (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} />)}
+                  </div>
+                ) : (
+                  quadGroupsForDegree(selectedIv.fn).map((gk) => (
+                    <div key={gk} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, minWidth: 96, flexShrink: 0 }}>{FIG_GROUPS[gk].label}</span>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {FIG_GROUPS[gk].items.map((it) => <FigBtn key={it.id} item={it} />)}
+                      </div>
+                    </div>
+                  ))
+                )}
               </>
             )}
-            <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
-              style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
-        )}
+          );
+        })()}
 
         <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} />
       </div>
