@@ -2213,21 +2213,14 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
 
-  const actionButtons = (
-    <>
-      {isDone && onViewCorrection && (
-        <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }} className="fa-pressable"
-          style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
-          {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
-        </button>
-      )}
-      <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }} className="fa-pressable"
-        style={isDone
-          ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0 }
-          : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0 }}>
-        {isDone ? "Repetir" : "Iniciar →"}
-      </button>
-    </>
+  // Solo el botón principal en el header; "Ver entrega" aparece al desplegar
+  const primaryButton = (
+    <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }} className="fa-pressable"
+      style={isDone
+        ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0 }
+        : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0 }}>
+      {isDone ? "Repetir" : "Iniciar →"}
+    </button>
   );
 
   return (
@@ -2258,9 +2251,9 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
             <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
           )}
           {isDone && score == null && <StatusCircle done />}
-          {/* Botones siempre a la derecha, alineados con el título */}
-          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-            {actionButtons}
+          {/* Botón principal a la derecha, alineado con el título */}
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexShrink: 0 }}>
+            {primaryButton}
           </div>
           <Chevron open={open} />
         </div>
@@ -2281,6 +2274,14 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
                   <StatusCircle done />
                   {score != null ? `${score}%` : "Entregado"}
                 </MetaItem>
+              )}
+              {isDone && onViewCorrection && (
+                <div style={{ marginLeft: "auto" }}>
+                  <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }} className="fa-pressable"
+                    style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+                    {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
+                  </button>
+                </div>
               )}
             </div>
           </div>
