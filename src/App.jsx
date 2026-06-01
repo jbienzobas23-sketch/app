@@ -2233,21 +2233,21 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
       {exModels.length > 1 ? (
-        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 10, flexShrink: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
           <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
         </div>
       ) : (
-        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
+        <div style={{ width: 10, flexShrink: 0, background: meta.color }} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={() => setOpen((o) => !o)}
-          style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 12px 12px 14px" : "11px 14px", cursor: "pointer", userSelect: "none" }}>
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <span style={{ fontFamily: F.sans, fontSize: isMobile ? 15.5 : 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {ex.title}
             </span>
-            {/* Línea meta inline: solo compositor (el tipo ya lo dice la franja de color) */}
+            {/* Solo compositor — el tipo ya lo dice la franja de color */}
             {ex.composerName && ex.showComposer !== false && (
               <span style={{ display: "block", fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {ex.composerName}
@@ -2257,19 +2257,13 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
           {isDone && score != null && (
             <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
           )}
-          {isDone && score == null && (
-            <StatusCircle done />
-          )}
-          <Chevron open={open} />
-          {/* En escritorio, los botones van en línea; en móvil bajan a su propia fila */}
-          {!isMobile && actionButtons}
-        </div>
-
-        {isMobile && (
-          <div style={{ display: "flex", gap: 8, padding: "0 12px 12px 14px" }}>
+          {isDone && score == null && <StatusCircle done />}
+          {/* Botones siempre a la derecha, alineados con el título */}
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 8, flexShrink: 0 }}>
             {actionButtons}
           </div>
-        )}
+          <Chevron open={open} />
+        </div>
 
         <div className={`fa-expand${open ? " fa-open" : ""}`}>
           <div className="fa-expand-inner">
