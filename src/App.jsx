@@ -2327,8 +2327,8 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
   }, [exercises, filterModel, filterDone, results]);
 
   return (
-    <div style={S.app}>
-      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}>
+      <div style={{ ...S.page, margin: "auto", width: "100%", padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {user.isGuest && (
           <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
