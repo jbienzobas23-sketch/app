@@ -2217,14 +2217,14 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
     <>
       {isDone && onViewCorrection && (
         <button onClick={(e) => { e.stopPropagation(); onViewCorrection(ex); }} className="fa-pressable"
-          style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto", color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
+          style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, color: isCorrected ? C.quiz : C.fnS, borderColor: isCorrected ? C.quiz : C.fnS }}>
           {isCorrected ? "Ver corrección ✓" : "Ver entrega"}
         </button>
       )}
       <button onClick={(e) => { e.stopPropagation(); onOpen(ex); }} className="fa-pressable"
         style={isDone
-          ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }
-          : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0, flex: isMobile ? 1 : "0 0 auto" }}>
+          ? { ...S.btn, fontSize: 12.5, padding: "8px 14px", flexShrink: 0 }
+          : { ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px", flexShrink: 0 }}>
         {isDone ? "Repetir" : "Iniciar →"}
       </button>
     </>
@@ -2247,20 +2247,12 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
             <span style={{ fontFamily: F.sans, fontSize: isMobile ? 15.5 : 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {ex.title}
             </span>
-            {/* Línea meta inline: tipo + autor + estado — visible sin desplegar */}
-            <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, overflow: "hidden" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />
-                <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
-                  {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
-                </span>
+            {/* Línea meta inline: solo compositor (el tipo ya lo dice la franja de color) */}
+            {ex.composerName && ex.showComposer !== false && (
+              <span style={{ display: "block", fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {ex.composerName}
               </span>
-              {ex.composerName && ex.showComposer !== false && (
-                <span style={{ fontFamily: F.sans, fontSize: 11, color: C.fnS, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  · {ex.composerName}
-                </span>
-              )}
-            </span>
+            )}
           </div>
           {isDone && score != null && (
             <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
