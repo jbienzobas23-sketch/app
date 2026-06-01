@@ -188,6 +188,19 @@ const VISIBLE_SECS    = 10;
 const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interactivo
 const IV_BAND_GAP     =  6;   // separación entre onda y banda
 const EMPTY_IVS       = [];   // referencia estable para listas de intervalos vacías
+
+// Cifrado de bajo para inversiones (categorías con hasFigures).
+// `top`/`bot` son los dígitos apilados como se escriben en análisis armónico.
+const FIGURES = [
+  { id: "",    label: "—",  top: "",  bot: ""  },  // fundamental (tríada)
+  { id: "6",   label: "6",  top: "6", bot: ""  },  // 1ª inversión tríada
+  { id: "6/4", label: "⁶₄", top: "6", bot: "4" },  // 2ª inversión tríada
+  { id: "7",   label: "7",  top: "7", bot: ""  },  // séptima en estado fundamental
+  { id: "6/5", label: "⁶₅", top: "6", bot: "5" },  // 1ª inversión séptima
+  { id: "4/3", label: "⁴₃", top: "4", bot: "3" },  // 2ª inversión séptima
+  { id: "2",   label: "2",  top: "2", bot: ""  },  // 3ª inversión séptima
+];
+const figureOf = (id) => FIGURES.find((f) => f.id === (id || "")) || FIGURES[0];
 const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
 
 const EXERCISE_MODELS = [
@@ -3212,7 +3225,28 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
           if (fullBw > 14 && (!iv._anim || animAlpha > 0.85)) {
             ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
             ctx.fillStyle = C.paper;
-            ctx.fillText(iv.fn, (Math.max(0, x1) + Math.min(W, x2)) / 2, bandTop + BAND_H / 2 + 0.5);
+            const cx = (Math.max(0, x1) + Math.min(W, x2)) / 2;
+            const cy = bandTop + BAND_H / 2 + 0.5;
+            const fg = figureOf(iv.fig);
+            if (fg.top) {
+              // Romano + cifrado de bajo apilado a la derecha (estilo análisis)
+              const figW = 6;                       // ancho reservado para los dígitos
+              ctx.textAlign = "right";
+              ctx.font = `700 10px ${FONT_MONO}`;
+              ctx.fillText(iv.fn, cx + figW - 1, cy);
+              ctx.textAlign = "left";
+              ctx.font = `700 7px ${FONT_MONO}`;
+              if (fg.bot) {
+                ctx.fillText(fg.top, cx + figW, cy - 3.5);
+                ctx.fillText(fg.bot, cx + figW, cy + 3.5);
+              } else {
+                ctx.fillText(fg.top, cx + figW, cy);
+              }
+              ctx.textAlign = "center";
+              ctx.font = `700 10px ${FONT_MONO}`;
+            } else {
+              ctx.fillText(iv.fn, cx, cy);
+            }
           }
           ctx.globalAlpha = 1;
         }
@@ -3538,6 +3572,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   // (relleno) en el canvas — se usa al hacer snap sobre una pista.
   const commitInterval = (fn, start, end, opts) => {
     const newIv = { id: uid("iv"), fn, start, end };
+    if (opts?.fig != null) newIv.fig = opts.fig;
     if (opts?.anim) newIv._anim = (typeof performance !== "undefined" ? performance.now() : Date.now());
     setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
   };
@@ -3568,7 +3603,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           const p = pressingRef.current;
           pressingRef.current = null; setPressing(null);
           if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-          commitInterval(btn.id, hint.start, hint.end, { anim: true });
+          commitInterval(btn.id, hint.start, hint.end, { anim: true, fig: hint.fig });
         } else {
           const p = pressingRef.current;
           if (p && p.fn === btn.id) return;       // ya pulsado
@@ -3606,7 +3641,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       const p = pressingRef.current;
       pressingRef.current = null; setPressing(null);
       if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-      commitInterval(fn, hint.start, hint.end, { anim: true });
+      commitInterval(fn, hint.start, hint.end, { anim: true, fig: hint.fig });
       return;
     }
     const p = pressingRef.current;
@@ -3795,6 +3830,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                 </button>
               );
             })}
+            {exCategory.hasFigures && (
+              <>
+                <span style={{ width: 1, alignSelf: "stretch", background: C.line, margin: "0 2px" }} />
+                {FIGURES.map((f) => {
+                  const isSel = (selectedIv.fig || "") === f.id;
+                  return (
+                    <button key={f.id} className="fa-pressable" title={f.id === "" ? "Estado fundamental" : `Cifrado ${f.id}`}
+                      onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: f.id } : iv))}
+                      style={{ background: isSel ? C.ink : C.paper, color: isSel ? C.paper : C.ink2, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 8, minWidth: 30, padding: "4px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, lineHeight: 1 }}>
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </>
+            )}
             <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
               style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
@@ -9185,14 +9235,16 @@ function QuestionManagerView({ exercise, onSave, onBack }) {
 function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   const isNew = !initialCategory;
   const [name,    setName]    = useState(initialCategory?.name || "");
+  const [hasFigures, setHasFigures] = useState(initialCategory?.hasFigures ?? false);
   const [buttons, setButtons] = useState(initialCategory?.buttons || [
     { id: "A", name: "Botón A", color: CATEGORY_COLORS[0], key: KEY_SEQUENCE[0] },
     { id: "B", name: "Botón B", color: CATEGORY_COLORS[1], key: KEY_SEQUENCE[1] },
   ]);
+  const maxBtns = hasFigures ? 8 : 6;
 
   const updateBtn = (i, patch) => setButtons((prev) => prev.map((b, idx) => idx === i ? { ...b, ...patch } : b));
   const addBtn = () => {
-    if (buttons.length >= 6) return;
+    if (buttons.length >= maxBtns) return;
     const i = buttons.length;
     setButtons((prev) => [...prev, {
       id: String.fromCharCode(65 + i),
@@ -9212,6 +9264,7 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
       name:    name.trim(),
       builtIn: initialCategory?.builtIn ?? false,
       global:  initialCategory?.global  ?? false,
+      hasFigures,
       buttons: buttons.map((b) => ({ ...b, id: b.id.trim().toUpperCase(), name: b.name.trim(), key: b.key.trim().toLowerCase() })),
     });
   };
@@ -9223,10 +9276,20 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
       </h3>
 
       <label style={S.label}>Nombre de la categoría</label>
-      <input style={{ ...S.input, marginBottom: 18 }} value={name}
+      <input style={{ ...S.input, marginBottom: 14 }} value={name}
         onChange={(e) => setName(e.target.value)} placeholder="Ej: Cadencias" autoFocus />
 
-      <label style={S.label}>Botones ({buttons.length}/6)</label>
+      <label className="fa-pressable" style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", marginBottom: 18, padding: "9px 11px", borderRadius: 8, border: `1px solid ${hasFigures ? C.ink : C.line}`, background: hasFigures ? `${C.ink}08` : C.paper2 }}>
+        <input type="checkbox" checked={hasFigures} onChange={(e) => setHasFigures(e.target.checked)} style={{ marginTop: 1, flexShrink: 0 }} />
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>Grados con cifrado / inversiones</span>
+          <span style={{ display: "block", fontSize: 11.5, color: C.muted, lineHeight: 1.4, marginTop: 2 }}>
+            Los botones son grados (I, II, V…) y el alumno puede asignar el cifrado de bajo (6, ⁶₄, 7, ⁶₅…) a cada fragmento al seleccionarlo.
+          </span>
+        </span>
+      </label>
+
+      <label style={S.label}>{hasFigures ? "Grados" : "Botones"} ({buttons.length}/{maxBtns})</label>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
         {buttons.map((b, i) => (
           <div key={i} style={{ ...S.row, gap: 8, background: C.paper2, padding: "8px 10px", borderRadius: 8 }}>
@@ -9246,9 +9309,9 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
         ))}
       </div>
 
-      <button onClick={addBtn} disabled={buttons.length >= 6}
-        style={{ ...S.btn, width: "100%", marginBottom: 18, ...disabledStyle(buttons.length < 6) }}>
-        + Añadir botón
+      <button onClick={addBtn} disabled={buttons.length >= maxBtns}
+        style={{ ...S.btn, width: "100%", marginBottom: 18, ...disabledStyle(buttons.length < maxBtns) }}>
+        + Añadir {hasFigures ? "grado" : "botón"}
       </button>
 
       <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
