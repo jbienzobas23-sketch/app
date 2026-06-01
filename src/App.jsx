@@ -3785,7 +3785,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
         {selected && selectedIv && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
-            <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Fragmento</span>
             {exCategory.buttons.map((b) => {
               const isSel = selectedIv.fn === b.id;
               return (
@@ -3797,7 +3796,8 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               );
             })}
             <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
-            <button onClick={deleteSelected} className="fa-pressable" style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 13px", fontSize: 12 }}>Eliminar</button>
+            <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+              style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
         )}
 
