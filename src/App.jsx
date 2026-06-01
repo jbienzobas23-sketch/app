@@ -948,8 +948,12 @@ function useInjectFonts() {
         + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
         + ".fa-pressable:active{transform:scale(.97)}"
+        // Fade-in sin altura: para secciones con overflow o márgenes negativos donde
+        // fa-expand cortaría el contenido. Pura opacidad, sin translate.
+        + "@keyframes faFadeIn{from{opacity:0}to{opacity:1}}"
+        + ".fa-fade-in{animation:faFadeIn .18s ease}"
         // Respeta la preferencia de reducir movimiento del sistema
-        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-sticky-bar{animation:none!important;transition:none!important}}";
+        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar{animation:none!important;transition:none!important}}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
@@ -2275,24 +2279,26 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
           </div>
         )}
 
-        {open && (
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
-            <MetaItem label="Tipo">
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
-              {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
-            </MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
-            {isQuiz
-              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {isDone && (
-              <MetaItem label="Resultado">
-                <StatusCircle done />
-                {score != null ? `${score}%` : "Entregado"}
+        <div className={`fa-expand${open ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+              <MetaItem label="Tipo">
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+                {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
               </MetaItem>
-            )}
+              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              {isQuiz
+                ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+                : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+              {isDone && (
+                <MetaItem label="Resultado">
+                  <StatusCircle done />
+                  {score != null ? `${score}%` : "Entregado"}
+                </MetaItem>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -2409,7 +2415,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                     </div>
 
                     {courseOpen && (
-                      <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
+                      <div className="fa-fade-in" style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
                         {courseUnits.length === 0
                           ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
                           : courseUnits.map((unit, unitIdx) => {
@@ -2435,7 +2441,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                                       </span>
                                     </div>
                                     {isOpen && (
-                                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                      <div className="fa-fade-in" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                                         {unit.exerciseIds.length === 0
                                           ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
                                           : unit.exerciseIds.map((eid) => {
