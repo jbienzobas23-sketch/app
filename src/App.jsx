@@ -3795,7 +3795,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                 </button>
               );
             })}
-            <span style={{ fontSize: 11, color: C.muted2, fontFamily: FONT_MONO, marginLeft: 4 }}>{fmt(selectedIv.start)} → {fmt(selectedIv.end)}</span>
             <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
               style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
