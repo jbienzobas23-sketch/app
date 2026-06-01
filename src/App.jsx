@@ -187,6 +187,7 @@ const KEY_SEQUENCE    = ["a","s","d","f","j","k","l","g"];
 const VISIBLE_SECS    = 10;
 const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interactivo
 const IV_BAND_GAP     =  6;   // separación entre onda y banda
+const EMPTY_IVS       = [];   // referencia estable para listas de intervalos vacías
 const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
 
 const EXERCISE_MODELS = [
@@ -3007,6 +3008,7 @@ function waveformPropsEqual(a, b) {
     && a.colorByFn === b.colorByFn
     && a.answerBand === b.answerBand
     && a.selectedIvId === b.selectedIvId
+    && a.hintIntervals === b.hintIntervals
     && a.questionRegion === b.questionRegion;
   // pressing ya no se comprueba: el canvas lo lee de pressingRef (síncrono),
   // así WaveformDisplay no se re-renderiza al pisar/soltar un botón.
@@ -3478,7 +3480,18 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
 
-  const intervals    = intervalsByCategory[currentCategoryId] || [];
+  // Memoizado: referencia estable cuando el contenido no cambia. Evita que
+  // WaveformDisplay (React.memo) se re-renderice en cada tick de tiempo solo
+  // porque `|| []` crea un array nuevo cada render.
+  const intervals = useMemo(
+    () => intervalsByCategory[currentCategoryId] || EMPTY_IVS,
+    [intervalsByCategory, currentCategoryId]
+  );
+  // Pistas (clave del profesor) memoizadas con referencia estable.
+  const hintIntervals = useMemo(
+    () => (mode === "student" && exercise.showHint ? (answerFor(exercise, currentCategoryId) || EMPTY_IVS) : EMPTY_IVS),
+    [mode, exercise, currentCategoryId]
+  );
   const setIntervals = (updater) => setIntervalsByCategory((prev) => {
     const cur  = prev[currentCategoryId] || [];
     const next = typeof updater === "function" ? updater(cur) : updater;
@@ -3715,7 +3728,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
               selectedIvId={selected} pressingRef={pressingRef}
-              hintIntervals={mode === "student" && exercise.showHint ? answerFor(exercise, currentCategoryId) : []}
+              hintIntervals={hintIntervals}
               onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
