@@ -933,12 +933,23 @@ function useInjectFonts() {
       style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"
+        // Desplegables flotantes (menús, sugerencias): fade + leve descenso/escala
+        // desde el borde superior. Curva con un pelín de overshoot para ligereza.
+        + "@keyframes faPop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}"
+        + ".fa-pop{animation:faPop .16s cubic-bezier(.34,1.4,.64,1);transform-origin:top center}"
+        // Tarjetas/secciones expandibles en flujo: anima la altura con el truco
+        // grid-rows 0fr→1fr (sin medir px). Envuelve el contenido en .fa-expand-inner.
+        + ".fa-expand{display:grid;grid-template-rows:0fr;transition:grid-template-rows .24s cubic-bezier(.4,0,.2,1),opacity .2s ease;opacity:.4}"
+        + ".fa-expand.fa-open{grid-template-rows:1fr;opacity:1}"
+        + ".fa-expand-inner{overflow:hidden;min-height:0}"
         + ".fa-noscroll::-webkit-scrollbar{display:none;height:0;width:0}"
         + ".fa-noscroll{-ms-overflow-style:none}"
         // Sticky bar: pushes a safe spacer below the page so the bar never hides content
         + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
-        + ".fa-pressable:active{transform:scale(.97)}";
+        + ".fa-pressable:active{transform:scale(.97)}"
+        // Respeta la preferencia de reducir movimiento del sistema
+        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-sticky-bar{animation:none!important;transition:none!important}}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
@@ -1348,7 +1359,7 @@ function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocu
         style={style}
       />
       {show && filtered.length > 0 && (
-        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
           {filtered.map((s) => (
             <div key={s} onMouseDown={() => { onChange(s); setShow(false); }}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, fontFamily: FONT_SANS, color: C.ink }}>
@@ -1415,7 +1426,7 @@ function TagInput({ tags = [], onChange, suggestions = [] }) {
         />
       </div>
       {showSug && (input.trim() || filtered.length > 0) && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
           {input.trim() && !tags.includes(input.trim()) && (
             <div onMouseDown={() => addTag(input)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, display: "flex", alignItems: "center", gap: 8, borderBottom: filtered.length ? `1px solid ${C.line}` : "none" }}>
               <span style={{ color: C.muted, fontSize: 11 }}>Crear:</span>
@@ -1504,7 +1515,7 @@ function FilterDropdown({ label, options, selected, onToggle, onClear, accent = 
       </button>
 
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
           {options.length === 0 ? (
             <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
           ) : (
@@ -7076,32 +7087,34 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
                 <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.35, color: C.ink }}>{q.text}</div>
               </div>
 
-              {isExpanded && (
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
-                  {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      {q.options.map((opt) => {
-                        const isSel = answers[q.id] === opt.id;
-                        return (
-                          <button key={opt.id} className="fa-pressable"
-                            onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
-                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
-                            {opt.text}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {q.type === "desarrollo" && (
-                    <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
-                      placeholder="Escribe tu respuesta aquí…"
-                      value={answers[q.id] || ""}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onClick={(e) => e.stopPropagation()} />
-                  )}
+              <div className={`fa-expand${isExpanded ? " fa-open" : ""}`}>
+                <div className="fa-expand-inner">
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+                    {q.type === "test" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        {q.options.map((opt) => {
+                          const isSel = answers[q.id] === opt.id;
+                          return (
+                            <button key={opt.id} className="fa-pressable"
+                              onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
+                              style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
+                              <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
+                              {opt.text}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.type === "desarrollo" && (
+                      <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
+                        placeholder="Escribe tu respuesta aquí…"
+                        value={answers[q.id] || ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        onClick={(e) => e.stopPropagation()} />
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           );
         })}
@@ -7165,24 +7178,26 @@ function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, compos
             <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
           </div>
         </div>
-        {open && (
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
-            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
-            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            <MetaItem label="Clave de corrección">
-              <StatusCircle done={keyReady} size={13} />
-              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-            </MetaItem>
-            <MetaItem label="Visible para alumnos">
-              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
-            </MetaItem>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+        <div className={`fa-expand${open ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+              <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+                : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+              <MetaItem label="Clave de corrección">
+                <StatusCircle done={keyReady} size={13} />
+                <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+              </MetaItem>
+              <MetaItem label="Visible para alumnos">
+                <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+              </MetaItem>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+              </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -7440,45 +7455,47 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
           </div>
         </div>
 
-        {/* Detalle: solo visible al desplegar */}
-        {isOpen && (
-          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
-              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
-              <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
-                {s.credType === "pin" ? "PIN" : "Contraseña"}
-              </span>
-              {exercises.length > 0 && (
-                <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
-                  {doneExs.length}/{exercises.length} ejs.
+        {/* Detalle: solo visible al desplegar (altura animada) */}
+        <div className={`fa-expand${isOpen ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
+                <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+                <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
+                  {s.credType === "pin" ? "PIN" : "Contraseña"}
                 </span>
-              )}
-              <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
-            </div>
-            {doneExs.length === 0
-              ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
-              : doneExs.map((ex) => {
-                  const r = sRes[ex.id];
-                  const needsCorrection = r && !r.teacherCorrection?.corrected && (
-                    r.type === "esquema" ||
-                    (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
-                  );
-                  return (
-                    <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
-                      <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                        {needsCorrection && (
-                          <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
-                        )}
-                        <ScoreBadge score={r.score} />
-                        <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                {exercises.length > 0 && (
+                  <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
+                    {doneExs.length}/{exercises.length} ejs.
+                  </span>
+                )}
+                <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
+              </div>
+              {doneExs.length === 0
+                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
+                : doneExs.map((ex) => {
+                    const r = sRes[ex.id];
+                    const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                      r.type === "esquema" ||
+                      (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+                    );
+                    return (
+                      <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
+                        <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                        <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                          {needsCorrection && (
+                            <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                          )}
+                          <ScoreBadge score={r.score} />
+                          <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-            }
+                    );
+                  })
+              }
+            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -7829,7 +7846,7 @@ function PaletteMenuButton({ current, onSelect, label = "Paleta" }) {
         <Chevron open={open} size={11} color={C.muted} />
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 172 }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 172 }}>
           <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, padding: "4px 8px 6px" }}>{label}</div>
           {SCHEMA_PALETTES.map((pal) => {
             const active = (current || SCHEMA_PALETTE_DEFAULT) === pal.id;
