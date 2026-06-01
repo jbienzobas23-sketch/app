@@ -3156,15 +3156,19 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
       // coordenada de scroll (cursor centrado), de modo que se mueven con ella.
       if (ab) {
         const bandTop = waveAreaH + BAND_GAP;
+        // Fondo de la banda: esquinas superiores planas (pegadas a la onda),
+        // esquinas inferiores redondeadas al mismo radio que el canvas (8px).
         ctx.fillStyle = "rgba(26,25,21,0.06)";
-        drawPill(0, bandTop, W, BAND_H);
+        if (typeof ctx.roundRect === "function") {
+          ctx.beginPath(); ctx.roundRect(0, bandTop, W, BAND_H, [0, 0, 8, 8]); ctx.fill();
+        } else {
+          ctx.fillRect(0, bandTop, W, BAND_H);
+        }
 
-        // Pistas: recuadros sin color (más oscuros que el fondo) con gap lateral
-        // y esquinas redondeadas. Se dibujan ANTES de las respuestas del alumno.
+        // Pistas: misma forma que los bloques de respuesta (drawPill, altura
+        // completa BAND_H, mismo radio). Solo difieren en color (más oscuras).
         if (hints && hints.length) {
-          const GAP = 2.5;                    // separación horizontal entre bloques
-          const VI  = 3;                      // inset vertical (top y bottom)
-          const R   = 4;                      // radio de esquinas
+          const GAP = 2.5; // separación horizontal entre bloques
           for (let j = 0; j < hints.length; j++) {
             const hv = hints[j];
             const hx1 = (hv.start - t) * pxPerSec + W / 2 + GAP;
@@ -3172,17 +3176,8 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
             if (hx2 <= 0 || hx1 >= W) continue;
             const cx1 = Math.max(0, hx1), cx2 = Math.min(W, hx2), bw = cx2 - cx1;
             if (bw < 1) continue;
-            ctx.save();
             ctx.fillStyle = "rgba(26,25,21,0.16)";
-            ctx.shadowColor = "rgba(0,0,0,0.18)";
-            ctx.shadowBlur = 3;
-            ctx.shadowOffsetY = 1;
-            if (typeof ctx.roundRect === "function") {
-              ctx.beginPath(); ctx.roundRect(cx1, bandTop + VI, bw, BAND_H - VI * 2, R); ctx.fill();
-            } else {
-              ctx.fillRect(cx1, bandTop + VI, bw, BAND_H - VI * 2);
-            }
-            ctx.restore();
+            drawPill(cx1, bandTop, bw, BAND_H);
           }
         }
 
