@@ -185,6 +185,9 @@ const DEFAULT_CATEGORY = {
 const CATEGORY_COLORS = ["#3F9B5B","#2F6FB8","#C77A1A","#B84A3A","#9A4FB8","#C75A8E","#3A8CA8","#C9A33A"];
 const KEY_SEQUENCE    = ["a","s","d","f","j","k","l","g"];
 const VISIBLE_SECS    = 10;
+const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interactivo
+const IV_BAND_GAP     =  6;   // separación entre onda y banda
+const EMPTY_IVS       = [];   // referencia estable para listas de intervalos vacías
 const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
 
 const EXERCISE_MODELS = [
@@ -930,12 +933,27 @@ function useInjectFonts() {
       style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"
+        // Desplegables flotantes (menús, sugerencias): fade + leve descenso/escala
+        // desde el borde superior. Curva con un pelín de overshoot para ligereza.
+        + "@keyframes faPop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}"
+        + ".fa-pop{animation:faPop .16s cubic-bezier(.34,1.4,.64,1);transform-origin:top center}"
+        // Tarjetas/secciones expandibles en flujo: anima la altura con el truco
+        // grid-rows 0fr→1fr (sin medir px). Envuelve el contenido en .fa-expand-inner.
+        + ".fa-expand{display:grid;grid-template-rows:0fr;transition:grid-template-rows .24s cubic-bezier(.4,0,.2,1),opacity .2s ease;opacity:.4}"
+        + ".fa-expand.fa-open{grid-template-rows:1fr;opacity:1}"
+        + ".fa-expand-inner{overflow:hidden;min-height:0}"
         + ".fa-noscroll::-webkit-scrollbar{display:none;height:0;width:0}"
         + ".fa-noscroll{-ms-overflow-style:none}"
         // Sticky bar: pushes a safe spacer below the page so the bar never hides content
         + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
-        + ".fa-pressable:active{transform:scale(.97)}";
+        + ".fa-pressable:active{transform:scale(.97)}"
+        // Fade-in sin altura: para secciones con overflow o márgenes negativos donde
+        // fa-expand cortaría el contenido. Pura opacidad, sin translate.
+        + "@keyframes faFadeIn{from{opacity:0}to{opacity:1}}"
+        + ".fa-fade-in{animation:faFadeIn .18s ease}"
+        // Respeta la preferencia de reducir movimiento del sistema
+        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar{animation:none!important;transition:none!important}}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
@@ -1232,7 +1250,7 @@ function StickyActionBar({ children, secondary = null, info = null }) {
       backdropFilter: "saturate(180%) blur(12px)",
       WebkitBackdropFilter: "saturate(180%) blur(12px)",
       borderTop: `1px solid ${C.line}`,
-      marginTop: 14,
+      marginTop: "auto",   // en flex-column empuja la barra al fondo
       padding: "10px 16px",
       paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
       boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
@@ -1345,7 +1363,7 @@ function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocu
         style={style}
       />
       {show && filtered.length > 0 && (
-        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
           {filtered.map((s) => (
             <div key={s} onMouseDown={() => { onChange(s); setShow(false); }}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, fontFamily: FONT_SANS, color: C.ink }}>
@@ -1412,7 +1430,7 @@ function TagInput({ tags = [], onChange, suggestions = [] }) {
         />
       </div>
       {showSug && (input.trim() || filtered.length > 0) && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 7, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
           {input.trim() && !tags.includes(input.trim()) && (
             <div onMouseDown={() => addTag(input)} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: FONT_SANS, color: C.ink, display: "flex", alignItems: "center", gap: 8, borderBottom: filtered.length ? `1px solid ${C.line}` : "none" }}>
               <span style={{ color: C.muted, fontSize: 11 }}>Crear:</span>
@@ -1501,7 +1519,7 @@ function FilterDropdown({ label, options, selected, onToggle, onClear, accent = 
       </button>
 
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
           {options.length === 0 ? (
             <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
           ) : (
@@ -2261,24 +2279,26 @@ function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
           </div>
         )}
 
-        {open && (
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
-            <MetaItem label="Tipo">
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
-              {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
-            </MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
-            {isQuiz
-              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {isDone && (
-              <MetaItem label="Resultado">
-                <StatusCircle done />
-                {score != null ? `${score}%` : "Entregado"}
+        <div className={`fa-expand${open ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+              <MetaItem label="Tipo">
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
+                {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
               </MetaItem>
-            )}
+              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              {isQuiz
+                ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+                : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+              {isDone && (
+                <MetaItem label="Resultado">
+                  <StatusCircle done />
+                  {score != null ? `${score}%` : "Entregado"}
+                </MetaItem>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -2395,7 +2415,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                     </div>
 
                     {courseOpen && (
-                      <div style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
+                      <div className="fa-fade-in" style={{ padding: isMobile ? "16px 0 18px 14px" : "20px 0 24px 24px" }}>
                         {courseUnits.length === 0
                           ? <p style={{ fontFamily: F.sans, color: C.muted, fontSize: 13, margin: 0, paddingRight: isMobile ? 14 : 24 }}>Este curso no tiene unidades todavía.</p>
                           : courseUnits.map((unit, unitIdx) => {
@@ -2421,7 +2441,7 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
                                       </span>
                                     </div>
                                     {isOpen && (
-                                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                      <div className="fa-fade-in" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                                         {unit.exerciseIds.length === 0
                                           ? <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0" }}>Esta unidad no tiene ejercicios asignados.</p>
                                           : unit.exerciseIds.map((eid) => {
@@ -2488,7 +2508,13 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // ~10 fps para el contador de tiempo visible → mucho menos re-renders.
   const lastSetTimeRef   = useRef(0);
   playingRef.current     = playing;
-  timeRef.current        = time;
+  // timeRef es la fuente de verdad del canvas (60 fps). Durante la reproducción
+  // lo gobierna el bucle rAF; NO debemos pisarlo aquí con `time` (estado de React
+  // throttleado a ~10 fps), porque cada re-render —p. ej. al pulsar/soltar un
+  // botón de función— retrocedería timeRef al último valor throttleado y la onda
+  // daría un salto a la derecha y volvería. Solo sincronizamos cuando NO se
+  // reproduce (seek/scrub manual, donde setTime sí es la fuente de verdad).
+  if (!playing) timeRef.current = time;
 
   const stopSource = () => {
     if (sourceRef.current) {
@@ -2552,29 +2578,38 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exercise.id, audioUrl]);
 
-  // Timer simulado cuando no hay audio real
+  // Timer simulado cuando no hay audio real.
+  // El avance se calcula SOBRE timeRef (fuente de verdad para el canvas), no
+  // sobre el estado `time` de React. Antes el updater de setTime escribía
+  // timeRef.current dentro de sí mismo (efecto secundario impuro); en
+  // StrictMode —o al batchear con setPressing/setIntervals de una pulsación—
+  // React reejecutaba ese updater desde un estado base anterior y dejaba en
+  // timeRef un valor menor durante 1 frame → la onda saltaba a la derecha y
+  // volvía. Ahora timeRef se actualiza una sola vez por tick, fuera de React.
   const timerRef = useRef(null);
   useEffect(() => {
-    if (playing && !hasAudio) {
-      timerRef.current = setInterval(() => {
-        if (scrubbingRef.current) return;
-        setTime((t) => {
-          const lq = loopRegionRef?.current;
-          let next;
-          if (lq && t >= lq.audioEnd) {
-            next = lq.audioStart;
-          } else if (!lq && t >= dur) {
-            timeRef.current = dur;
-            setPlaying(false);
-            return dur;
-          } else {
-            next = t + 0.05;
-          }
-          timeRef.current = next;
-          return next;
-        });
-      }, 50);
-    }
+    if (!playing || hasAudio) return;
+    let last = performance.now();
+    timerRef.current = setInterval(() => {
+      if (scrubbingRef.current) return;
+      const now = performance.now();
+      const dt = (now - last) / 1000;
+      last = now;
+      const lq = loopRegionRef?.current;
+      let next;
+      if (lq && timeRef.current >= lq.audioEnd) {
+        next = lq.audioStart;
+      } else if (!lq && timeRef.current >= dur) {
+        timeRef.current = dur;
+        setTime(dur);
+        setPlaying(false);
+        return;
+      } else {
+        next = Math.min(dur, timeRef.current + dt);
+      }
+      timeRef.current = next;     // fuente de verdad (canvas) — una sola escritura
+      setTime(next);              // espejo para React (texto de tiempo, etc.)
+    }, 50);
     return () => clearInterval(timerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, dur, hasAudio]);
@@ -2639,6 +2674,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       if (wasPlaying) {
         stopSource();
         playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
+        timeRef.current = playOffsetRef.current;   // fija el valor exacto al pausar
+        setTime(playOffsetRef.current);            // evita retroceso al sincronizar en !playing
         setPlaying(false);
       } else {
         stopSource();                        // safety: matar cualquier fuente huérfana
@@ -2991,11 +3028,34 @@ function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, o
   );
 }
 
+// Compara props "estructurales" de WaveformDisplay. Ignora `time` y los
+// callbacks: el canvas redibuja en su propio bucle rAF leyendo timeRef, así que
+// un cambio de tiempo (hasta ~10 fps de React durante la reproducción) no
+// necesita re-render. Memoizar evita que el árbol se repinte 10 veces/seg y
+// elimina los tirones de la onda y de la banda de respuestas en vivo.
+function waveformPropsEqual(a, b) {
+  return a.allIntervals === b.allIntervals
+    && a.duration === b.duration
+    && a.waveformDuration === b.waveformDuration
+    && a.exerciseId === b.exerciseId
+    && a.waveformData === b.waveformData
+    && a.colorByFn === b.colorByFn
+    && a.answerBand === b.answerBand
+    && a.selectedIvId === b.selectedIvId
+    && a.hintIntervals === b.hintIntervals
+    && a.questionRegion === b.questionRegion;
+  // pressing ya no se comprueba: el canvas lo lee de pressingRef (síncrono),
+  // así WaveformDisplay no se re-renderiza al pisar/soltar un botón.
+}
+
 // Canvas con forma de onda + cursor central + intervalos coloreados
-function WaveformDisplay({
+const WaveformDisplay = React.memo(function WaveformDisplay({
   time, timeRef: timeRefProp, duration, waveformDuration,
   allIntervals, exerciseId, waveformData,
   colorByFn, questionRegion, answerBand = false,
+  selectedIvId = null, onBandPointerDown = null,
+  pressingRef: pressingRefProp = null,
+  hintIntervals = [],
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
@@ -3006,7 +3066,8 @@ function WaveformDisplay({
   const stateRef = useRef({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
-    colorByFn, questionRegion, answerBand,
+    colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
+    pressingRef: pressingRefProp, hintIntervals,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3017,7 +3078,7 @@ function WaveformDisplay({
     const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
     const halfBars  = NUM_BARS / 2;
-    const BAND_H = 16, BAND_GAP = 6;   // banda de respuesta alineada con la onda (se desplaza con ella)
+    const BAND_H = IV_BAND_H, BAND_GAP = IV_BAND_GAP;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -3050,8 +3111,27 @@ function WaveformDisplay({
     const draw = (ts = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
-      const { time: tState, timeRef: tRef, allIntervals: ivs, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab } = stateRef.current;
+      const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressingRef: pRef, hintIntervals: hints } = stateRef.current;
       const t = tRef?.current ?? tState;
+      // pressingRef puede tener tres estados:
+      //   null              → sin marcado
+      //   { fn, start }     → activo, intervalo crece en tiempo real
+      //   { fn, start, end }→ "congelado": tecla soltada, esperando que React
+      //                       confirme el intervalo en ivsBase (evita el salto
+      //                       de 1-2 frames entre "en vivo" y "comprometido").
+      const pr = pRef?.current ?? null;
+      let ivsForDraw = ivsBase;
+      if (pr && pr.end != null) {
+        // Estado congelado: comprobamos si React ya puso el intervalo en ivsBase
+        if (ivsBase.some(iv => iv.fn === pr.fn && iv.start === pr.start)) {
+          pRef.current = null;          // React al día → limpiamos
+        } else {
+          ivsForDraw = [...ivsBase, { id: "tmp-commit", fn: pr.fn, start: pr.start, end: pr.end }];
+        }
+      }
+      const ivs = (pr && pr.end == null)
+        ? [...ivsForDraw, { id: "live", fn: pr.fn, start: pr.start, end: Math.min(t, dur) }]
+        : ivsForDraw;
       const rect = canvas.getBoundingClientRect();
       const W = rect.width, H = rect.height;
       const waveAreaH = ab ? H - (BAND_H + BAND_GAP) : H;
@@ -3091,6 +3171,36 @@ function WaveformDisplay({
         const bandTop = waveAreaH + BAND_GAP;
         ctx.fillStyle = "rgba(26,25,21,0.06)";
         drawPill(0, bandTop, W, BAND_H);
+
+        // Pistas: recuadros sin color (más oscuros que el fondo) con gap lateral
+        // y esquinas redondeadas. Se dibujan ANTES de las respuestas del alumno.
+        if (hints && hints.length) {
+          const GAP = 2.5;                    // separación horizontal entre bloques
+          const VI  = 3;                      // inset vertical (top y bottom)
+          const R   = 4;                      // radio de esquinas
+          for (let j = 0; j < hints.length; j++) {
+            const hv = hints[j];
+            const hx1 = (hv.start - t) * pxPerSec + W / 2 + GAP;
+            const hx2 = (Math.min(hv.end, dur) - t) * pxPerSec + W / 2 - GAP;
+            if (hx2 <= 0 || hx1 >= W) continue;
+            const cx1 = Math.max(0, hx1), cx2 = Math.min(W, hx2), bw = cx2 - cx1;
+            if (bw < 1) continue;
+            ctx.save();
+            ctx.fillStyle = "rgba(26,25,21,0.16)";
+            ctx.shadowColor = "rgba(0,0,0,0.18)";
+            ctx.shadowBlur = 3;
+            ctx.shadowOffsetY = 1;
+            if (typeof ctx.roundRect === "function") {
+              ctx.beginPath(); ctx.roundRect(cx1, bandTop + VI, bw, BAND_H - VI * 2, R); ctx.fill();
+            } else {
+              ctx.fillRect(cx1, bandTop + VI, bw, BAND_H - VI * 2);
+            }
+            ctx.restore();
+          }
+        }
+
+        const nowMs = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        const ANIM_MS = 260;
         ctx.font = `700 10px ${FONT_MONO}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -3099,20 +3209,60 @@ function WaveformDisplay({
           const x1 = (iv.start - t) * pxPerSec + W / 2;
           const x2 = (Math.min(iv.end, dur) - t) * pxPerSec + W / 2;
           if (x2 <= 0 || x1 >= W) continue;
-          const cx1 = Math.max(0, x1), cx2 = Math.min(W, x2), bw = cx2 - cx1;
+
+          // Relleno animado (snap sobre pista): revela el bloque de izquierda a
+          // derecha y sube la opacidad con easeOutCubic. Sin _anim → instantáneo.
+          let animAlpha = 1, rightAbs = x2;
+          if (iv._anim) {
+            const prog = Math.min(1, (nowMs - iv._anim) / ANIM_MS);
+            const e = 1 - Math.pow(1 - prog, 3);
+            animAlpha = 0.3 + 0.7 * e;
+            rightAbs = x1 + (x2 - x1) * e;
+          }
+
+          const cx1 = Math.max(0, x1), cx2 = Math.min(W, rightAbs), bw = cx2 - cx1;
           if (bw < 0.5) continue;
-          ctx.globalAlpha = iv.id === "live" ? 0.5 : 1;
+          ctx.globalAlpha = (iv.id === "live" ? 0.5 : 1) * animAlpha;
           ctx.fillStyle = (cmap && cmap[iv.fn]) || "rgba(26,25,21,0.4)";
           drawPill(cx1, bandTop, bw, BAND_H);
-          if (bw > 14) {
+          // Etiqueta solo cuando el bloque ya está casi/totalmente revelado
+          const fullBw = Math.min(W, x2) - Math.max(0, x1);
+          if (fullBw > 14 && (!iv._anim || animAlpha > 0.85)) {
             ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
             ctx.fillStyle = C.paper;
-            ctx.fillText(iv.fn, (cx1 + cx2) / 2, bandTop + BAND_H / 2 + 0.5);
+            ctx.fillText(iv.fn, (Math.max(0, x1) + Math.min(W, x2)) / 2, bandTop + BAND_H / 2 + 0.5);
           }
           ctx.globalAlpha = 1;
         }
         ctx.textAlign = "start";
         ctx.textBaseline = "alphabetic";
+
+        // Asas del intervalo seleccionado: mismo aspecto que los bloques del
+        // esquema (barra blanca redondeada con sombra). Solo visibles si hay
+        // selección; ocupan toda la altura de la banda.
+        if (selId) {
+          const selIv = ivs.find((iv) => iv.id === selId);
+          if (selIv && selIv.id !== "live") {
+            const sx = (selIv.start - t) * pxPerSec + W / 2;
+            const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
+            const bandTop = waveAreaH + BAND_GAP;
+            const hw = SCHEMA_HND_VISUAL_W, hh = BAND_H, hTop = bandTop;
+            for (const hx of [sx, ex]) {
+              if (hx < -hw || hx > W + hw) continue;
+              ctx.save();
+              ctx.fillStyle = "rgba(255,255,255,0.92)";
+              ctx.shadowColor = "rgba(0,0,0,0.20)";
+              ctx.shadowBlur = 4;
+              ctx.shadowOffsetY = 1;
+              if (typeof ctx.roundRect === "function") {
+                ctx.beginPath(); ctx.roundRect(hx - hw / 2, hTop, hw, hh, 5); ctx.fill();
+              } else {
+                ctx.fillRect(hx - hw / 2, hTop, hw, hh);
+              }
+              ctx.restore();
+            }
+          }
+        }
       }
 
       if (qr) {
@@ -3142,9 +3292,23 @@ function WaveformDisplay({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+
+    // Detectar si el puntero está en la zona de la banda de respuesta
+    const { answerBand: ab, onBandPointerDown: obpd } = stateRef.current;
+    if (ab && obpd) {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const y = clientY - rect.top;
+      if (y >= rect.height - IV_BAND_H - IV_BAND_GAP) {
+        e.stopPropagation();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        obpd(e, clientX, rect);
+        return;
+      }
+    }
+
     let anchorX = 0, anchorTime = 0;
     startPointerDrag(e, {
-      onStart: (ev, getX) => { anchorX = getX(ev); anchorTime = stateRef.current.time; stateRef.current.onScrubBegin(); },
+      onStart: (ev, getX) => { anchorX = getX(ev); anchorTime = stateRef.current.timeRef?.current ?? stateRef.current.time; stateRef.current.onScrubBegin(); },
       onMove:  (ev, getX) => { const delta = (getX(ev) - anchorX) * VISIBLE_SECS / rect.width; stateRef.current.onScrubTo(anchorTime - delta); },
       onEnd:   () => stateRef.current.onScrubEnd(),
     });
@@ -3152,17 +3316,134 @@ function WaveformDisplay({
 
   return (
     <canvas ref={canvasRef}
-      style={{ display: "block", width: "100%", height: answerBand ? 104 : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
+      style={{ display: "block", width: "100%", height: answerBand ? 80 + IV_BAND_GAP + IV_BAND_H : 80, cursor: "crosshair", borderRadius: 8, touchAction: "none", userSelect: "none" }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     />
   );
-}
+}, waveformPropsEqual);
 
 // ═══ 9. EXERCISE VIEW (sesión interactiva) ══════════════════════════════════
 
+// Barra navegadora: muestra toda la duración del audio, los intervalos
+// marcados como bloques de color y el cursor de posición actual.
+// Click o arrastre → seek inmediato.
+// Barra navegadora de audio: track + fill + thumb circular (estilo tradicional).
+// El thumb, el fill y el bloque "en vivo" se posicionan vía rAF leyendo timeRef
+// directamente (60 fps), no la `time` de React (throttled ~10 fps): así el
+// reproductor se mueve fluido y sin saltitos durante el marcado.
+// pressingRef: el mismo ref síncrono de ExerciseView (nunca stale, sin delay de React).
+function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, onSeek }) {
+  const barRef   = useRef(null);
+  const fillRef  = useRef(null);
+  const thumbRef = useRef(null);
+  const liveRef  = useRef(null);
+  const colorRef = useRef(colorByFn); colorRef.current = colorByFn;
+  const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
+
+  const handlePointerDown = (e) => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const getT = (ev) => {
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      return Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
+    };
+    startPointerDrag(e, {
+      onStart: (ev) => onSeek(getT(ev)),
+      onMove:  (ev) => onSeek(getT(ev)),
+    });
+  };
+
+  // Bucle rAF: actualiza thumb/fill/live directamente sobre el DOM
+  useEffect(() => {
+    let raf;
+    const clamp = (t) => Math.max(0, Math.min(100, (t / duration) * 100));
+    const tick = () => {
+      const t = timeRef?.current || 0;
+      const p = clamp(t);
+      if (fillRef.current)  fillRef.current.style.width = p + "%";
+      if (thumbRef.current) thumbRef.current.style.left = p + "%";
+      const pr = pressingRef.current, el = liveRef.current;
+      if (el) {
+        if (pr) {
+          const s = clamp(pr.start);
+          const w = Math.max(0, clamp(Math.min(t, duration)) - s);
+          el.style.opacity = "0.5";
+          el.style.left = s + "%";
+          el.style.width = w + "%";
+          el.style.background = (colorRef.current && colorRef.current[pr.fn]) || "rgba(26,25,21,0.3)";
+        } else {
+          el.style.opacity = "0";
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [duration, timeRef]);
+
+  const TRACK_H = 8;   // altura del track (px)
+  const THUMB_D = 16;  // diámetro del thumb (px)
+
+  return (
+    <div ref={barRef}
+      onMouseDown={handlePointerDown} onTouchStart={handlePointerDown}
+      style={{ userSelect: "none", touchAction: "none", cursor: "pointer" }}>
+
+      {/* ── Track + thumb ──────────────────────────────────────────── */}
+      <div style={{ position: "relative", height: THUMB_D + 4, display: "flex", alignItems: "center" }}>
+        {/* Track */}
+        <div style={{ position: "absolute", left: 0, right: 0,
+          height: TRACK_H, borderRadius: TRACK_H / 2,
+          background: "rgba(26,25,21,0.08)", overflow: "hidden" }}>
+          {/* Fill (tiempo transcurrido) — width exclusivamente vía rAF;
+              no se incluye en JSX para que React no la resetee en re-renders */}
+          <div ref={fillRef} style={{ position: "absolute", top: 0, bottom: 0, left: 0,
+            background: "rgba(26,25,21,0.18)", borderRadius: TRACK_H / 2 }} />
+          {/* Intervalos marcados por el alumno */}
+          {intervals.map((iv) => {
+            const color = (colorByFn && colorByFn[iv.fn]) || "rgba(26,25,21,0.3)";
+            return (
+              <div key={iv.id} style={{
+                position: "absolute", top: 0, bottom: 0,
+                left: `${pct(iv.start)}%`,
+                width: `${pct(Math.max(0, Math.min(iv.end, duration) - iv.start))}%`,
+                background: color, opacity: 0.85, borderRadius: 3,
+              }} />
+            );
+          })}
+          {/* Bloque "en vivo" — left/width/opacity exclusivamente vía rAF */}
+          <div ref={liveRef} style={{ position: "absolute", top: 0, bottom: 0,
+            opacity: 0, borderRadius: 3 }} />
+        </div>
+        {/* Thumb — left exclusivamente vía rAF */}
+        <div ref={thumbRef} style={{
+          position: "absolute",
+          transform: "translateX(-50%)",
+          width: THUMB_D, height: THUMB_D,
+          borderRadius: "50%",
+          background: C.paper,
+          border: `2px solid rgba(26,25,21,0.75)`,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+          pointerEvents: "none",
+          zIndex: 1,
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// Compara props de FunctionButtons. Ignora la identidad de onDown/onUp (los
+// handlers se recrean en cada render pero su comportamiento solo depende de la
+// categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
+// Así la botonera no se repinta con cada tick de tiempo (~10 fps).
+function fnButtonsEqual(a, b) {
+  return a.buttons === b.buttons && a.pressing === b.pressing;
+}
+
 // Botonera de funciones (T/S/D…) pulsables con tecla
-function FunctionButtons({ buttons, pressing, onDown, onUp }) {
+const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp }) {
   const isMobile = useIsMobile();
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 10, marginBottom: 4 }}>
@@ -3194,106 +3475,7 @@ function FunctionButtons({ buttons, pressing, onDown, onUp }) {
       })}
     </div>
   );
-}
-
-// Strip de intervalos: render de una categoría (activa o secundaria)
-function IntervalStrip({
-  category, intervals, isActive, isFnStyle, gutter,
-  duration, time, selected, mode, exercise,
-  onBeginDragBody, onBeginDragEdge, onSelect, timelineRef,
-}) {
-  const stripH = isActive ? 44 : 18;
-  const pct = (t) => `${(t / duration) * 100}%`;
-
-  return (
-    <div style={{ marginTop: 8, marginLeft: gutter, marginRight: gutter, opacity: isActive ? 1 : 0.55 }}>
-      <div style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.2, color: isActive ? C.ink2 : C.muted, textTransform: "uppercase", marginBottom: 2, lineHeight: 1, paddingLeft: 2, userSelect: "none" }}>
-        {category.name.split(" ")[0]}
-      </div>
-
-      <div ref={isActive ? timelineRef : null} style={{
-        position: "relative", height: stripH, borderRadius: 6,
-        background: "rgba(26,25,21,0.04)", display: "flex", alignItems: "center",
-        userSelect: "none", touchAction: isActive ? "none" : "auto", overflow: "hidden",
-      }}>
-        {intervals.map((iv, i) => {
-          const b      = btnOf(category, iv.fn);
-          const isSel  = isActive && selected === iv.id;
-          const isLive = isActive && iv.id === "live";
-
-          const commonDragHandlers = isActive && !isLive ? {
-            onMouseDown:  (e) => onBeginDragBody(e, iv.id),
-            onTouchStart: (e) => onBeginDragBody(e, iv.id),
-          } : {};
-
-          if (isFnStyle) {
-            const dotSize = isActive ? 22 : 12;
-            const fontSize = isActive ? 11 : 8;
-            const lineH = isActive ? 2 : 1.5;
-            return (
-              <div key={iv.id || `${iv.fn}-${i}`} {...commonDragHandlers}
-                style={{
-                  position: "absolute", top: 2, bottom: 2,
-                  left: pct(iv.start), width: pct(Math.max(0, Math.min(iv.end, duration) - iv.start)),
-                  background: isSel ? `${b.color}1F` : "transparent",
-                  opacity: isLive ? 0.5 : 1,
-                  border: isSel ? `1.5px solid ${b.color}` : `1px solid ${C.line}`,
-                  borderRadius: 4,
-                  cursor: isActive && !isLive ? "grab" : "default",
-                  display: "flex", alignItems: "center", justifyContent: "flex-start",
-                  overflow: "hidden", boxSizing: "border-box",
-                  paddingLeft: isActive ? 4 : 2, paddingRight: 2,
-                  zIndex: isSel ? 2 : 1,
-                }}
-                title={`${iv.fn} · ${fmt(iv.start)}–${fmt(iv.end)}`}>
-                {isActive && !isLive && <div onMouseDown={(e) => onBeginDragEdge(e, iv.id, "start")} onTouchStart={(e) => onBeginDragEdge(e, iv.id, "start")} style={{ position: "absolute", left: -4, top: -2, bottom: -2, width: 10, cursor: "ew-resize", zIndex: 3 }} />}
-                <div style={{ flex: `0 0 ${dotSize}px`, width: dotSize, height: dotSize, borderRadius: "50%", background: b.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO, fontWeight: 700, fontSize, color: C.paper, pointerEvents: "none", lineHeight: 1 }}>{iv.fn}</div>
-                <div style={{ flex: "1 1 auto", height: lineH, marginLeft: isActive ? 4 : 2, background: b.color, borderRadius: lineH, alignSelf: "center", transform: `translateY(${fontSize * 0.32}px)`, pointerEvents: "none" }} />
-                {isActive && !isLive && <div onMouseDown={(e) => onBeginDragEdge(e, iv.id, "end")} onTouchStart={(e) => onBeginDragEdge(e, iv.id, "end")} style={{ position: "absolute", right: -4, top: -2, bottom: -2, width: 10, cursor: "ew-resize", zIndex: 3 }} />}
-              </div>
-            );
-          }
-
-          return (
-            <div key={iv.id || `${iv.fn}-${i}`} {...commonDragHandlers}
-              style={{
-                position: "absolute", top: 2, bottom: 2,
-                left: pct(iv.start), width: pct(Math.max(0, Math.min(iv.end, duration) - iv.start)),
-                background: b.color, opacity: isLive ? 0.5 : (isSel ? 1 : 0.86),
-                border: isSel ? `1.5px solid ${C.ink}` : "none",
-                borderRadius: 4,
-                cursor: isActive && !isLive ? "grab" : "default",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: isActive ? 12 : 9, fontFamily: FONT_MONO, fontWeight: 700,
-                color: C.paper, overflow: "hidden", boxSizing: "border-box",
-              }}
-              title={`${iv.fn} · ${fmt(iv.start)}–${fmt(iv.end)}`}>
-              {isActive && !isLive && <div onMouseDown={(e) => onBeginDragEdge(e, iv.id, "start")} onTouchStart={(e) => onBeginDragEdge(e, iv.id, "start")} style={{ position: "absolute", left: -4, top: -2, bottom: -2, width: 10, cursor: "ew-resize", zIndex: 3 }} />}
-              <span style={{ pointerEvents: "none", padding: "0 6px" }}>{iv.fn}</span>
-              {isActive && !isLive && <div onMouseDown={(e) => onBeginDragEdge(e, iv.id, "end")} onTouchStart={(e) => onBeginDragEdge(e, iv.id, "end")} style={{ position: "absolute", right: -4, top: -2, bottom: -2, width: 10, cursor: "ew-resize", zIndex: 3 }} />}
-            </div>
-          );
-        })}
-
-        {isActive && selected && (() => {
-          const selIv = intervals.find((iv) => iv.id === selected);
-          if (!selIv || selIv.id === "live") return null;
-          const selBtn = btnOf(category, selIv.fn);
-          const handleBg     = isFnStyle ? selBtn.color : C.paper;
-          const handleShadow = isFnStyle ? `0 0 0 1.5px ${C.paper}, 0 0 0 2.5px ${selBtn.color}` : `0 0 0 1.5px ${C.ink}`;
-          const Handle = ({ side }) => (
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${pct(side === "start" ? selIv.start : selIv.end)} - 3px)`, width: 6, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 4 }}>
-              <div style={{ width: 4, height: "70%", background: handleBg, borderRadius: 2, boxShadow: handleShadow }} />
-            </div>
-          );
-          return <><Handle side="start" /><Handle side="end" /></>;
-        })()}
-
-        <div style={{ position: "absolute", top: 0, bottom: 0, left: pct(time), width: 1.5, background: C.ink, opacity: 0.55, pointerEvents: "none", zIndex: 2 }} />
-      </div>
-    </div>
-  );
-}
+}, fnButtonsEqual);
 
 function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
   const dur          = exercise.duration;
@@ -3332,7 +3514,18 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
 
-  const intervals    = intervalsByCategory[currentCategoryId] || [];
+  // Memoizado: referencia estable cuando el contenido no cambia. Evita que
+  // WaveformDisplay (React.memo) se re-renderice en cada tick de tiempo solo
+  // porque `|| []` crea un array nuevo cada render.
+  const intervals = useMemo(
+    () => intervalsByCategory[currentCategoryId] || EMPTY_IVS,
+    [intervalsByCategory, currentCategoryId]
+  );
+  // Pistas (clave del profesor) memoizadas con referencia estable.
+  const hintIntervals = useMemo(
+    () => (mode === "student" && exercise.showHint ? (answerFor(exercise, currentCategoryId) || EMPTY_IVS) : EMPTY_IVS),
+    [mode, exercise, currentCategoryId]
+  );
   const setIntervals = (updater) => setIntervalsByCategory((prev) => {
     const cur  = prev[currentCategoryId] || [];
     const next = typeof updater === "function" ? updater(cur) : updater;
@@ -3340,8 +3533,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   });
 
   useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); }, [exercise.id]);
-
-  const timelineRef = useRef(null);
 
   // Cambio de categoría: cierra el intervalo en curso de la actual
   const switchCategory = (newId) => {
@@ -3360,11 +3551,26 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     setCurrentCategoryId(newId);
   };
 
-  // Helper para añadir un intervalo nuevo (cerrando el actual)
-  const commitInterval = (fn, start, end) => {
+  // Helper para añadir un intervalo nuevo (cerrando el actual).
+  // opts.anim marca el intervalo con un timestamp para animar su aparición
+  // (relleno) en el canvas — se usa al hacer snap sobre una pista.
+  const commitInterval = (fn, start, end, opts) => {
     const newIv = { id: uid("iv"), fn, start, end };
+    if (opts?.anim) newIv._anim = (typeof performance !== "undefined" ? performance.now() : Date.now());
     setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
   };
+
+  // Ref siempre-fresco para detecting si el tiempo actual cae sobre una pista.
+  const snapHintRef = useRef(null);
+  snapHintRef.current = (t) => {
+    if (!exercise.showHint) return null;
+    return answerFor(exercise, currentCategoryId).find((h) => t >= h.start && t <= h.end) || null;
+  };
+
+  // Ref síncrono del estado de pressing. Se actualiza ANTES de llamar a setState,
+  // por lo que el canvas lo lee sin esperar el ciclo de re-render de React (~16 ms).
+  // Esto elimina el salto visual de 1 frame al pisar o soltar un botón.
+  const pressingRef = useRef(null);
 
   // Teclado (mantén pulsada la tecla mientras suena)
   const togglePlayRef = useRef(togglePlay);
@@ -3374,23 +3580,36 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       if (e.repeat) return;
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (btn) {
-        setPressing((p) => {
-          const now = timeRef.current;
-          if (p && p.fn === btn.id) return p;
+        const now  = timeRef.current;
+        const hint = snapHintRef.current?.(now);
+        if (hint) {
+          const p = pressingRef.current;
+          pressingRef.current = null; setPressing(null);
           if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-          return { fn: btn.id, start: now };
-        });
+          commitInterval(btn.id, hint.start, hint.end, { anim: true });
+        } else {
+          const p = pressingRef.current;
+          if (p && p.fn === btn.id) return;       // ya pulsado
+          const newP = { fn: btn.id, start: now };
+          pressingRef.current = newP; setPressing(newP);
+          if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
+        }
       }
       if (e.key === " ") { e.preventDefault(); togglePlayRef.current(); }
     };
     const up = (e) => {
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
-      if (btn) setPressing((p) => {
-        if (!p || p.fn !== btn.id) return p;
-        const end = timeRef.current;
-        if (end - p.start > 0.1) commitInterval(btn.id, p.start, end);
-        return null;
-      });
+      if (!btn) return;
+      const p = pressingRef.current;
+      if (!p || p.fn !== btn.id || p.end != null) return;
+      const end = timeRef.current;
+      setPressing(null);
+      if (end - p.start > 0.1) {
+        pressingRef.current = { fn: p.fn, start: p.start, end }; // congelar
+        commitInterval(btn.id, p.start, end);
+      } else {
+        pressingRef.current = null;
+      }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup",   up);
@@ -3398,25 +3617,42 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exCategory]);
 
-  const handleFnDown = (fn) => setPressing((p) => {
-    const now = timeRef.current;
-    if (p && p.fn === fn) return p;
+  const handleFnDown = (fn) => {
+    const now  = timeRef.current;
+    const hint = snapHintRef.current?.(now);
+    if (hint) {
+      const p = pressingRef.current;
+      pressingRef.current = null; setPressing(null);
+      if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
+      commitInterval(fn, hint.start, hint.end, { anim: true });
+      return;
+    }
+    const p = pressingRef.current;
+    if (p && p.fn === fn) return;
+    const newP = { fn, start: now };
+    pressingRef.current = newP; setPressing(newP);
     if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
-    return { fn, start: now };
-  });
-  const handleFnUp = (fn) => setPressing((p) => {
-    if (!p || p.fn !== fn) return p;
+  };
+  const handleFnUp = (fn) => {
+    const p = pressingRef.current;
+    if (!p || p.fn !== fn || p.end != null) return;
     const end = timeRef.current;
-    if (end - p.start > 0.1) commitInterval(fn, p.start, end);
-    return null;
-  });
+    setPressing(null);
+    if (end - p.start > 0.1) {
+      pressingRef.current = { fn: p.fn, start: p.start, end }; // congelar
+      commitInterval(fn, p.start, end);
+    } else {
+      pressingRef.current = null;
+    }
+  };
 
   const handleSubmit = () => {
     let byCategory = intervalsByCategory;
-    if (pressing) {
+    const p = pressingRef.current;
+    if (p && p.end == null) {   // solo si activo, no si congelado
       const end = timeRef.current;
       const cur = byCategory[currentCategoryId] || [];
-      const newIv = { id: uid("iv"), fn: pressing.fn, start: pressing.start, end };
+      const newIv = { id: uid("iv"), fn: p.fn, start: p.start, end };
       byCategory = { ...byCategory, [currentCategoryId]: [...resolveOverlap(cur, newIv), newIv] };
     }
     const touched = Object.entries(byCategory);
@@ -3432,20 +3668,17 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
 
   const deleteSelected = () => { setIntervals((p) => p.filter((iv) => iv.id !== selected)); setSelected(null); };
 
-  // Drag de bordes de un intervalo (resize)
-  const beginDragEdge = (e, ivId, which) => {
-    e.stopPropagation();
+  // Drag de borde de intervalo desde la banda del canvas (resize)
+  const beginDragEdgeCanvas = (e, ivId, which, rect) => {
     setSelected(ivId);
-    const tl = timelineRef.current;
-    if (!tl) return;
-    const rect = tl.getBoundingClientRect();
-    const xToTime = (x) => Math.max(0, Math.min(dur, ((x - rect.left) / rect.width) * dur));
     const origIvs = intervals;
     const origIv  = origIvs.find((iv) => iv.id === ivId);
     if (!origIv) return;
+    const W = rect.width;
     startPointerDrag(e, {
       onMove: (ev, getX) => {
-        const t = xToTime(getX(ev));
+        const xRel = getX(ev) - rect.left;
+        const t = Math.max(0, Math.min(dur, timeRef.current + (xRel - W / 2) * VISIBLE_SECS / W));
         const updated = which === "start"
           ? { ...origIv, start: Math.min(origIv.end - 0.1, t) }
           : { ...origIv, end:   Math.max(origIv.start + 0.1, t) };
@@ -3454,48 +3687,67 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     });
   };
 
-  // Drag del cuerpo de un intervalo (mover)
-  const beginDragBody = (e, ivId) => {
-    e.stopPropagation();
-    const tl = timelineRef.current;
-    if (!tl) return;
-    const rect    = tl.getBoundingClientRect();
+  // Drag del cuerpo de intervalo desde la banda del canvas (mover)
+  const beginDragBodyCanvas = (e, ivId, rect) => {
+    setSelected(ivId);
     const origIvs = intervals;
     const iv0     = origIvs.find((iv) => iv.id === ivId);
     if (!iv0) return;
     const len = iv0.end - iv0.start;
-    let startX = 0, moved = false;
+    const W   = rect.width;
+    let x0 = null, moved = false;
     startPointerDrag(e, {
-      onStart: (ev, getX) => { startX = getX(ev); },
+      onStart: (ev, getX) => { x0 = getX(ev); },
       onMove:  (ev, getX) => {
-        const cx = getX(ev);
-        if (!moved && Math.abs(cx - startX) > 3) moved = true;
+        const x = getX(ev);
+        if (!moved && Math.abs(x - x0) > 3) moved = true;
         if (!moved) return;
-        const ns = Math.max(0, Math.min(dur - len, iv0.start + ((cx - startX) / rect.width) * dur));
-        const updated = { ...iv0, start: ns, end: ns + len };
-        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), updated), updated]);
+        const dt = (x - x0) * VISIBLE_SECS / W;
+        const ns = Math.max(0, Math.min(dur - len, iv0.start + dt));
+        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), { ...iv0, start: ns, end: ns + len }), { ...iv0, start: ns, end: ns + len }]);
       },
-      onEnd: () => { if (!moved) setSelected((s) => s === ivId ? null : ivId); },
+      // La selección persiste tras soltar (igual que los bloques del esquema):
+      // no se hace toggle; para deseleccionar, pulsar en una zona vacía.
     });
   };
 
+  // Dispatcher de clicks/drag en la zona de banda de la onda
+  const handleBandPointerDown = (e, clientX, rect) => {
+    const W       = rect.width;
+    const pxPerSec = W / VISIBLE_SECS;
+    const t       = timeRef.current;
+    const xRel    = clientX - rect.left;
+    const timeAtClick = Math.max(0, Math.min(dur, t + (xRel - W / 2) * VISIBLE_SECS / W));
+    const EDGE_PX = 14;
+
+    // ¿Cerca del borde de un intervalo seleccionado?
+    if (selected) {
+      const selIv = intervals.find((iv) => iv.id === selected);
+      if (selIv && selIv.id !== "live") {
+        const sx = (selIv.start - t) * pxPerSec + W / 2;
+        const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
+        if (Math.abs(xRel - sx) < EDGE_PX) { beginDragEdgeCanvas(e, selected, "start", rect); return; }
+        if (Math.abs(xRel - ex) < EDGE_PX) { beginDragEdgeCanvas(e, selected, "end",   rect); return; }
+      }
+    }
+
+    // ¿Click sobre el cuerpo de algún intervalo?
+    const clicked = intervals.find((iv) => iv.id !== "live" && timeAtClick >= iv.start && timeAtClick <= iv.end);
+    if (clicked) { beginDragBodyCanvas(e, clicked.id, rect); }
+    else         { setSelected(null); }
+  };
+
   // Render
-  const pct        = (t) => `${(t / dur) * 100}%`;
-  const allIv      = pressing ? [...intervals, { id: "live", fn: pressing.fn, start: pressing.start, end: Math.min(timeRef.current, dur) }] : intervals;
   const selectedIv = intervals.find((iv) => iv.id === selected);
-  const showSwitch = exCategories.length > 1;
-  const SWITCH_W   = 14;
-  const SWITCH_GAP = 8;
-  const gutter     = showSwitch ? SWITCH_W + SWITCH_GAP : 0;
 
   // Conteo de fragmentos marcados (todas las categorías) para la barra de acción
   const markedCount = Object.values(intervalsByCategory).reduce((n, arr) => n + (arr?.length || 0), 0) + (pressing ? 1 : 0);
   const submitLabel = mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar";
 
   return (
-    <div style={S.app} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
         {modelToggleNode}
 
@@ -3505,15 +3757,38 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
         {mode === "student" && <SessionHint modelId="interactivo" extra={<>Pulsa <b>Espacio</b> para reproducir o pausar.</>} />}
 
         <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
-          <div style={{ marginLeft: gutter, marginRight: gutter, background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
-            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={allIv}
+          <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
+            <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={intervals}
               exerciseId={exercise.id} waveformData={waveformData}
               colorByFn={colorByFn} answerBand
+              selectedIvId={selected} pressingRef={pressingRef}
+              hintIntervals={hintIntervals}
+              onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <AudioScrubber
+            timeRef={timeRef} duration={dur}
+            intervals={intervals} pressingRef={pressingRef}
+            colorByFn={colorByFn} onSeek={seekTo} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              {exCategories.length > 1 ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {exCategories.map((m) => {
+                    const isAct = m.id === currentCategoryId;
+                    return (
+                      <button key={m.id} onClick={() => switchCategory(m.id)}
+                        style={{ padding: "3px 10px", fontSize: 10.5, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999,
+                          border: `1.5px solid ${isAct ? C.ink : C.line}`, background: isAct ? C.ink : "transparent",
+                          color: isAct ? C.paper : C.muted, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : <span />}
               <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
             </div>
             <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
@@ -3524,46 +3799,6 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
-        </section>
-
-        {/* Resumen completo de la respuesta — vista global de toda la grabación */}
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ position: "relative" }}>
-            {showSwitch && (
-              <div role="tablist" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SWITCH_W, display: "flex", flexDirection: "column", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, boxSizing: "border-box" }}>
-                {exCategories.map((m) => {
-                  const isActive = m.id === currentCategoryId;
-                  return (
-                    <button key={m.id} type="button" role="tab" aria-selected={isActive}
-                      onClick={() => switchCategory(m.id)} title={m.name}
-                      style={{ flex: "1 1 0", minHeight: 0, border: "none", padding: 0, borderRadius: 999, background: isActive ? C.ink : "transparent", cursor: "pointer" }} />
-                  );
-                })}
-              </div>
-            )}
-            {exCategories.map((m) => {
-              const isActive = m.id === currentCategoryId;
-              const ivs = isActive ? allIv : (intervalsByCategory[m.id] || (mode === "record" ? answerFor(exercise, m.id) : []));
-              return (
-                <IntervalStrip key={m.id}
-                  category={m} intervals={ivs} isActive={isActive}
-                  isFnStyle={m.id === "default"}
-                  gutter={gutter} duration={dur} time={time}
-                  selected={selected} mode={mode} exercise={exercise}
-                  onBeginDragBody={beginDragBody} onBeginDragEdge={beginDragEdge}
-                  onSelect={setSelected} timelineRef={timelineRef}
-                />
-              );
-            })}
-          </div>
-
-          {mode === "student" && exercise.showHint && answerFor(exercise, currentCategoryId).length > 0 && (
-            <div style={{ position: "relative", height: 6, marginTop: 6, marginLeft: gutter, marginRight: gutter }}>
-              {answerFor(exercise, currentCategoryId).map((iv, i) => (
-                <div key={i} style={{ position: "absolute", top: 0, bottom: 0, left: pct(iv.start), width: pct(iv.end - iv.start), background: C.muted2, opacity: 0.45, borderRadius: 2 }} />
-              ))}
-            </div>
-          )}
         </section>
 
         {selected && selectedIv && (
@@ -5294,7 +5529,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
   // ── JSX principal ────────────────────────────────────────────────────────
   return (
-    <div style={S.app}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="esquema" />
 
       {showRepModal && (
@@ -5305,7 +5540,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
@@ -6776,9 +7011,9 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   const allAnswered = answeredCount === questions.length;
 
   return (
-    <div style={S.app} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "16px 16px 24px" }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
         {modelToggleNode}
 
@@ -6858,32 +7093,34 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
                 <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.35, color: C.ink }}>{q.text}</div>
               </div>
 
-              {isExpanded && (
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
-                  {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      {q.options.map((opt) => {
-                        const isSel = answers[q.id] === opt.id;
-                        return (
-                          <button key={opt.id} className="fa-pressable"
-                            onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                            style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
-                            <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
-                            {opt.text}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {q.type === "desarrollo" && (
-                    <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
-                      placeholder="Escribe tu respuesta aquí…"
-                      value={answers[q.id] || ""}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onClick={(e) => e.stopPropagation()} />
-                  )}
+              <div className={`fa-expand${isExpanded ? " fa-open" : ""}`}>
+                <div className="fa-expand-inner">
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+                    {q.type === "test" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        {q.options.map((opt) => {
+                          const isSel = answers[q.id] === opt.id;
+                          return (
+                            <button key={opt.id} className="fa-pressable"
+                              onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
+                              style={{ background: isSel ? C.ink : C.bg, color: isSel ? "#fff" : C.ink, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left", fontSize: 13.5, lineHeight: 1.4, display: "flex", alignItems: "center", gap: 12 }}>
+                              <span style={{ fontFamily: F.sans, fontWeight: 700, fontSize: 12, color: isSel ? "rgba(255,255,255,0.6)" : C.muted, minWidth: 18, flexShrink: 0 }}>{opt.id}</span>
+                              {opt.text}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.type === "desarrollo" && (
+                      <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}
+                        placeholder="Escribe tu respuesta aquí…"
+                        value={answers[q.id] || ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        onClick={(e) => e.stopPropagation()} />
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           );
         })}
@@ -6947,24 +7184,26 @@ function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, compos
             <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
           </div>
         </div>
-        {open && (
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
-            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
-            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            <MetaItem label="Clave de corrección">
-              <StatusCircle done={keyReady} size={13} />
-              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-            </MetaItem>
-            <MetaItem label="Visible para alumnos">
-              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
-            </MetaItem>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+        <div className={`fa-expand${open ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
+              <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+                : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+              <MetaItem label="Clave de corrección">
+                <StatusCircle done={keyReady} size={13} />
+                <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+              </MetaItem>
+              <MetaItem label="Visible para alumnos">
+                <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+              </MetaItem>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+              </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -7222,45 +7461,47 @@ function StudentsTab({ students, exercises, results, groups, onAddStudent, onRes
           </div>
         </div>
 
-        {/* Detalle: solo visible al desplegar */}
-        {isOpen && (
-          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
-              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
-              <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
-                {s.credType === "pin" ? "PIN" : "Contraseña"}
-              </span>
-              {exercises.length > 0 && (
-                <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
-                  {doneExs.length}/{exercises.length} ejs.
+        {/* Detalle: solo visible al desplegar (altura animada) */}
+        <div className={`fa-expand${isOpen ? " fa-open" : ""}`}>
+          <div className="fa-expand-inner">
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
+                <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+                <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
+                  {s.credType === "pin" ? "PIN" : "Contraseña"}
                 </span>
-              )}
-              <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
-            </div>
-            {doneExs.length === 0
-              ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
-              : doneExs.map((ex) => {
-                  const r = sRes[ex.id];
-                  const needsCorrection = r && !r.teacherCorrection?.corrected && (
-                    r.type === "esquema" ||
-                    (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
-                  );
-                  return (
-                    <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
-                      <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                        {needsCorrection && (
-                          <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
-                        )}
-                        <ScoreBadge score={r.score} />
-                        <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                {exercises.length > 0 && (
+                  <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
+                    {doneExs.length}/{exercises.length} ejs.
+                  </span>
+                )}
+                <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
+              </div>
+              {doneExs.length === 0
+                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
+                : doneExs.map((ex) => {
+                    const r = sRes[ex.id];
+                    const needsCorrection = r && !r.teacherCorrection?.corrected && (
+                      r.type === "esquema" ||
+                      (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
+                    );
+                    return (
+                      <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
+                        <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                        <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                          {needsCorrection && (
+                            <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
+                          )}
+                          <ScoreBadge score={r.score} />
+                          <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-            }
+                    );
+                  })
+              }
+            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -7611,7 +7852,7 @@ function PaletteMenuButton({ current, onSelect, label = "Paleta" }) {
         <Chevron open={open} size={11} color={C.muted} />
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 172 }}>
+        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 172 }}>
           <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, padding: "4px 8px 6px" }}>{label}</div>
           {SCHEMA_PALETTES.map((pal) => {
             const active = (current || SCHEMA_PALETTE_DEFAULT) === pal.id;
@@ -9812,6 +10053,8 @@ export default function App() {
 
   // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
   const supabaseRef = useRef(null);
+  // Contador de escrituras en vuelo hacia Supabase.
+  const pendingSavesRef = useRef(0);
 
   // Estado global
   const [exercises,    setExercises]    = useState(INIT_EXERCISES);
@@ -9924,28 +10167,44 @@ export default function App() {
     })();
   }, []);
 
+  // Advierte al usuario si recarga mientras hay escrituras en vuelo.
+  useEffect(() => {
+    const handler = (e) => {
+      if (pendingSavesRef.current > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   // ─── Helpers de upsert ───────────────────────────────────────────────────
   // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
   // simplemente retornan sin hacer nada: el estado React ya se actualizó.
+
   const dbUpsertExercise = async (ex) => {
     const sb = supabaseRef.current; if (!sb) return;
     // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
     // eslint-disable-next-line no-unused-vars
     const { waveformData, ...rest } = ex;
-    await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    pendingSavesRef.current++;
+    const { error } = await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
+    pendingSavesRef.current--;
+    if (error) console.error("[fa_exercises] Error al guardar:", error.message, ex.id);
   };
   const dbDeleteExercise = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
 
-  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").upsert({ id: u.id, data: u }); };
+  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_users").upsert({ id: u.id, data: u }); if (error) console.error("[fa_users] Error al guardar:", error.message); };
   const dbDeleteUser   = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
 
-  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").upsert({ id: c.id, data: c }); };
+  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_categories").upsert({ id: c.id, data: c }); if (error) console.error("[fa_categories] Error al guardar:", error.message); };
   const dbDeleteCategory = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
 
-  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").upsert({ id: c.id, data: c }); };
+  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_courses").upsert({ id: c.id, data: c }); if (error) console.error("[fa_courses] Error al guardar:", error.message); };
   const dbDeleteCourse = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
 
-  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").upsert({ id: u.id, data: u }); };
+  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_units").upsert({ id: u.id, data: u }); if (error) console.error("[fa_units] Error al guardar:", error.message); };
   const dbDeleteUnit = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
 
   const dbUpsertResult = async (userId, exerciseId, data) => {
@@ -10026,13 +10285,9 @@ export default function App() {
   };
 
   const updateExercise = (id, patch) => {
-    let updated = null;
-    setExercises((prev) => {
-      const next = prev.map((e) => e.id === id ? { ...e, ...patch } : e);
-      updated = next.find((e) => e.id === id) || null;
-      return next;
-    });
-    if (updated) dbUpsertExercise(updated);
+    const current = exercises.find((e) => e.id === id);
+    setExercises((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
+    if (current) dbUpsertExercise({ ...current, ...patch });
   };
 
   const deleteExercise = (id) => {
@@ -10100,16 +10355,12 @@ export default function App() {
     dbDeleteCourse(id);
   };
 
-  // ─── Units (con fix de race condition usando setState callback) ─────────
+  // ─── Units ───────────────────────────────────────────────────────────────
   const addUnit = (newUnit, courseId) => {
+    const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => [...prev, newUnit]);
-    let updatedCourse = null;
-    setCourses((prev) => {
-      const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c);
-      updatedCourse = next.find((c) => c.id === courseId) || null;
-      return next;
-    });
-    if (updatedCourse) dbUpsertCourse(updatedCourse);
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: [...existingCourse.unitIds, newUnit.id] });
     dbUpsertUnit(newUnit);
   };
 
@@ -10119,39 +10370,30 @@ export default function App() {
   };
 
   const deleteUnit = (unitId, courseId) => {
+    const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
-    let updatedCourse = null;
-    setCourses((prev) => {
-      const next = prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c);
-      updatedCourse = next.find((c) => c.id === courseId) || null;
-      return next;
-    });
-    if (updatedCourse) dbUpsertCourse(updatedCourse);
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: existingCourse.unitIds.filter((id) => id !== unitId) });
     dbDeleteUnit(unitId);
   };
 
   const addExercisesToUnit = (unitId, exIds) => {
-    let updated = null;
-    setUnits((prev) => {
-      const next = prev.map((u) => {
-        if (u.id !== unitId) return u;
-        const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
-        return { ...u, exerciseIds: merged };
-      });
-      updated = next.find((u) => u.id === unitId) || null;
-      return next;
-    });
-    if (updated) dbUpsertUnit(updated);
+    const existingUnit = units.find((u) => u.id === unitId);
+    setUnits((prev) => prev.map((u) => {
+      if (u.id !== unitId) return u;
+      const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
+      return { ...u, exerciseIds: merged };
+    }));
+    if (existingUnit) {
+      const merged = [...existingUnit.exerciseIds, ...exIds.filter((id) => !existingUnit.exerciseIds.includes(id))];
+      dbUpsertUnit({ ...existingUnit, exerciseIds: merged });
+    }
   };
 
   const removeExerciseFromUnit = (unitId, exId) => {
-    let updated = null;
-    setUnits((prev) => {
-      const next = prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u);
-      updated = next.find((u) => u.id === unitId) || null;
-      return next;
-    });
-    if (updated) dbUpsertUnit(updated);
+    const existingUnit = units.find((u) => u.id === unitId);
+    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u));
+    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: existingUnit.exerciseIds.filter((id) => id !== exId) });
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
