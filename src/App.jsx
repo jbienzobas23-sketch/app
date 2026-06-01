@@ -3455,14 +3455,17 @@ function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, o
 // categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
 // Así la botonera no se repinta con cada tick de tiempo (~10 fps).
 function fnButtonsEqual(a, b) {
-  return a.buttons === b.buttons && a.pressing === b.pressing;
+  return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows;
 }
 
 // Botonera de funciones (T/S/D…) pulsables con tecla
-const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp }) {
+const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false }) {
   const isMobile = useIsMobile();
+  // Por defecto, hasta 3 columnas. Con twoRows (grados I–VII), se reparten en
+  // exactamente 2 filas → ceil(n/2) columnas (p. ej. 7 grados → 4 + 3).
+  const cols = twoRows ? Math.ceil(buttons.length / 2) : Math.min(buttons.length, 3);
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(buttons.length, 3)}, 1fr)`, gap: 10, marginBottom: 4 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10, marginBottom: 4 }}>
       {buttons.map((b) => {
         const isActive = pressing?.fn === b.id;
         return (
@@ -3850,7 +3853,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         )}
 
-        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} />
+        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} />
       </div>
 
       <StickyActionBar
@@ -8347,7 +8350,17 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
 
   const toggleCategory = (id) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
-    if (next.has(id)) { if (next.size > 1) next.delete(id); } else next.add(id);
+    if (next.has(id)) { if (next.size > 1) next.delete(id); return next; }
+    // Categorías de grados con cifrado: son exclusivas (van solas). Al activar
+    // una, se deselecciona el resto; al activar otra categoría, se quita esta.
+    const cat = categories.find((c) => c.id === id);
+    if (cat?.hasFigures) return new Set([id]);
+    // Si había una categoría de grados activa, quitarla al añadir una normal.
+    for (const cid of next) {
+      const c = categories.find((x) => x.id === cid);
+      if (c?.hasFigures) next.delete(cid);
+    }
+    next.add(id);
     return next;
   });
 
@@ -8480,6 +8493,9 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       return { ...cat, buttons: btns.length >= 1 ? btns : cat.buttons };
     };
     const safe = (chosen.length ? chosen : (hasInteractivo ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
+    // Las categorías de grados con cifrado requieren pistas visibles (el alumno
+    // rellena sobre los huecos de la clave). Se fuerza showHint = true.
+    const forceHint = hasInteractivo && safe.some((c) => c.hasFigures);
 
     if (isCreating) {
       onCreate({
@@ -8494,7 +8510,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
         audioFragmentStart:  fragStart    ?? null,
         audioFragmentEnd:    fragEnd      ?? null,
         audioTotalDuration:  totalAudioDuration || null,
-        showHint: false,
+        showHint: forceHint,
         categories: hasInteractivo ? safe : [],
         answers:    {},
         ...(hasCuestionario ? { questions: [] } : {}),
@@ -8512,6 +8528,7 @@ function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQue
       patch.categories = safe;
       patch.modes      = undefined;
       patch.answers    = Object.fromEntries(Object.entries(prev).filter(([id]) => keepIds.has(id)));
+      if (forceHint) patch.showHint = true;
     } else {
       patch.categories = [];
       patch.answers    = {};
