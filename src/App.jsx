@@ -2491,7 +2491,13 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // ~10 fps para el contador de tiempo visible → mucho menos re-renders.
   const lastSetTimeRef   = useRef(0);
   playingRef.current     = playing;
-  timeRef.current        = time;
+  // timeRef es la fuente de verdad del canvas (60 fps). Durante la reproducción
+  // lo gobierna el bucle rAF; NO debemos pisarlo aquí con `time` (estado de React
+  // throttleado a ~10 fps), porque cada re-render —p. ej. al pulsar/soltar un
+  // botón de función— retrocedería timeRef al último valor throttleado y la onda
+  // daría un salto a la derecha y volvería. Solo sincronizamos cuando NO se
+  // reproduce (seek/scrub manual, donde setTime sí es la fuente de verdad).
+  if (!playing) timeRef.current = time;
 
   const stopSource = () => {
     if (sourceRef.current) {
@@ -2555,29 +2561,38 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exercise.id, audioUrl]);
 
-  // Timer simulado cuando no hay audio real
+  // Timer simulado cuando no hay audio real.
+  // El avance se calcula SOBRE timeRef (fuente de verdad para el canvas), no
+  // sobre el estado `time` de React. Antes el updater de setTime escribía
+  // timeRef.current dentro de sí mismo (efecto secundario impuro); en
+  // StrictMode —o al batchear con setPressing/setIntervals de una pulsación—
+  // React reejecutaba ese updater desde un estado base anterior y dejaba en
+  // timeRef un valor menor durante 1 frame → la onda saltaba a la derecha y
+  // volvía. Ahora timeRef se actualiza una sola vez por tick, fuera de React.
   const timerRef = useRef(null);
   useEffect(() => {
-    if (playing && !hasAudio) {
-      timerRef.current = setInterval(() => {
-        if (scrubbingRef.current) return;
-        setTime((t) => {
-          const lq = loopRegionRef?.current;
-          let next;
-          if (lq && t >= lq.audioEnd) {
-            next = lq.audioStart;
-          } else if (!lq && t >= dur) {
-            timeRef.current = dur;
-            setPlaying(false);
-            return dur;
-          } else {
-            next = t + 0.05;
-          }
-          timeRef.current = next;
-          return next;
-        });
-      }, 50);
-    }
+    if (!playing || hasAudio) return;
+    let last = performance.now();
+    timerRef.current = setInterval(() => {
+      if (scrubbingRef.current) return;
+      const now = performance.now();
+      const dt = (now - last) / 1000;
+      last = now;
+      const lq = loopRegionRef?.current;
+      let next;
+      if (lq && timeRef.current >= lq.audioEnd) {
+        next = lq.audioStart;
+      } else if (!lq && timeRef.current >= dur) {
+        timeRef.current = dur;
+        setTime(dur);
+        setPlaying(false);
+        return;
+      } else {
+        next = Math.min(dur, timeRef.current + dt);
+      }
+      timeRef.current = next;     // fuente de verdad (canvas) — una sola escritura
+      setTime(next);              // espejo para React (texto de tiempo, etc.)
+    }, 50);
     return () => clearInterval(timerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, dur, hasAudio]);
@@ -2642,6 +2657,8 @@ function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = 
       if (wasPlaying) {
         stopSource();
         playOffsetRef.current = Math.min(dur, playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current));
+        timeRef.current = playOffsetRef.current;   // fija el valor exacto al pausar
+        setTime(playOffsetRef.current);            // evita retroceso al sincronizar en !playing
         setPlaying(false);
       } else {
         stopSource();                        // safety: matar cualquier fuente huérfana
