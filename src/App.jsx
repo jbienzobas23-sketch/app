@@ -2327,8 +2327,8 @@ function StudentDash({ user, exercises, results, courses, units, groups = [], on
   }, [exercises, filterModel, filterDone, results]);
 
   return (
-    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}>
-      <div style={{ ...S.page, margin: "auto", width: "100%", padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
+    <div style={S.app}>
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
         {user.isGuest && (
           <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
@@ -3729,7 +3729,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   return (
     <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (selected !== null) setSelected(null); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="interactivo" />
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
 
         {modelToggleNode}
 
@@ -5521,7 +5521,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}
         onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
         onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
@@ -6994,7 +6994,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   return (
     <div style={{ ...S.app, display: "flex", flexDirection: "column" }} onMouseDown={() => { if (lockedQuestion) unlockAudio(); }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="cuestionario" />
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
 
         {modelToggleNode}
 
