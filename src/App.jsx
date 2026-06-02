@@ -185,7 +185,7 @@ const DEFAULT_CATEGORY = {
 const CATEGORY_COLORS = ["#3F9B5B","#2F6FB8","#C77A1A","#B84A3A","#9A4FB8","#C75A8E","#3A8CA8","#C9A33A"];
 const KEY_SEQUENCE    = ["a","s","d","f","j","k","l","g"];
 const VISIBLE_SECS    = 10;
-const IV_BAND_H       = 28;   // altura de la banda de respuesta en modo interactivo
+const IV_BAND_H       = 38;   // altura de la banda de respuesta en modo interactivo
 const IV_BAND_GAP     =  6;   // separación entre onda y banda
 const EMPTY_IVS       = [];   // referencia estable para listas de intervalos vacías
 
@@ -993,9 +993,6 @@ function useInjectFonts() {
         // Desplegables flotantes (menús, sugerencias): fade + leve descenso/escala
         // desde el borde superior. Curva con un pelín de overshoot para ligereza.
         + "@keyframes faPop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}"
-        // Carga de mantener pulsado un grado 2s → modo colorear. Invisible el 1er
-        // segundo (0-50%); en la 2ª mitad se tiñe y crece para anticipar el cambio.
-        + "@keyframes faHoldCharge{0%,50%{opacity:0;transform:scale(.8)}100%{opacity:.9;transform:scale(1)}}"
         + ".fa-pop{animation:faPop .16s cubic-bezier(.34,1.4,.64,1);transform-origin:top center}"
         // Tarjetas/secciones expandibles en flujo: anima la altura con el truco
         // grid-rows 0fr→1fr (sin medir px). Envuelve el contenido en .fa-expand-inner.
@@ -3301,24 +3298,24 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
             if (fg && fg.top) {
               // Romano + cifrado de bajo apilado a la derecha (estilo análisis).
               // El conjunto se centra: romano a la izquierda, dígitos a la derecha.
-              const fs = 7;
-              ctx.font = `700 10px ${FONT_MONO}`;
+              const fs = 9;
+              ctx.font = `700 13px ${FONT_MONO}`;
               const romW = ctx.measureText(iv.fn).width;
-              const figW = 9;                         // ancho aproximado del bloque de cifra
-              const totalW = romW + 1 + figW;
+              const figW = 11;                        // ancho aproximado del bloque de cifra
+              const totalW = romW + 1.5 + figW;
               const startX = cx - totalW / 2;
               ctx.textAlign = "left"; ctx.textBaseline = "middle";
               ctx.fillText(iv.fn, startX, cy);
-              const fx = startX + romW + 1;
+              const fx = startX + romW + 1.5;
               if (fg.bot) {
-                drawGlyph(fg.top, fx, cy - 4, fs);
-                drawGlyph(fg.bot, fx, cy + 4, fs);
+                drawGlyph(fg.top, fx, cy - 5, fs);
+                drawGlyph(fg.bot, fx, cy + 5, fs);
               } else {
                 drawGlyph(fg.top, fx, cy, fs);
               }
             } else {
               ctx.textAlign = "center"; ctx.textBaseline = "middle";
-              ctx.font = `700 10px ${FONT_MONO}`;
+              ctx.font = `700 13px ${FONT_MONO}`;
               ctx.fillText(iv.fn, cx, cy);
             }
           }
@@ -3598,66 +3595,55 @@ function FigureLabel({ item, color = "currentColor", size = 13 }) {
 }
 
 // Botonera de funciones (T/S/D…) pulsables con tecla.
-// onHold(fn): se dispara al mantener pulsado un botón 2 s (→ modo colorear).
 // hideNames: oculta el nombre bajo el botón (redundante en grados).
 // paintFn: id del botón activo como pincel (modo colorear) → se resalta.
-const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, onHold, twoRows = false, hideNames = false, paintFn = null }) {
+// twoRows: reparte los botones en exactamente 2 filas que ocupan todo el ancho
+//   (cada fila con flex:1), aunque los botones no queden alineados verticalmente.
+const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false, hideNames = false, paintFn = null }) {
   const isMobile = useIsMobile();
-  const [heldFn, setHeldFn] = useState(null);     // botón en carga (para la animación)
-  const timerRef = useRef(null);
-  const firedRef = useRef(false);                 // el hold de 2 s ya activó modo colorear
-  const cols = twoRows ? Math.ceil(buttons.length / 2) : Math.min(buttons.length, 3);
 
-  const begin = (fn) => {
-    firedRef.current = false;
-    setHeldFn(fn);
-    onDown(fn);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => { firedRef.current = true; setHeldFn(null); onHold && onHold(fn); }, 2000);
-  };
-  const finish = (fn, leaving) => {
-    clearTimeout(timerRef.current);
-    setHeldFn(null);
-    if (firedRef.current) { firedRef.current = false; return; }  // ya entró en colorear
-    if (leaving) { if (pressing?.fn === fn) onUp(fn); }
-    else onUp(fn);
+  const renderBtn = (b) => {
+    const isActive = pressing?.fn === b.id || paintFn === b.id;
+    return (
+      <button key={b.id}
+        onMouseDown={(e) => { e.stopPropagation(); onDown(b.id); }}
+        onMouseUp  ={() => onUp(b.id)}
+        onMouseLeave={() => { if (pressing?.fn === b.id) onUp(b.id); }}
+        onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); onDown(b.id); }}
+        onTouchEnd  ={(e) => { e.preventDefault(); onUp(b.id); }}
+        style={{
+          flex: 1, minWidth: 0,
+          background: isActive ? b.color : C.paper,
+          border:     `1.5px solid ${isActive ? b.color : C.line}`,
+          color:      isActive ? C.paper : b.color,
+          borderRadius: 16, padding: isMobile ? "20px 8px" : "18px 8px", cursor: "pointer",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+          transition: "background .08s, color .08s, border-color .08s, transform .08s, box-shadow .08s",
+          transform: isActive ? "scale(0.97)" : "scale(1)",
+          boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
+          userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
+        }}>
+        <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+        {!hideNames && <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
+        {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
+      </button>
+    );
   };
 
+  if (twoRows) {
+    const half = Math.ceil(buttons.length / 2);
+    const row1 = buttons.slice(0, half), row2 = buttons.slice(half);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
+        <div style={{ display: "flex", gap: 10 }}>{row1.map(renderBtn)}</div>
+        <div style={{ display: "flex", gap: 10 }}>{row2.map(renderBtn)}</div>
+      </div>
+    );
+  }
+  const cols = Math.min(buttons.length, 3);
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10, marginBottom: 4 }}>
-      {buttons.map((b) => {
-        const isActive = pressing?.fn === b.id || paintFn === b.id;
-        const isHeld   = heldFn === b.id;
-        return (
-          <button key={b.id}
-            onMouseDown={(e) => { e.stopPropagation(); begin(b.id); }}
-            onMouseUp  ={() => finish(b.id, false)}
-            onMouseLeave={() => { if (heldFn === b.id) finish(b.id, true); }}
-            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); begin(b.id); }}
-            onTouchEnd  ={(e) => { e.preventDefault(); finish(b.id, false); }}
-            style={{
-              position: "relative", overflow: "hidden",
-              background: isActive ? b.color : C.paper,
-              border:     `1.5px solid ${isActive ? b.color : C.line}`,
-              color:      isActive ? C.paper : b.color,
-              borderRadius: 16, padding: isMobile ? "20px 8px" : "18px 8px", cursor: "pointer",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-              transition: "background .08s, color .08s, border-color .08s, transform .08s, box-shadow .08s",
-              transform: isActive ? "scale(0.97)" : "scale(1)",
-              boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
-              userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
-            }}>
-            {/* Carga de mantener pulsado: invisible el 1er segundo; en la 2ª mitad
-                aparece un anillo de color que crece (no tapa el número). */}
-            {isHeld && (
-              <span style={{ position: "absolute", inset: 0, borderRadius: 16, border: `2.5px solid ${b.color}`, boxSizing: "border-box", background: `${b.color}1F`, opacity: 0, animation: "faHoldCharge 2s linear forwards", pointerEvents: "none" }} />
-            )}
-            <span style={{ position: "relative", zIndex: 1, fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
-            {!hideNames && <span style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
-            {!isMobile && <span style={{ position: "relative", zIndex: 1, fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
-          </button>
-        );
-      })}
+      {buttons.map(renderBtn)}
     </div>
   );
 }, fnButtonsEqual);
@@ -3813,11 +3799,13 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exCategory]);
 
-  // Mantener 2 s un grado → modo colorear (pincel = ese grado). Si reproduce, pausa.
-  const handleHold = (fn) => {
+  // Entrar/salir del modo colorear (desde el botón del banner inferior).
+  // Al entrar: pincel = grado actualmente activo (o el primero); si reproduce, pausa.
+  const togglePaintMode = () => {
+    if (paintFnRef.current) { setPaintFn(null); return; }
     pressingRef.current = null; setPressing(null);
     if (playingRef2.current) togglePlay();   // detener música al entrar en colorear
-    setPaintFn(fn);
+    setPaintFn(exCategory.buttons[0]?.id || null);
   };
 
   const handleFnDown = (fn) => {
@@ -4050,7 +4038,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         )}
 
-        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} onHold={handleHold} twoRows={!!exCategory.hasFigures} hideNames={!!exCategory.hasFigures} paintFn={paintFn} />
+        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} hideNames={!!exCategory.hasFigures} paintFn={paintFn} />
 
         {/* Control de cifrado (categorías de grados): debajo de los botones.
             Switch Tríada/Cuatríada grande + opciones de inversión. */}
@@ -4062,22 +4050,24 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             const isSel = curFig === item.id;
             return (
               <button key={item.id} className="fa-pressable" onClick={() => setFig(item.id)}
-                style={{ background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, minWidth: 44, height: 44, padding: "2px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} size={15} />
+                style={{ width: "100%", minHeight: 52, background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 12, padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s, border-color .15s" }}>
+                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} size={18} />
               </button>
             );
           };
           return (
-            <div onMouseDown={(e) => e.stopPropagation()} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* Switch grande Tríada / Cuatríada */}
+            <div onMouseDown={(e) => e.stopPropagation()} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Switch Tríada / Cuatríada con pastilla deslizante (transición sutil) */}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ display: "flex", flex: 1, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4, gap: 4 }}>
+                <div style={{ position: "relative", display: "flex", flex: 1, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4 }}>
+                  {/* Indicador deslizante */}
+                  <div style={{ position: "absolute", top: 4, bottom: 4, left: 4, width: "calc(50% - 4px)", borderRadius: 999, background: C.ink, transform: isQuad ? "translateX(100%)" : "translateX(0)", transition: "transform .22s cubic-bezier(.4,0,.2,1)" }} />
                   {[{ k: "triada", label: "Tríada" }, { k: "quad", label: "Cuatríada" }].map(({ k, label }) => {
                     const active = k === "triada" ? !isQuad : isQuad;
                     return (
-                      <button key={k} className="fa-pressable"
+                      <button key={k}
                         onClick={() => setFig(k === "triada" ? "t0" : FIG_GROUPS[quadGroupsForDegree(selectedIv.fn)[0]].items[0].id)}
-                        style={{ flex: 1, padding: "9px 0", fontSize: 14, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: "none", background: active ? C.ink : "transparent", color: active ? C.paper : C.muted, cursor: "pointer", transition: "background .15s, color .15s" }}>
+                        style={{ position: "relative", zIndex: 1, flex: 1, padding: "9px 0", fontSize: 14, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: "none", background: "transparent", color: active ? C.paper : C.muted, cursor: "pointer", transition: "color .2s" }}>
                         {label}
                       </button>
                     );
@@ -4087,20 +4077,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                   style={{ ...S.btnDanger, padding: "0 12px", height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
               </div>
 
-              {/* Opciones de inversión */}
+              {/* Opciones de inversión: botones grandes en columnas verticales.
+                  Una columna por familia (cada inversión apilada). */}
               {!isQuad ? (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 220 }}>
                   {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} />)}
                 </div>
               ) : (
-                quadGroupsForDegree(selectedIv.fn).map((gk) => (
-                  <div key={gk} style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, minWidth: 104, flexShrink: 0 }}>{FIG_GROUPS[gk].label}</span>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  {quadGroupsForDegree(selectedIv.fn).map((gk) => (
+                    <div key={gk} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, textAlign: "center", lineHeight: 1.2, minHeight: 26, display: "flex", alignItems: "center", justifyContent: "center" }}>{FIG_GROUPS[gk].label}</span>
                       {FIG_GROUPS[gk].items.map((it) => <FigBtn key={it.id} item={it} />)}
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           );
@@ -4108,12 +4099,21 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       </div>
 
       <StickyActionBar
+        secondary={
+          <button onClick={togglePaintMode} className="fa-pressable" title="Pintar respuestas a mano sobre la onda"
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, cursor: "pointer", flexShrink: 0,
+              fontFamily: F.sans, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+              border: `1.5px solid ${paintFn ? C.ink : C.line}`, background: paintFn ? C.ink : C.paper, color: paintFn ? C.paper : C.ink2,
+              transition: "background .15s, color .15s, border-color .15s" }}>
+            🖌️ {paintFn ? "Coloreando" : "Colorear"}
+          </button>
+        }
         info={
           <>
             <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
               {markedCount === 0 ? "Sin marcas todavía" : `${markedCount} ${markedCount === 1 ? "fragmento marcado" : "fragmentos marcados"}`}
             </span>
-            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Mantén pulsada la función mientras suena</span>
+            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>{paintFn ? "Arrastra sobre la onda para pintar" : "Mantén pulsada la función mientras suena"}</span>
           </>
         }>
         <BarSubmitButton onClick={handleSubmit}>{submitLabel}</BarSubmitButton>
