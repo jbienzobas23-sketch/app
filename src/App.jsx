@@ -3371,7 +3371,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
     const st = stateRef.current;
     if (st.paintFn) {
       e.stopPropagation();
-      const W = rect.width, pxPerSec = W / VISIBLE_SECS;
+      const W = rect.width;
       const tAt = (clientX) => {
         const t0 = (st.timeRef?.current ?? st.time);
         return Math.max(0, Math.min(st.duration, t0 + ((clientX - rect.left) - W / 2) * VISIBLE_SECS / W));
@@ -4430,10 +4430,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
   const [guides,       setGuides]       = useState([]);
   const [localReps,    setLocalReps]    = useState(exercise.repetitions || []);
   const [showRepModal, setShowRepModal] = useState(false);
-  // repDraw: null | { step:"first"|"second"|"done"|"error", first?, second?, pendingStart?, pendingEnd? }
-  const [repDraw,      setRepDraw]      = useState(null);
   // selectedPass: { [repId]: "first"|"second" } — qué vez mostrar cuando no está sonando
-  const [selectedPass,    setSelectedPass]    = useState({});
+  const [selectedPass]    = useState({});
   const repResizeRef    = useRef(null);   // drag de resize de zona de repetición
   const [repResizeGuide, setRepResizeGuide] = useState(null); // null | { xFrac, color }
   const localRepsRef = useRef(localReps);
@@ -4564,13 +4562,12 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     };
     outer.addEventListener('wheel', handler, { passive: false });
     return () => outer.removeEventListener('wheel', handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   // ── Guardar repeticiones desde el modal ─────────────────────────────────
   const handleSaveRepetitions = newReps => {
     setShowRepModal(false);
-    setRepDraw(null);
     const oldIds = new Set(localRepsRef.current.map(r => r.id));
     const newIds = new Set(newReps.map(r => r.id));
     setBlocksSnap(prev => {
@@ -4741,33 +4738,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     window.addEventListener("touchend",  up);
   };
 
-  // Añadir repetición programáticamente: usa el siguiente bloque de nivel 1 si existe,
-  // o un tamaño por defecto si no hay ninguna parte delimitada todavía.
-  const handleAddNextRep = e => {
-    e.stopPropagation();
-    const sorted  = [...localRepsRef.current].sort((a, b) => a.second.end - b.second.end);
-    const lastEnd = sorted[sorted.length - 1]?.second.end ?? 0;
-    // Intentar anclar a la siguiente Parte disponible
-    const nextParte = blocksRef.current
-      .filter(b => b.level === 1 && !b.isPreview && b.start >= lastEnd - 0.5)
-      .sort((a, b) => a.start - b.start)[0];
-    let fs, fe;
-    if (nextParte) {
-      fs = nextParte.start; fe = nextParte.end;
-    } else {
-      // Sin partes: tamaño por defecto
-      const avail = duration - lastEnd;
-      if (avail < SCHEMA_MIN_DUR * 2) return;
-      const d = Math.max(SCHEMA_MIN_DUR, Math.min(Math.round(Math.min(avail / 2.5, 30) * 10) / 10, 20));
-      fs = lastEnd; fe = Math.min(duration - SCHEMA_MIN_DUR, fs + d);
-    }
-    const se = Math.min(duration, fe + (fe - fs));
-    handleSaveRepetitions([
-      ...localRepsRef.current,
-      { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
-    ]);
-  };
-
   // Iniciar drag de asa de borde
   // handle: "first.start" | "junction" (first.end = second.start) | "second.end"
   const handleBandHandleDown = (e, rep, handle) => {
@@ -4820,76 +4790,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     window.addEventListener("touchend",  up);
   };
 
-  // ── Dibujar repetición arrastrando en la regla ───────────────────────────
-  const handleDrawDown = e => {
-    if (!repDraw || repDraw.step === "done" || repDraw.step === "error") return;
-    e.preventDefault();
-    e.stopPropagation();
-    const el = rulerContainerRef.current; if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const toT = ev => {
-      const x = ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
-      return containerXToRec(Math.max(0, Math.min(1, (x - rect.left) / rect.width)));
-    };
-    const startT = toT(e);
-    setRepDraw(prev => {
-      if (!prev) return null;
-      // En paso 2, el inicio siempre es first.end
-      const ps = prev.step === "second" ? prev.first.end : startT;
-      return { ...prev, pendingStart: ps, pendingEnd: startT };
-    });
-    const mv = ev => {
-      if (ev.cancelable) ev.preventDefault();
-      setRepDraw(prev => {
-        if (!prev) return null;
-        // En paso 2, pendingStart fijo en first.end
-        const ps = prev.step === "second" ? prev.first.end : prev.pendingStart;
-        return { ...prev, pendingStart: ps, pendingEnd: toT(ev) };
-      });
-    };
-    const up = () => {
-      setRepDraw(prev => {
-        if (!prev || prev.pendingStart === null) return prev;
-        if (prev.step === "first") {
-          const s  = Math.min(prev.pendingStart, prev.pendingEnd ?? prev.pendingStart);
-          const e2 = Math.max(prev.pendingStart, prev.pendingEnd ?? prev.pendingStart);
-          if (e2 - s < 1) return { ...prev, pendingStart: null, pendingEnd: null };
-          return { step: "second", first: { start: s, end: e2 }, pendingStart: null, pendingEnd: null };
-        }
-        if (prev.step === "second") {
-          // Inicio fijo en first.end; el usuario solo arrastra el final
-          const endT = Math.max(prev.pendingEnd ?? prev.first.end, prev.first.end + 1);
-          return { step: "done", first: prev.first, second: { start: prev.first.end, end: endT } };
-        }
-        return prev;
-      });
-      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
-      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
-    };
-    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
-    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
-  };
-
-  // Confirmar repetición cuando llega al estado "done"
-  useEffect(() => {
-    if (repDraw?.step !== "done") return;
-    let { first, second } = repDraw;
-    // Enganche al inicio si la 1ª vez empieza antes de 5 s
-    if (first.start < 5) first = { ...first, start: 0 };
-    // Garantizar second.start = first.end siempre
-    second = { ...second, start: first.end };
-    handleSaveRepetitions([...localRepsRef.current, { id: uid("rep"), label: "", first, second }]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repDraw?.step]);
-
-  // Cancelar con ESC
-  useEffect(() => {
-    if (!repDraw) return;
-    const onKey = e => { if (e.key === "Escape") setRepDraw(null); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [!!repDraw]);
-
   // Delete / Backspace — borrar bloque o repetición seleccionada
   useEffect(() => {
     const onKey = e => {
@@ -4909,13 +4809,15 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // deleteRepeat lee localRepsRef.current (siempre actualizado); no necesita estar en deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, selectedRepId]);
 
   // ── Resize de barras de repetición arrastrando en la regla ─────────────
   const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
 
   const handleRepZoneRulerDown = (e, seg, pass) => {
-    if (repDraw || listenOnly) return;
+    if (listenOnly) return;
     const rowKey = `ruler_${seg.index}_${pass}`;
     const rowEl  = trackSegRefs.current[rowKey]; if (!rowEl) return;
     const rowRect  = rowEl.getBoundingClientRect();
@@ -4936,7 +4838,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
     const field = pass === "first"
       ? (isLeft ? "first.start" : "junction")
       : (isLeft ? "junction"    : "second.end");
-    const color = pass === "first" ? C.fnS : C.fnT;
     repResizeRef.current = { repId: rep.id, field, rulerRect, seg, rep: { ...rep, first: { ...rep.first }, second: { ...rep.second } } };
 
     const toXFrac = ev => Math.max(0, Math.min(1, (getClientX(ev) - rulerRect.left) / rulerRect.width));
@@ -4986,7 +4887,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
   // Cursor ew-resize al pasar por los bordes (sin asa visible)
   const handleRepRowMouseMove = (e, rowEl) => {
-    if (!rowEl || repDraw) return;
+    if (!rowEl) return;
     const rect  = rowEl.getBoundingClientRect();
     const distL = getClientX(e) - rect.left;
     const distR = rect.right - getClientX(e);
@@ -5332,7 +5233,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
       window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend",    onUp);
       window.removeEventListener("touchcancel", onUp);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [duration]);
 
   // ── Edición de etiquetas ─────────────────────────────────────────────────
@@ -5483,8 +5384,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
   };
 
   const SCHEMA_HND_W   = 18;
-  const SCHEMA_HND_H   = Math.round(50 * 2 / 3);
-  const SCHEMA_HND_TOP = 6 + Math.round((50 - SCHEMA_HND_H) / 2);
 
   const activeLevels = SCHEMA_LEVELS.filter(lv =>
     !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
@@ -6064,9 +5963,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
               if (seg.type === "normal") {
                 const bounds  = getSegBounds(seg, "normal");
                 const segDur  = (bounds.max - bounds.min) || 1;
-                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
-                const ticks   = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
-                const phPct   = time >= bounds.min && time <= bounds.max ? ((time - bounds.min) / segDur) * 100 : null;
                 return (
                   <div key={si}
                     ref={el => trackSegRefs.current[`ruler_${si}_normal`] = el}
@@ -6103,12 +5999,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
                 const isFirst = seg.type === "repeat-first";
                 const pass    = isFirst ? "first" : "second";
                 const bounds  = getSegBounds(seg, pass);
-                const segDur  = bounds.max - bounds.min || 1;
-                const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
-                const ticks   = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
                 const isActive = time >= bounds.min && time < bounds.max;
-                const phPct   = isActive ? ((time - bounds.min) / segDur) * 100 : null;
-                // Tinte muy sutil para info visual: azul claro en 1ª vez, verde claro en 2ª vez
                 const zoneBg  = C.paper2;
                 return (
                   <div key={si}
@@ -6126,17 +6017,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
               // ── Segmento de repetición en la regla (doble altura) ──────────
               const { rep } = seg;
-              const fd = (rep.first.end  - rep.first.start)  || 1;
-              const sd = (rep.second.end - rep.second.start) || 1;
               const isFA = time >= rep.first.start  && time < rep.first.end;
               const isSA = time >= rep.second.start && time < rep.second.end;
-              const fPct = isFA ? ((time - rep.first.start)  / fd) * 100 : null;
-              const sPct = isSA ? ((time - rep.second.start) / sd) * 100 : null;
-              const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
-              const fTicks = rulerTicksForSeg(rep.first.start,  rep.first.end,  segWidthPx * 0.65);
-              const sTicks = rulerTicksForSeg(rep.second.start, rep.second.end, segWidthPx * 0.65);
-              const repLabel = rep.label ? ` — ${rep.label}` : "";
-
               return (
                 <div key={si} style={{ flex: seg.canonDur, position: "relative", display: "flex", flexDirection: "column" }}>
                   {/* Sin barras SVG aquí: el overlay del card exterior las pinta de forma continua */}
@@ -6207,11 +6089,9 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           {viewMode !== "resumida" && (
             <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, background: C.paper, height: 18, flexShrink: 0, overflow: "hidden", userSelect: "none", pointerEvents: "none" }}>
               {segments.map((seg, si) => {
-                const pass = seg.type === "repeat-second" ? "second" : "normal";
                 const bounds = seg.type === "repeat-first" ? { min: seg.rep.first.start, max: seg.rep.first.end }
                              : seg.type === "repeat-second" ? { min: seg.rep.second.start, max: seg.rep.second.end }
                              : { min: 0, max: duration };
-                const segDur = (bounds.max - bounds.min) || 1;
                 const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
                 const ticks = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
                 return (
@@ -6255,13 +6135,8 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
 
                 // ── Segmentos de repetición en vista completa (fila única, continua) ──
                 if (seg.type === "repeat-first" || seg.type === "repeat-second") {
-                  const { rep } = seg;
                   const isFirst = seg.type === "repeat-first";
                   const pass    = isFirst ? "first" : "second";
-                  const bounds    = getSegBounds(seg, pass);
-                  const isActive  = time >= bounds.min && time < bounds.max;
-                  // Fondo: 2ª vez levemente diferente para info visual (sin barras de repetición)
-                  const zoneBg = isFirst ? lv.bg : `${lv.bg.replace(")", ", 0.6)").replace("rgba(", "rgba(").replace("0.08)", "0.12)").replace("0.10)", "0.15)").replace("0.09)", "0.13)")}`;
                   return (
                     <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
                       <div
@@ -6290,7 +6165,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
                 const isSA = time >= rep.second.start && time < rep.second.end;
                 // Qué vez mostrar: la que suena, o la seleccionada manualmente
                 const displayPass = isFA ? "first" : isSA ? "second" : (selectedPass[rep.id] || "first");
-                const isActiveInThis = isFA || isSA;
                 // Barlines en todos los niveles del esquema
                 const barInset = REPEAT_BARLINE_W;
 
@@ -6333,7 +6207,6 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
             const D=(extra)=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
             const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.72)",...extra});
             const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.28)",...extra});
-            const LH = 62; // altura de cada nivel
 
             // Todas las repeticiones cubren todos los niveles activos.
             // top=0, bottom=0 → span completo del contenedor PISTAS.
@@ -7241,7 +7114,7 @@ function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null,
   const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
   // playFrom queda disponible si más adelante se quiere un botón "escuchar este fragmento" desde la card de pregunta.
-  // eslint-disable-next-line no-unused-vars
+   
   const _playFromAvailable = playFrom;
 
   const answeredCount = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== "").length;
