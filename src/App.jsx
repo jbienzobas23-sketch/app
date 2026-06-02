@@ -10540,18 +10540,14 @@ export default function App() {
   const removeUser = (userId) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
-    let changedGroups = [];
-    setGroups((prev) => {
-      changedGroups = [];
-      const next = prev.map((g) => {
-        if (!g.studentIds?.includes(userId)) return g;
-        const updated = { ...g, studentIds: g.studentIds.filter((id) => id !== userId) };
-        changedGroups.push(updated);
-        return updated;
-      });
-      return next;
-    });
-    changedGroups.forEach((g) => dbUpsertGroup(g));
+    setGroups((prev) => prev.map((g) =>
+      g.studentIds?.includes(userId) ? { ...g, studentIds: g.studentIds.filter((id) => id !== userId) } : g
+    ));
+    // Persistir los grupos afectados desde el estado actual (closure), no dentro
+    // del updater de setGroups (correría en render → array vacío al guardar).
+    groups
+      .filter((g) => g.studentIds?.includes(userId))
+      .forEach((g) => dbUpsertGroup({ ...g, studentIds: g.studentIds.filter((id) => id !== userId) }));
     dbDeleteUser(userId);
     dbDeleteResultsForUser(userId);
   };
@@ -10564,14 +10560,15 @@ export default function App() {
 
   // ─── Correction save ─────────────────────────────────────────────────────
   const saveCorrection = (studentId, exerciseId, correction) => {
-    let saved = null;
-    setResults((prev) => {
-      const existing = (prev[studentId] || {})[exerciseId] || {};
-      const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
-      saved = updated;
-      return { ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } };
-    });
-    if (saved) dbUpsertResult(studentId, exerciseId, saved);
+    // El objeto a persistir se calcula ANTES de setState (a partir del estado
+    // actual en el closure). Antes se asignaba dentro del updater de setResults
+    // y se leía justo después; como React ejecuta ese updater en la fase de
+    // render (no de forma síncrona), `saved` seguía siendo null al llamar a
+    // dbUpsertResult → la corrección del profesor no se guardaba en Supabase.
+    const existing = (results[studentId] || {})[exerciseId] || {};
+    const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
+    setResults((prev) => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } }));
+    dbUpsertResult(studentId, exerciseId, updated);
   };
 
   // ─── Groups ──────────────────────────────────────────────────────────────
@@ -10601,18 +10598,17 @@ export default function App() {
 
   const deleteExercise = (id) => {
     setExercises((prev) => prev.filter((e) => e.id !== id));
-    let changedUnits = [];
-    setUnits((prev) => {
-      changedUnits = [];
-      const next = prev.map((u) => {
-        if (!u.exerciseIds.includes(id)) return u;
-        const nu = { ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) };
-        changedUnits.push(nu);
-        return nu;
-      });
-      return next;
-    });
-    changedUnits.forEach((u) => dbUpsertUnit(u));
+    setUnits((prev) => prev.map((u) =>
+      u.exerciseIds.includes(id) ? { ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) } : u
+    ));
+    // Persistir las unidades afectadas. Se calculan desde el estado actual
+    // (closure `units`), NO dentro del updater de setUnits: React ejecuta ese
+    // updater en la fase de render, así que un array capturado dentro seguiría
+    // vacío aquí y las unidades no se guardarían (referencias colgantes al
+    // ejercicio borrado tras recargar).
+    units
+      .filter((u) => u.exerciseIds.includes(id))
+      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) }));
     setResults((prev) => {
       const next = {};
       for (const uid of Object.keys(prev)) {
@@ -10641,13 +10637,13 @@ export default function App() {
     dbDeleteCategory(id);
   };
   const toggleGlobalCategory = (id) => {
-    let cat = null;
-    setCategories((prev) => {
-      const updated = prev.map((c) => c.id === id ? { ...c, global: !c.global } : c);
-      cat = updated.find((c) => c.id === id) || null;
-      return updated;
-    });
-    if (cat) dbUpsertCategory(cat);
+    // Calcular el objeto a persistir desde el estado actual (closure), no dentro
+    // del updater: el updater corre en render y `cat` seguiría null al guardar.
+    const cat = categories.find((c) => c.id === id);
+    if (!cat) return;
+    const updated = { ...cat, global: !cat.global };
+    setCategories((prev) => prev.map((c) => c.id === id ? updated : c));
+    dbUpsertCategory(updated);
   };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
