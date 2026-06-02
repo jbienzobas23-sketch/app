@@ -245,13 +245,6 @@ const quadGroupsForDegree = (fn) => {
   if (fn === "VII") return ["dia", "semi", "dim"];
   return ["dia"];
 };
-const COURSE_ACCENTS  = ["#3F9B5B","#2F6FB8","#C77A1A","#9A4FB8","#3A8CA8","#B84A3A"];
-
-const EXERCISE_MODELS = [
-  { id: "interactivo",  name: "Interactivo",  description: "El alumno marca categorías en vivo durante el audio." },
-  { id: "cuestionario", name: "Cuestionario", description: "Preguntas ancladas a fragmentos concretos del audio." },
-  { id: "esquema",      name: "Esquema",      description: "El alumno dibuja bloques de forma musical en una línea de tiempo multinivel." },
-];
 const DEFAULT_MODEL_ID = "interactivo";
 
 // Opciones de combinación de modelos para el editor (incluye modelos individuales + combos dobles)
@@ -329,8 +322,7 @@ const HARMONY_COLORS = {
   "fa|mayor":   "#FEB8EA",
   "re|menor":   "#E6A3D3",
   "sib|mayor":  "#FE6AB4",
-  "fa#|menor":  "#D4559A",   // Fa# menor = relativa de Sib Mayor (enarmónico Solb menor)
-  "solb|menor": "#D4559A",
+  "sol|menor":  "#D4559A",   // Sol menor = relativa de Sib Mayor
   "mib|mayor":  "#E07FB8",
   "do|menor":   "#B86FA3",
   "lab|mayor":  "#D6A6FF",
@@ -1210,7 +1202,7 @@ function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
 // Banner de ayuda destacado y descartable, al inicio del área de trabajo.
 // Hace evidente el modelo de interacción de un vistazo, sin sustituir el texto
 // fino de pie ya existente (que se mantiene como recordatorio).
-function SessionHint({ modelId, extra = null, storageKeyless = true }) {
+function SessionHint({ modelId, extra = null }) {
   const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
   const storeKey = `fa_hint_seen_${modelId}`;
   const [open, setOpen] = useState(() => {
@@ -1338,10 +1330,6 @@ function StatusCircle({ done, size = 14 }) {
       )}
     </div>
   );
-}
-
-function Chip({ children }) {
-  return <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, background: C.chipBg, color: C.chipInk, borderRadius: 4, padding: "2px 8px" }}>{children}</span>;
 }
 
 function CategoryDots({ buttons }) {
@@ -1769,33 +1757,6 @@ function MetaItem({ label, children }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
       <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: F.sans, fontSize: 12, color: "#666" }}>{children}</span>
-    </div>
-  );
-}
-
-// Cabecera unificada para los tres tipos de vista de ejercicio en sesión
-function ExercisePageHeader({ exercise, onBack }) {
-  return (
-    <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
-      <div style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0,
-            flexShrink: 0, display: "flex", alignItems: "center", gap: 5,
-          }}>
-          <span style={{ fontSize: 15, lineHeight: 1 }}>←</span>
-          <span>Volver</span>
-        </button>
-        <div style={{ width: 1, height: 28, background: C.line, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2,
-          }}>{exercise.title}</div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -3752,7 +3713,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (btn) {
         // En modo colorear, la tecla cambia el pincel; con bloque seleccionado, su grado.
-        if (paintFnRef.current) { setPaintFn(btn.id); if (e.key === " ") {} return; }
+        if (paintFnRef.current) { setPaintFn(btn.id); return; }
         if (selectedRef.current) { const id = selectedRef.current; setIntervals((prev) => prev.map((iv) => iv.id === id ? { ...iv, fn: btn.id } : iv)); return; }
         const now  = timeRef.current;
         const hint = snapHintRef.current?.(now);
@@ -7530,8 +7491,8 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
     .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
   }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
 
-  const hasFilters = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
-  const showFilterBar = exercises.length > 0 && (allComposers.length > 0 || allTags.length > 0 || true);
+  // La barra de filtros se muestra siempre que haya ejercicios.
+  const showFilterBar = exercises.length > 0;
 
   return (
     <>
@@ -10753,7 +10714,6 @@ export default function App() {
     }
   };
 
-  const openQM = (ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
 
   // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
   const completeLogin = (u) => {
@@ -10820,7 +10780,6 @@ export default function App() {
     // Interactivo: payload = { entries: [{ categoryId, intervals }], currentCategoryId }
     const entries          = payload.entries || [];
     const currentCategoryId = payload.currentCategoryId || entries[0]?.categoryId || "default";
-    const cats             = categoriesOf(ex);
 
     const scoreFor = (categoryId, intervals) => {
       const key = answerFor(ex, categoryId);
@@ -10858,8 +10817,6 @@ export default function App() {
       schemaPalette: activePalette,
       timestamp:  Date.now(),
     };
-    // eslint-disable-next-line no-unused-vars
-    const _catsCount = cats.length;
 
     if (isGuest) {
       setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
