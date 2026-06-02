@@ -915,6 +915,12 @@ const answerStats = (exercise) => {
 const btnOf       = (category, id) => category.buttons.find((b) => b.id === id) || category.buttons[0];
 const questionsOf = (exercise)      => (Array.isArray(exercise?.questions) ? exercise.questions : []);
 
+// Listas únicas y ordenadas de compositores / etiquetas del almacén de audios.
+// Centralizadas aquí porque se usaban (con ligeras inconsistencias) en varias
+// pestañas y modales.
+const audioComposers = (audioLibrary) => [...new Set((audioLibrary || []).map((a) => a.composer).filter(Boolean))].sort();
+const audioTags      = (audioLibrary) => [...new Set((audioLibrary || []).flatMap((a) => a.tags || []).filter(Boolean))].sort();
+
 // ═══ 5. PRIMITIVOS UI COMPARTIDOS ═══════════════════════════════════════════
 
 // Inyecta Google Fonts una sola vez al montar la app
@@ -1141,6 +1147,19 @@ const disabledStyle = (canSave) => ({
   opacity: canSave ? 1 : 0.45,
   cursor:  canSave ? "pointer" : "not-allowed",
 });
+
+// Pie de modal estándar: botón "Cancelar" + acción principal (guardar/crear).
+// Centraliza el patrón que se repetía en casi todos los formularios modales.
+function ModalFooter({ onCancel, onSave, canSave = true, saveLabel = "Guardar", cancelLabel = "Cancelar" }) {
+  return (
+    <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
+      <button onClick={onCancel} style={S.btn}>{cancelLabel}</button>
+      <button onClick={onSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
+        {saveLabel}
+      </button>
+    </div>
+  );
+}
 
 // ── Primitivos de sesión S2 ───────────────────────────────────────────────────
 // Estos primitivos unifican las tres vistas de ejercicio (interactivo /
@@ -7458,14 +7477,8 @@ function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleV
   const [filterTags,      setFilterTags]      = useState([]);
 
   // Derivar compositores y etiquetas únicas de la biblioteca de audios
-  const allComposers = useMemo(
-    () => [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
-    [audioLibrary]
-  );
-  const allTags = useMemo(
-    () => [...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort(),
-    [audioLibrary]
-  );
+  const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
+  const allTags      = useMemo(() => audioTags(audioLibrary),      [audioLibrary]);
   // Mapa rápido URL → audio
   const audioByUrl = useMemo(() => {
     const m = {};
@@ -7885,14 +7898,8 @@ function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm 
   const [filterTags,      setFilterTags]      = useState([]);
 
   // Opciones únicas para los dropdowns
-  const allComposers = useMemo(() =>
-    [...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort(),
-    [audioLibrary]
-  );
-  const allTags = useMemo(() =>
-    [...new Set(audioLibrary.flatMap((a) => a.tags || []))].sort(),
-    [audioLibrary]
-  );
+  const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
+  const allTags      = useMemo(() => audioTags(audioLibrary),      [audioLibrary]);
 
   // Lista filtrada
   const filtered = useMemo(() => {
@@ -8464,8 +8471,8 @@ function TeacherDash({
         {editingAudio !== null && (
           <AudioLibraryFormModal
             initial={editingAudio === "new" ? null : editingAudio}
-            allTags={[...new Set(audioLibrary.flatMap((a) => a.tags || []).filter(Boolean))].sort()}
-            allComposers={[...new Set(audioLibrary.map((a) => a.composer).filter(Boolean))].sort()}
+            allTags={audioTags(audioLibrary)}
+            allComposers={audioComposers(audioLibrary)}
             onSave={(a) => { if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a); setEditingAudio(null); }}
             onClose={() => setEditingAudio(null)} />
         )}
@@ -9540,12 +9547,7 @@ function CategoryEditorModal({ initialCategory, onSave, onClose }) {
         + Añadir {hasFigures ? "grado" : "botón"}
       </button>
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {isNew ? "Crear" : "Guardar"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={isNew ? "Crear" : "Guardar"} />
     </ModalShell>
   );
 }
@@ -9595,12 +9597,7 @@ function GroupEditorModal({ initial, students, currentUserId, onSave, onClose })
         </>
       )}
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {initial ? "Guardar" : "Crear grupo"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear grupo"} />
     </ModalShell>
   );
 }
@@ -9671,12 +9668,7 @@ function CourseFormModal({ initial, groups = [], onSave, onClose }) {
         </div>
       )}
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {initial ? "Guardar" : "Crear"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>
   );
 }
@@ -9707,12 +9699,7 @@ function UnitFormModal({ initial, onSave, onClose }) {
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 18, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
         value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Objetivos y contenido…" />
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {initial ? "Guardar" : "Crear"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>
   );
 }
@@ -9758,13 +9745,8 @@ function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }) {
         </div>
       )}
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={() => onAdd([...selected])} disabled={selected.size === 0}
-          style={{ ...S.btnPrimary, ...disabledStyle(selected.size > 0) }}>
-          Añadir {selected.size > 0 && `(${selected.size})`}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={() => onAdd([...selected])} canSave={selected.size > 0}
+        saveLabel={<>Añadir {selected.size > 0 && `(${selected.size})`}</>} />
     </ModalShell>
   );
 }
@@ -9848,12 +9830,7 @@ function AddUserModal({ forRole, currentUserId, existingUsernames, onSave, onClo
 
       <ErrorMsg style={{ marginTop: -14, marginBottom: 14 }}>{error}</ErrorMsg>
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {loading ? "Creando…" : "Crear cuenta"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={loading ? "Creando…" : "Crear cuenta"} />
     </ModalShell>
   );
 }
@@ -9913,12 +9890,7 @@ function ResetCredentialModal({ targetUser, onSave, onClose }) {
 
       <ErrorMsg style={{ marginTop: -14, marginBottom: 14 }}>{error}</ErrorMsg>
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {loading ? "Actualizando…" : "Resetear"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={loading ? "Actualizando…" : "Resetear"} />
     </ModalShell>
   );
 }
@@ -10113,12 +10085,7 @@ function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSav
       <ErrorMsg>{error}</ErrorMsg>
       <div style={{ marginBottom: 8 }} />
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {initial ? "Guardar" : "Añadir"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Añadir"} />
     </ModalShell>
   );
 }
@@ -10238,12 +10205,7 @@ function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onC
         </>
       )}
 
-      <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={S.btn}>Cancelar</button>
-        <button onClick={handleSave} disabled={!canSave} style={{ ...S.btnPrimary, ...disabledStyle(canSave) }}>
-          {initial ? "Guardar" : "Crear"}
-        </button>
-      </div>
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>
   );
 }
