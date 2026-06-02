@@ -3913,76 +3913,79 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         </section>
 
-        {selected && selectedIv && (() => {
+        {/* Banner de edición para categorías normales (sin cifrado): grados + eliminar */}
+        {selected && selectedIv && !exCategory.hasFigures && (
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
+            {exCategory.buttons.map((b) => {
+              const isSel = selectedIv.fn === b.id;
+              return (
+                <button key={b.id} className="fa-pressable"
+                  onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
+                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
+                  {b.id}
+                </button>
+              );
+            })}
+            <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+              style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
+          </div>
+        )}
+
+        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} />
+
+        {/* Control de cifrado (categorías de grados): debajo de los botones.
+            Switch Tríada/Cuatríada grande + opciones de inversión. */}
+        {selected && selectedIv && exCategory.hasFigures && (() => {
           const setFig = (figId) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
           const curFig = selectedIv.fig;
-          const isQuad = exCategory.hasFigures && curFig != null && !isTriadFig(curFig);
-          // Botón de inversión que muestra el cifrado real (FigureLabel)
+          const isQuad = curFig != null && !isTriadFig(curFig);
           const FigBtn = ({ item }) => {
             const isSel = curFig === item.id;
             return (
               <button key={item.id} className="fa-pressable" onClick={() => setFig(item.id)}
-                style={{ background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 8, minWidth: 34, height: 34, padding: "2px 8px", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} />
+                style={{ background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 10, minWidth: 44, height: 44, padding: "2px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} size={15} />
               </button>
             );
           };
           return (
-          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14, padding: "10px 12px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12 }}>
-            {/* Fila 1: grados + eliminar */}
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-              {exCategory.buttons.map((b) => {
-                const isSel = selectedIv.fn === b.id;
-                return (
-                  <button key={b.id} className="fa-pressable"
-                    onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
-                    style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
-                    {b.id}
-                  </button>
-                );
-              })}
-              <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
-                style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
-            </div>
-
-            {exCategory.hasFigures && (
-              <>
-                {/* Fila 2: toggle Tríada / Cuatríada */}
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div onMouseDown={(e) => e.stopPropagation()} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Switch grande Tríada / Cuatríada */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", flex: 1, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4, gap: 4 }}>
                   {[{ k: "triada", label: "Tríada" }, { k: "quad", label: "Cuatríada" }].map(({ k, label }) => {
                     const active = k === "triada" ? !isQuad : isQuad;
                     return (
                       <button key={k} className="fa-pressable"
                         onClick={() => setFig(k === "triada" ? "t0" : FIG_GROUPS[quadGroupsForDegree(selectedIv.fn)[0]].items[0].id)}
-                        style={{ padding: "4px 14px", fontSize: 11.5, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: `1.5px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: active ? C.paper : C.muted, cursor: "pointer" }}>
+                        style={{ flex: 1, padding: "9px 0", fontSize: 14, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: "none", background: active ? C.ink : "transparent", color: active ? C.paper : C.muted, cursor: "pointer", transition: "background .15s, color .15s" }}>
                         {label}
                       </button>
                     );
                   })}
                 </div>
+                <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+                  style={{ ...S.btnDanger, padding: "0 12px", height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
+              </div>
 
-                {/* Fila 3: inversiones según tríada o cuatríada */}
-                {!isQuad ? (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} />)}
-                  </div>
-                ) : (
-                  quadGroupsForDegree(selectedIv.fn).map((gk) => (
-                    <div key={gk} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, minWidth: 96, flexShrink: 0 }}>{FIG_GROUPS[gk].label}</span>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {FIG_GROUPS[gk].items.map((it) => <FigBtn key={it.id} item={it} />)}
-                      </div>
+              {/* Opciones de inversión */}
+              {!isQuad ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} />)}
+                </div>
+              ) : (
+                quadGroupsForDegree(selectedIv.fn).map((gk) => (
+                  <div key={gk} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, minWidth: 104, flexShrink: 0 }}>{FIG_GROUPS[gk].label}</span>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {FIG_GROUPS[gk].items.map((it) => <FigBtn key={it.id} item={it} />)}
                     </div>
-                  ))
-                )}
-              </>
-            )}
-          </div>
+                  </div>
+                ))
+              )}
+            </div>
           );
         })()}
-
-        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} />
       </div>
 
       <StickyActionBar
