@@ -1009,8 +1009,12 @@ function useInjectFonts() {
         // fa-expand cortaría el contenido. Pura opacidad, sin translate.
         + "@keyframes faFadeIn{from{opacity:0}to{opacity:1}}"
         + ".fa-fade-in{animation:faFadeIn .18s ease}"
+        // Opciones de inversión: entrada escalonada (rise + leve escala) y origen
+        // inferior para que sientan que "brotan" desde el switch.
+        + "@keyframes faOptIn{from{opacity:0;transform:translateY(7px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}"
+        + ".fa-opt-in{animation:faOptIn .22s cubic-bezier(.34,1.3,.64,1) both;transform-origin:center top}"
         // Respeta la preferencia de reducir movimiento del sistema
-        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar{animation:none!important;transition:none!important}}";
+        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar,.fa-opt-in{animation:none!important;transition:none!important}}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
@@ -4047,14 +4051,16 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           const curFig = selectedIv.fig;
           const isQuad = curFig != null && !isTriadFig(curFig);
           // Botón de inversión teñido con el acento de su familia.
-          const FigBtn = ({ item, accent }) => {
+          const FigBtn = ({ item, accent, i = 0 }) => {
             const isSel = curFig === item.id;
             return (
-              <button key={item.id} className="fa-pressable" onClick={() => setFig(item.id)}
+              <button key={item.id} className="fa-pressable fa-opt-in" onClick={() => setFig(item.id)}
                 style={{ width: "100%", minHeight: 52, background: isSel ? accent : C.paper,
                   border: `1.5px solid ${isSel ? accent : accent + "55"}`, borderRadius: 12, padding: "6px 10px",
                   cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: isSel ? `0 2px 8px ${accent}45` : "none", transition: "background .15s, border-color .15s, box-shadow .15s" }}>
+                  animationDelay: `${i * 35}ms`, transform: isSel ? "translateY(-1px)" : "none",
+                  boxShadow: isSel ? `0 3px 10px ${accent}55` : "none",
+                  transition: "background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s cubic-bezier(.34,1.5,.64,1)" }}>
                 <FigureLabel item={item} color={isSel ? C.paper : accent} size={18} />
               </button>
             );
@@ -4069,10 +4075,10 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             return (
               <div style={{ ...widthStyle, display: "flex", flexDirection: "column", gap: 8,
                 background: `${accent}0D`, border: `1px solid ${accent}33`, borderRadius: 14, padding: 8 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.paper, background: accent, fontFamily: FONT_SANS,
+                <span className="fa-opt-in" style={{ fontSize: 10.5, fontWeight: 700, color: C.paper, background: accent, fontFamily: FONT_SANS,
                   textAlign: "center", lineHeight: 1.2, padding: "4px 6px", borderRadius: 8, minHeight: 30,
                   display: "flex", alignItems: "center", justifyContent: "center" }}>{grp.label}</span>
-                {grp.items.map((it) => <FigBtn key={it.id} item={it} accent={accent} />)}
+                {grp.items.map((it, i) => <FigBtn key={it.id} item={it} accent={accent} i={i + 1} />)}
               </div>
             );
           };
@@ -4106,7 +4112,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                   {!isQuad ? (
                     // Tríada: misma anchura que una columna, bajo el botón "Tríada".
                     <div style={{ width: "calc(50% - 5px)", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} />)}
+                      {FIG_GROUPS.triada.items.map((it, i) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} i={i} />)}
                     </div>
                   ) : (() => {
                     const gks = quadGroupsForDegree(selectedIv.fn);
