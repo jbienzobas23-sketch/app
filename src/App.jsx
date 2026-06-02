@@ -4064,7 +4064,8 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           // estira a todo el ancho; se limita a ~el ancho del botón "Cuatríada".
           const FamilyColumn = ({ gk, single }) => {
             const grp = FIG_GROUPS[gk], accent = grp.accent;
-            const widthStyle = single ? { width: "calc(50% - 26px)", flex: "0 0 auto" } : { flex: 1, minWidth: 0 };
+            // single → mitad derecha (bajo el botón "Cuatríada"); resto → reparto equitativo.
+            const widthStyle = single ? { width: "calc(50% - 5px)", flex: "0 0 auto", marginLeft: "auto" } : { flex: 1, minWidth: 0 };
             return (
               <div style={{ ...widthStyle, display: "flex", flexDirection: "column", gap: 8,
                 background: `${accent}0D`, border: `1px solid ${accent}33`, borderRadius: 14, padding: 8 }}>
@@ -4094,20 +4095,26 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                   })}
                 </div>
                 <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
-                  style={{ ...S.btnDanger, padding: "0 12px", height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
+                  style={{ ...S.btnDanger, width: 44, padding: 0, height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
               </div>
 
-              {/* Opciones de inversión: botones grandes en columnas verticales,
-                  cada familia con su color de acento. */}
-              {!isQuad ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 220 }}>
-                  {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} />)}
+              {/* Opciones de inversión. La fila replica la estructura del switch
+                  (contenedor flex:1 + hueco del ancho del ✕) para que las columnas
+                  queden alineadas verticalmente con los botones Tríada/Cuatríada. */}
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ flex: 1, display: "flex", gap: 10 }}>
+                  {!isQuad ? (
+                    // Tríada: misma anchura que una columna, bajo el botón "Tríada".
+                    <div style={{ width: "calc(50% - 5px)", display: "flex", flexDirection: "column", gap: 8 }}>
+                      {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} />)}
+                    </div>
+                  ) : (() => {
+                    const gks = quadGroupsForDegree(selectedIv.fn);
+                    return gks.map((gk) => <FamilyColumn key={gk} gk={gk} single={gks.length === 1} />);
+                  })()}
                 </div>
-              ) : (
-                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  {(() => { const gks = quadGroupsForDegree(selectedIv.fn); return gks.map((gk) => <FamilyColumn key={gk} gk={gk} single={gks.length === 1} />); })()}
-                </div>
-              )}
+                <div style={{ width: 44, flexShrink: 0 }} />
+              </div>
             </div>
           );
         })()}
