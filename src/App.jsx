@@ -1626,6 +1626,23 @@ function DeleteIconButton({ onClick, title = "Eliminar" }) {
   );
 }
 
+// Quitar de una lista (sin borrar) → mismo molde rojo pero glifo ✕, para no
+// confundir con la eliminación definitiva (papelera).
+function RemoveIconButton({ onClick, title = "Quitar" }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      className="fa-pressable"
+      style={{ ...ICON_BTN_BASE, border: `1px solid rgba(184,74,58,0.45)`, background: "rgba(184,74,58,0.07)", color: C.danger }}
+    >
+      <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+        <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+      </svg>
+    </button>
+  );
+}
+
 // ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
 function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }) {
   const [open, setOpen] = useState(false);
@@ -7720,8 +7737,8 @@ function CoursesTab({
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                       <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
-                      <GhostButton onClick={() => onEditCourse(course)}>Editar</GhostButton>
-                      <button onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} title={`Eliminar curso "${course.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+                      <EditIconButton onClick={() => onEditCourse(course)} title={`Editar curso "${course.name}"`} />
+                      <DeleteIconButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => onDeleteCourse(course.id))} title={`Eliminar curso "${course.name}"`} />
                     </div>
                   </div>
                 </div>
@@ -7756,8 +7773,8 @@ function CoursesTab({
                                   </div>
                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                                     <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
-                                    <GhostButton onClick={() => onEditUnit(unit)}>Editar</GhostButton>
-                                    <button onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} title={`Eliminar unidad "${unit.name}"`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+                                    <EditIconButton onClick={() => onEditUnit(unit)} title={`Editar unidad "${unit.name}"`} />
+                                    <DeleteIconButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => onDeleteUnit(unit.id, course.id))} title={`Eliminar unidad "${unit.name}"`} />
                                   </div>
                                 </div>
 
@@ -7782,8 +7799,8 @@ function CoursesTab({
                                                   <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
                                                     onClick={() => onSelectExercise(ex.id)}>{ex.title}</span>
                                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                                    <GhostButton onClick={() => onSelectExercise(ex.id)}>Editar</GhostButton>
-                                                    <button onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} title={`Quitar "${ex.title}" de la unidad`} style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
+                                                    <EditIconButton onClick={() => onSelectExercise(ex.id)} title={`Editar "${ex.title}"`} />
+                                                    <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unit.id, ex.id))} title={`Quitar "${ex.title}" de la unidad`} />
                                                   </div>
                                                 </div>
                                               </div>
