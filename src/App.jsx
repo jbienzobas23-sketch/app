@@ -993,6 +993,9 @@ function useInjectFonts() {
         // Desplegables flotantes (menús, sugerencias): fade + leve descenso/escala
         // desde el borde superior. Curva con un pelín de overshoot para ligereza.
         + "@keyframes faPop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}"
+        // Carga de mantener pulsado un grado 2s → modo colorear. Invisible el 1er
+        // segundo (0-50%); en la 2ª mitad se tiñe y crece para anticipar el cambio.
+        + "@keyframes faHoldCharge{0%,50%{opacity:0;transform:scale(.8)}100%{opacity:.9;transform:scale(1)}}"
         + ".fa-pop{animation:faPop .16s cubic-bezier(.34,1.4,.64,1);transform-origin:top center}"
         // Tarjetas/secciones expandibles en flujo: anima la altura con el truco
         // grid-rows 0fr→1fr (sin medir px). Envuelve el contenido en .fa-expand-inner.
@@ -3087,6 +3090,7 @@ function waveformPropsEqual(a, b) {
     && a.answerBand === b.answerBand
     && a.selectedIvId === b.selectedIvId
     && a.hintIntervals === b.hintIntervals
+    && a.paintFn === b.paintFn
     && a.questionRegion === b.questionRegion;
   // pressing ya no se comprueba: el canvas lo lee de pressingRef (síncrono),
   // así WaveformDisplay no se re-renderiza al pisar/soltar un botón.
@@ -3100,9 +3104,11 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   selectedIvId = null, onBandPointerDown = null,
   pressingRef: pressingRefProp = null,
   hintIntervals = [],
+  paintFn = null, onPaintCommit = null,
   onScrubBegin, onScrubTo, onScrubEnd,
 }) {
   const canvasRef = useRef(null);
+  const paintPreviewRef = useRef(null);   // { fn, start, end } mientras se pinta
   const waveData  = useMemo(
     () => waveformData || generateWaveform(exerciseId * 13 + 997, Math.max(400, Math.ceil(duration * 30))),
     [waveformData, exerciseId, duration]
@@ -3111,7 +3117,7 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
     colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
-    pressingRef: pressingRefProp, hintIntervals,
+    pressingRef: pressingRefProp, hintIntervals, paintFn, onPaintCommit,
     onScrubBegin, onScrubTo, onScrubEnd,
   });
 
@@ -3321,6 +3327,21 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
         ctx.textAlign = "start";
         ctx.textBaseline = "alphabetic";
 
+        // Preview del pincel (modo colorear): rectángulo translúcido en curso.
+        const pp = paintPreviewRef.current;
+        if (pp) {
+          const px1 = (pp.start - t) * pxPerSec + W / 2;
+          const px2 = (Math.min(pp.end, dur) - t) * pxPerSec + W / 2;
+          const a = Math.max(0, px1), bX = Math.min(W, px2);
+          if (bX > a) {
+            ctx.save();
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = (cmap && cmap[pp.fn]) || "rgba(26,25,21,0.4)";
+            drawPill(a, bandTop, bX - a, BAND_H);
+            ctx.restore();
+          }
+        }
+
         // Asas del intervalo seleccionado: mismo aspecto que los bloques del
         // esquema (barra blanca redondeada con sombra). Solo visibles si hay
         // selección; ocupan toda la altura de la banda.
@@ -3376,6 +3397,31 @@ const WaveformDisplay = React.memo(function WaveformDisplay({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+
+    // Modo colorear: pintar a mano sobre la onda. Desactiva scroll y selección.
+    const st = stateRef.current;
+    if (st.paintFn) {
+      e.stopPropagation();
+      const W = rect.width, pxPerSec = W / VISIBLE_SECS;
+      const tAt = (clientX) => {
+        const t0 = (st.timeRef?.current ?? st.time);
+        return Math.max(0, Math.min(st.duration, t0 + ((clientX - rect.left) - W / 2) * VISIBLE_SECS / W));
+      };
+      const startT = tAt(e.touches ? e.touches[0].clientX : e.clientX);
+      paintPreviewRef.current = { fn: st.paintFn, start: startT, end: startT };
+      startPointerDrag(e, {
+        onMove: (ev, getX) => {
+          const tt = tAt(getX(ev));
+          paintPreviewRef.current = { fn: st.paintFn, start: Math.min(startT, tt), end: Math.max(startT, tt) };
+        },
+        onEnd: () => {
+          const p = paintPreviewRef.current;
+          paintPreviewRef.current = null;
+          if (p && p.end - p.start > 0.05 && st.onPaintCommit) st.onPaintCommit(p.start, p.end);
+        },
+      });
+      return;
+    }
 
     // Detectar si el puntero está en la zona de la banda de respuesta
     const { answerBand: ab, onBandPointerDown: obpd } = stateRef.current;
@@ -3523,7 +3569,8 @@ function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, o
 // categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
 // Así la botonera no se repinta con cada tick de tiempo (~10 fps).
 function fnButtonsEqual(a, b) {
-  return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows;
+  return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows
+    && a.hideNames === b.hideNames && a.paintFn === b.paintFn;
 }
 
 // Renderiza un cifrado (item de FIG_GROUPS) como glifos apilados, con soporte
@@ -3550,24 +3597,46 @@ function FigureLabel({ item, color = "currentColor", size = 13 }) {
   );
 }
 
-// Botonera de funciones (T/S/D…) pulsables con tecla
-const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false }) {
+// Botonera de funciones (T/S/D…) pulsables con tecla.
+// onHold(fn): se dispara al mantener pulsado un botón 2 s (→ modo colorear).
+// hideNames: oculta el nombre bajo el botón (redundante en grados).
+// paintFn: id del botón activo como pincel (modo colorear) → se resalta.
+const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, onHold, twoRows = false, hideNames = false, paintFn = null }) {
   const isMobile = useIsMobile();
-  // Por defecto, hasta 3 columnas. Con twoRows (grados I–VII), se reparten en
-  // exactamente 2 filas → ceil(n/2) columnas (p. ej. 7 grados → 4 + 3).
+  const [heldFn, setHeldFn] = useState(null);     // botón en carga (para la animación)
+  const timerRef = useRef(null);
+  const firedRef = useRef(false);                 // el hold de 2 s ya activó modo colorear
   const cols = twoRows ? Math.ceil(buttons.length / 2) : Math.min(buttons.length, 3);
+
+  const begin = (fn) => {
+    firedRef.current = false;
+    setHeldFn(fn);
+    onDown(fn);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { firedRef.current = true; setHeldFn(null); onHold && onHold(fn); }, 2000);
+  };
+  const finish = (fn, leaving) => {
+    clearTimeout(timerRef.current);
+    setHeldFn(null);
+    if (firedRef.current) { firedRef.current = false; return; }  // ya entró en colorear
+    if (leaving) { if (pressing?.fn === fn) onUp(fn); }
+    else onUp(fn);
+  };
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10, marginBottom: 4 }}>
       {buttons.map((b) => {
-        const isActive = pressing?.fn === b.id;
+        const isActive = pressing?.fn === b.id || paintFn === b.id;
+        const isHeld   = heldFn === b.id;
         return (
           <button key={b.id}
-            onMouseDown={() => onDown(b.id)}
-            onMouseUp  ={() => onUp(b.id)}
-            onMouseLeave={() => { if (pressing?.fn === b.id) onUp(b.id); }}
-            onTouchStart={(e) => { e.preventDefault(); onDown(b.id); }}
-            onTouchEnd  ={(e) => { e.preventDefault(); onUp(b.id);   }}
+            onMouseDown={(e) => { e.stopPropagation(); begin(b.id); }}
+            onMouseUp  ={() => finish(b.id, false)}
+            onMouseLeave={() => { if (heldFn === b.id) finish(b.id, true); }}
+            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); begin(b.id); }}
+            onTouchEnd  ={(e) => { e.preventDefault(); finish(b.id, false); }}
             style={{
+              position: "relative", overflow: "hidden",
               background: isActive ? b.color : C.paper,
               border:     `1.5px solid ${isActive ? b.color : C.line}`,
               color:      isActive ? C.paper : b.color,
@@ -3578,9 +3647,14 @@ const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing,
               boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
               userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
             }}>
-            <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>
-            {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
+            {/* Carga de mantener pulsado: invisible el 1er segundo; en la 2ª mitad
+                aparece un anillo de color que crece (no tapa el número). */}
+            {isHeld && (
+              <span style={{ position: "absolute", inset: 0, borderRadius: 16, border: `2.5px solid ${b.color}`, boxSizing: "border-box", background: `${b.color}1F`, opacity: 0, animation: "faHoldCharge 2s linear forwards", pointerEvents: "none" }} />
+            )}
+            <span style={{ position: "relative", zIndex: 1, fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+            {!hideNames && <span style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
+            {!isMobile && <span style={{ position: "relative", zIndex: 1, fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
           </button>
         );
       })}
@@ -3611,6 +3685,11 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   const [intervalsByCategory, setIntervalsByCategory] = useState({});
   const [pressing,     setPressing]     = useState(null);
   const [selected,     setSelected]     = useState(null);
+  const [paintFn,      setPaintFn]      = useState(null);   // grado activo como pincel (modo colorear)
+  // Refs siempre-frescos para leer desde handlers/timers sin closures stale.
+  const selectedRef = useRef(null); selectedRef.current = selected;
+  const paintFnRef  = useRef(null); paintFnRef.current  = paintFn;
+  const playingRef2 = useRef(false);
   const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
@@ -3624,6 +3703,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
+  playingRef2.current = playing;
 
   // Memoizado: referencia estable cuando el contenido no cambia. Evita que
   // WaveformDisplay (React.memo) se re-renderice en cada tick de tiempo solo
@@ -3643,11 +3723,12 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     return { ...prev, [currentCategoryId]: next };
   });
 
-  useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); }, [exercise.id]);
+  useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); setPaintFn(null); }, [exercise.id]);
 
   // Cambio de categoría: cierra el intervalo en curso de la actual
   const switchCategory = (newId) => {
     if (newId === currentCategoryId) return;
+    setPaintFn(null);
     if (pressing) {
       const end = timeRef.current;
       if (end - pressing.start > 0.1) {
@@ -3692,6 +3773,9 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
       if (e.repeat) return;
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (btn) {
+        // En modo colorear, la tecla cambia el pincel; con bloque seleccionado, su grado.
+        if (paintFnRef.current) { setPaintFn(btn.id); if (e.key === " ") {} return; }
+        if (selectedRef.current) { const id = selectedRef.current; setIntervals((prev) => prev.map((iv) => iv.id === id ? { ...iv, fn: btn.id } : iv)); return; }
         const now  = timeRef.current;
         const hint = snapHintRef.current?.(now);
         if (hint) {
@@ -3729,7 +3813,19 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exCategory]);
 
+  // Mantener 2 s un grado → modo colorear (pincel = ese grado). Si reproduce, pausa.
+  const handleHold = (fn) => {
+    pressingRef.current = null; setPressing(null);
+    if (playingRef2.current) togglePlay();   // detener música al entrar en colorear
+    setPaintFn(fn);
+  };
+
   const handleFnDown = (fn) => {
+    // En modo colorear, pulsar un grado cambia el pincel (no marca).
+    if (paintFnRef.current) { setPaintFn(fn); return; }
+    // Con un bloque seleccionado, los botones lo EDITAN (no marcan en vivo):
+    // el cambio de grado se aplica al soltar (tap). No iniciamos pressing.
+    if (selectedRef.current) return;
     const now  = timeRef.current;
     const hint = snapHintRef.current?.(now);
     if (hint) {
@@ -3746,6 +3842,13 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
   };
   const handleFnUp = (fn) => {
+    if (paintFnRef.current) return;            // en colorear, el down ya cambió el pincel
+    // Tap con un bloque seleccionado → cambiar su grado.
+    if (selectedRef.current) {
+      const id = selectedRef.current;
+      setIntervals((prev) => prev.map((iv) => iv.id === id ? { ...iv, fn } : iv));
+      return;
+    }
     const p = pressingRef.current;
     if (!p || p.fn !== fn || p.end != null) return;
     const end = timeRef.current;
@@ -3756,6 +3859,10 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
     } else {
       pressingRef.current = null;
     }
+  };
+  // Commit desde el pincel (modo colorear): crea un bloque del grado actual.
+  const handlePaintCommit = (t0, t1) => {
+    if (paintFnRef.current) commitInterval(paintFnRef.current, t0, t1);
   };
 
   const handleSubmit = () => {
@@ -3875,6 +3982,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
               colorByFn={colorByFn} answerBand
               selectedIvId={selected} pressingRef={pressingRef}
               hintIntervals={hintIntervals}
+              paintFn={paintFn} onPaintCommit={handlePaintCommit}
               onBandPointerDown={handleBandPointerDown}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
@@ -3931,7 +4039,18 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           </div>
         )}
 
-        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} />
+        {paintFn && (
+          <div className="fa-pop" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "9px 12px", background: `${(colorByFn[paintFn] || C.ink)}14`, border: `1.5px solid ${colorByFn[paintFn] || C.ink}`, borderRadius: 12 }}>
+            <span style={{ fontSize: 16 }}>🖌️</span>
+            <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 13, color: C.ink }}>
+              <b>Modo colorear</b> · arrastra sobre la onda para pintar el grado <b style={{ fontFamily: FONT_MONO }}>{paintFn}</b>
+            </span>
+            <button onClick={() => setPaintFn(null)} className="fa-pressable"
+              style={{ ...S.btn, padding: "5px 14px", fontSize: 12, flexShrink: 0 }}>Salir</button>
+          </div>
+        )}
+
+        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} onHold={handleHold} twoRows={!!exCategory.hasFigures} hideNames={!!exCategory.hasFigures} paintFn={paintFn} />
 
         {/* Control de cifrado (categorías de grados): debajo de los botones.
             Switch Tríada/Cuatríada grande + opciones de inversión. */}
