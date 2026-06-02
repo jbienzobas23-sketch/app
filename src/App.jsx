@@ -987,7 +987,13 @@ function useInjectFonts() {
     if (!document.querySelector('style[data-fa-anim]')) {
       const style = document.createElement("style");
       style.setAttribute("data-fa-anim", "1");
-      style.textContent = "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
+      style.textContent =
+        // Reset de caja: incluir padding/borde en el ancho calculado. Evita que
+        // contenedores con width:100% + padding desborden el viewport en móvil.
+        "*,*::before,*::after{box-sizing:border-box}"
+        // Salvaguarda anti-desbordamiento horizontal en móvil.
+        + "html,body{max-width:100%;overflow-x:hidden}"
+        + "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"
         // Desplegables flotantes (menús, sugerencias): fade + leve descenso/escala
@@ -1003,6 +1009,14 @@ function useInjectFonts() {
         + ".fa-noscroll{-ms-overflow-style:none}"
         // Sticky bar: pushes a safe spacer below the page so the bar never hides content
         + ".fa-sticky-bar{position:sticky;bottom:0;left:0;right:0;z-index:60;animation:faBarUp .22s ease}"
+        // En móvil la barra de acción se reorganiza: el botón principal pasa a una
+        // fila propia a todo el ancho (cómodo para el pulgar) y arriba quedan la
+        // acción secundaria y el texto de estado, que así tiene sitio para respirar.
+        + "@media (max-width:560px){"
+        +   ".fa-actionbar{flex-wrap:wrap;gap:8px}"
+        +   ".fa-actionbar-primary{flex-basis:100%;order:3}"
+        +   ".fa-actionbar-primary>*{flex:1;justify-content:center}"
+        + "}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
         + ".fa-pressable:active{transform:scale(.97)}"
         // Fade-in sin altura: para secciones con overflow o márgenes negativos donde
@@ -1316,12 +1330,14 @@ function StickyActionBar({ children, secondary = null, info = null }) {
       paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
       boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
     }}>
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="fa-actionbar" style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
         {secondary}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+        <div className="fa-actionbar-info" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
           {info}
         </div>
-        {children}
+        <div className="fa-actionbar-primary" style={{ flexShrink: 0, display: "flex" }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -1973,9 +1989,6 @@ function HomeView({ onTeacher, onStudent }) {
   return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px))" }}>
       <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
-        <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 600, fontStyle: "italic", color: C.muted, marginBottom: 14, letterSpacing: "0.01em" }}>
-          Funciones armónicas
-        </div>
         <h1 style={{ fontFamily: F.sans, fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1.0, margin: 0 }}>
           Análisis<br />auditivo
         </h1>
