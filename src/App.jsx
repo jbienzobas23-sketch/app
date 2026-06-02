@@ -198,30 +198,30 @@ const g = (d, opts = {}) => ({ d, pre: opts.pre || "", strike: !!opts.strike });
 // Grupos de cifrado. `kind` identifica la familia; cada item lleva id único
 // (kind+inversión) para guardarse en la marca y comparar en corrección.
 const FIG_GROUPS = {
-  triada: { label: null, items: [
+  triada: { label: null, accent: "#1A1915", items: [
     { id: "t0", top: null,      bot: null },              // fundamental
     { id: "t1", top: g("6"),    bot: null },              // 6
     { id: "t2", top: g("6"),    bot: g("4") },            // 6/4
   ]},
-  dia: { label: "7ª diatónica", items: [
+  dia: { label: "7ª diatónica", accent: "#2F6FB8", items: [
     { id: "d0", top: g("7"),    bot: null },
     { id: "d1", top: g("6"),    bot: g("5") },
     { id: "d2", top: g("4"),    bot: g("3") },
     { id: "d3", top: g("2"),    bot: null },
   ]},
-  dom: { label: "7ª de dominante", items: [
+  dom: { label: "7ª de dominante", accent: "#C77A1A", items: [
     { id: "D0", top: g("7"),               bot: g("+") },
     { id: "D1", top: g("6"),               bot: g("5", { strike: true }) },
     { id: "D2", top: g("6", { pre: "+" }), bot: null },
     { id: "D3", top: g("4", { pre: "+" }), bot: null },
   ]},
-  semi: { label: "7ª semidisminuida", items: [
+  semi: { label: "7ª semidisminuida", accent: "#9A4FB8", items: [
     { id: "s0", top: g("7"),               bot: g("5", { strike: true }) },
     { id: "s1", top: g("5"),               bot: g("6", { pre: "+" }) },
     { id: "s2", top: g("3"),               bot: g("4", { pre: "+" }) },
     { id: "s3", top: g("4"),               bot: g("2", { pre: "+" }) },
   ]},
-  dim: { label: "7ª disminuida", items: [
+  dim: { label: "7ª disminuida", accent: "#B84A3A", items: [
     { id: "x0", top: g("7", { strike: true }), bot: null },
     { id: "x1", top: g("6", { pre: "+" }),     bot: g("5", { strike: true }) },
     { id: "x2", top: g("4", { pre: "+" }),     bot: g("3", { pre: "♭" }) },
@@ -4046,13 +4046,30 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
           const setFig = (figId) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
           const curFig = selectedIv.fig;
           const isQuad = curFig != null && !isTriadFig(curFig);
-          const FigBtn = ({ item }) => {
+          // Botón de inversión teñido con el acento de su familia.
+          const FigBtn = ({ item, accent }) => {
             const isSel = curFig === item.id;
             return (
               <button key={item.id} className="fa-pressable" onClick={() => setFig(item.id)}
-                style={{ width: "100%", minHeight: 52, background: isSel ? C.ink : C.paper, border: `1.5px solid ${isSel ? C.ink : C.line}`, borderRadius: 12, padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s, border-color .15s" }}>
-                <FigureLabel item={item} color={isSel ? C.paper : C.ink2} size={18} />
+                style={{ width: "100%", minHeight: 52, background: isSel ? accent : C.paper,
+                  border: `1.5px solid ${isSel ? accent : accent + "55"}`, borderRadius: 12, padding: "6px 10px",
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: isSel ? `0 2px 8px ${accent}45` : "none", transition: "background .15s, border-color .15s, box-shadow .15s" }}>
+                <FigureLabel item={item} color={isSel ? C.paper : accent} size={18} />
               </button>
+            );
+          };
+          // Columna de una familia: tarjeta teñida con cabecera del color de acento.
+          const FamilyColumn = ({ gk }) => {
+            const grp = FIG_GROUPS[gk], accent = grp.accent;
+            return (
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8,
+                background: `${accent}0D`, border: `1px solid ${accent}33`, borderRadius: 14, padding: 8 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.paper, background: accent, fontFamily: FONT_SANS,
+                  textAlign: "center", lineHeight: 1.2, padding: "4px 6px", borderRadius: 8, minHeight: 30,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>{grp.label}</span>
+                {grp.items.map((it) => <FigBtn key={it.id} item={it} accent={accent} />)}
+              </div>
             );
           };
           return (
@@ -4077,20 +4094,15 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                   style={{ ...S.btnDanger, padding: "0 12px", height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
               </div>
 
-              {/* Opciones de inversión: botones grandes en columnas verticales.
-                  Una columna por familia (cada inversión apilada). */}
+              {/* Opciones de inversión: botones grandes en columnas verticales,
+                  cada familia con su color de acento. */}
               {!isQuad ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 220 }}>
-                  {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} />)}
+                  {FIG_GROUPS.triada.items.map((it) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} />)}
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  {quadGroupsForDegree(selectedIv.fn).map((gk) => (
-                    <div key={gk} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, textAlign: "center", lineHeight: 1.2, minHeight: 26, display: "flex", alignItems: "center", justifyContent: "center" }}>{FIG_GROUPS[gk].label}</span>
-                      {FIG_GROUPS[gk].items.map((it) => <FigBtn key={it.id} item={it} />)}
-                    </div>
-                  ))}
+                  {quadGroupsForDegree(selectedIv.fn).map((gk) => <FamilyColumn key={gk} gk={gk} />)}
                 </div>
               )}
             </div>
