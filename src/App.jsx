@@ -4060,10 +4060,13 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
             );
           };
           // Columna de una familia: tarjeta teñida con cabecera del color de acento.
-          const FamilyColumn = ({ gk }) => {
+          // `single`: cuando es la única columna (p. ej. solo diatónica) no se
+          // estira a todo el ancho; se limita a ~el ancho del botón "Cuatríada".
+          const FamilyColumn = ({ gk, single }) => {
             const grp = FIG_GROUPS[gk], accent = grp.accent;
+            const widthStyle = single ? { width: "calc(50% - 26px)", flex: "0 0 auto" } : { flex: 1, minWidth: 0 };
             return (
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8,
+              <div style={{ ...widthStyle, display: "flex", flexDirection: "column", gap: 8,
                 background: `${accent}0D`, border: `1px solid ${accent}33`, borderRadius: 14, padding: 8 }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: C.paper, background: accent, fontFamily: FONT_SANS,
                   textAlign: "center", lineHeight: 1.2, padding: "4px 6px", borderRadius: 8, minHeight: 30,
@@ -4102,7 +4105,7 @@ function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  {quadGroupsForDegree(selectedIv.fn).map((gk) => <FamilyColumn key={gk} gk={gk} />)}
+                  {(() => { const gks = quadGroupsForDegree(selectedIv.fn); return gks.map((gk) => <FamilyColumn key={gk} gk={gk} single={gks.length === 1} />); })()}
                 </div>
               )}
             </div>
