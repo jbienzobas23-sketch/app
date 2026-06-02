@@ -777,54 +777,6 @@ const toggleInSet = (set, id) => {
   return n;
 };
 
-// ─── Helpers del modelo Esquema (snap + push) ──────────────────────────────
-// excludeIds: string | string[] | null
-function schemaSnapTime(t, blocks, excludeIds, duration, marks = []) {
-  const excl = excludeIds == null ? [] : Array.isArray(excludeIds) ? excludeIds : [excludeIds];
-  const bounds = [0, duration, ...marks, ...blocks.filter(b => !excl.includes(b.id) && !b.isPreview).flatMap(b => [b.start, b.end])];
-  let best = t, bestDist = SCHEMA_SNAP_THR + 0.01;
-  for (const bv of bounds) { const d = Math.abs(t - bv); if (d < bestDist) { bestDist = d; best = bv; } }
-  return best;
-}
-// Snap con prioridad al cursor de reproducción sobre los límites de bloque
-function schemaSnapWithPlayhead(t, blocks, excludeIds, duration, playhead, marks = []) {
-  if (Math.abs(t - playhead) <= SCHEMA_SNAP_THR) return playhead;
-  return schemaSnapTime(t, blocks, excludeIds, duration, marks);
-}
-
-function schemaApplyPush(blocks, movedId, level, duration) {
-  const same = blocks
-    .filter(b => b.level === level && !b.isPreview)
-    .map(b => ({ ...b }))
-    .sort((a, b) => a.start !== b.start ? a.start - b.start : a.id < b.id ? -1 : 1);
-  const mi = same.findIndex(b => b.id === movedId);
-  if (mi < 0) return blocks;
-  for (let i = mi; i < same.length - 1; i++) {
-    if (same[i].end > same[i + 1].start) { const dur = same[i + 1].end - same[i + 1].start; same[i + 1].start = same[i].end; same[i + 1].end = same[i + 1].start + dur; } else break;
-  }
-  for (let i = mi; i > 0; i--) {
-    if (same[i - 1].end > same[i].start) { const dur = same[i - 1].end - same[i - 1].start; same[i - 1].end = same[i].start; same[i - 1].start = same[i - 1].end - dur; } else break;
-  }
-  for (let i = same.length - 1; i >= 0; i--) {
-    if (same[i].end > duration) {
-      const dur = same[i].end - same[i].start; same[i].end = duration; same[i].start = duration - dur;
-      for (let j = i - 1; j >= 0; j--) {
-        if (same[j].end > same[j + 1].start) { const d = same[j].end - same[j].start; same[j].end = same[j + 1].start; same[j].start = same[j].end - d; } else break;
-      }
-    }
-  }
-  for (let i = 0; i < same.length; i++) {
-    if (same[i].start < 0) {
-      const dur = same[i].end - same[i].start; same[i].start = 0; same[i].end = dur;
-      for (let j = i + 1; j < same.length; j++) {
-        if (same[j].start < same[j - 1].end) { const d = same[j].end - same[j].start; same[j].start = same[j - 1].end; same[j].end = same[j].start + d; } else break;
-      }
-    }
-  }
-  const map = new Map(same.map(b => [b.id, b]));
-  return blocks.map(b => (map.has(b.id) ? map.get(b.id) : b));
-}
-
 // ─── Drag de puntero unificado (ratón + touch) ─────────────────────────────
 function startPointerDrag(event, { onStart, onMove, onEnd } = {}) {
   event.preventDefault();
@@ -1189,24 +1141,6 @@ function AudioLoadingOverlay() {
         <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Espera un momento antes de comenzar el ejercicio</div>
       </div>
     </div>
-  );
-}
-
-function PillSubmitButton({ onClick, children }) {
-  return (
-    <button onClick={onClick} style={{
-      background: C.ink, color: C.paper, border: `1px solid ${C.ink}`,
-      borderRadius: 999, padding: "10px 16px 10px 20px",
-      fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_SANS,
-      display: "inline-flex", alignItems: "center", gap: 10,
-    }}>
-      {children}
-      <span style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 22, height: 22, borderRadius: "50%",
-        background: "rgba(251,250,246,0.18)", fontSize: 12,
-      }}>→</span>
-    </button>
   );
 }
 
@@ -1817,14 +1751,6 @@ function CtaButton({ children, onClick, disabled, full, lg }) {
   );
 }
 
-function DangerLink({ children, onClick, style }) {
-  return <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: F.sans, fontSize: 13, color: C.danger, ...style }}>{children}</button>;
-}
-
-function DangerOutlineButton({ children, onClick }) {
-  return <button onClick={onClick} style={{ background: C.paper, border: `1px solid rgba(184,74,58,0.4)`, borderRadius: 7, padding: "5px 12px", fontFamily: F.sans, fontSize: 12, fontWeight: 500, color: C.danger, cursor: "pointer" }}>{children}</button>;
-}
-
 function FieldLabel({ children }) {
   return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#999", marginBottom: 6 }}>{children}</label>;
 }
@@ -1838,38 +1764,11 @@ function TextInput({ value, onChange, placeholder, type = "text", big }) {
   );
 }
 
-function RailStep({ num, title, last, children }) {
-  return (
-    <div style={{ display: "flex", marginBottom: last ? 0 : 30 }}>
-      <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.serif, fontSize: 17, fontWeight: 600 }}>{String(num).padStart(2, "0")}</div>
-        {!last && <div style={{ width: 1, flex: 1, background: C.rail, marginTop: 6 }} />}
-      </div>
-      <div style={{ flex: 1, minWidth: 0, paddingTop: 6, paddingBottom: 4 }}>
-        <div style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", marginBottom: 14 }}>{title}</div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function MetaItem({ label, children }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
       <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: F.sans, fontSize: 12, color: "#666" }}>{children}</span>
-    </div>
-  );
-}
-
-// Cabecera editorial para vistas de ejercicio
-function ExerciseViewHeader({ title, onBack }) {
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 16 }}>← Volver</button>
-      <div style={{ paddingBottom: 18, borderBottom: `2px solid ${C.ink}` }}>
-        <h1 style={{ fontFamily: F.serif, fontSize: 32, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.1, margin: 0 }}>{title}</h1>
-      </div>
     </div>
   );
 }
@@ -4386,26 +4285,7 @@ function rulerTicksForSeg(start, end, widthPx) {
 }
 
 // ─── Barras de repetición (notación musical SVG) ─────────────────────────────
-// Lado "start" (apertura): línea gruesa | línea fina | puntos  →
-// Lado "end"   (cierre):   ← puntos | línea fina | línea gruesa
-const REPEAT_BARLINE_W = 17;   // ancho total del SVG (px)
-function RepeatBarline({ side = "start", height = 44 }) {
-  const THICK = 3.5, THIN = 1.3, GAP = 2.5, DOT_R = 2.3;
-  const isStart = side === "start";
-  // Posiciones: el par de líneas ocupa THICK+GAP+THIN desde el borde exterior
-  const thickX = isStart ? 0.5                             : REPEAT_BARLINE_W - THICK - 0.5;
-  const thinX  = isStart ? THICK + GAP + 0.5               : REPEAT_BARLINE_W - THICK - GAP - THIN - 0.5;
-  const dotCX  = isStart ? REPEAT_BARLINE_W - DOT_R - 1.5  : DOT_R + 1.5;
-  const dotY1  = height * 0.33, dotY2 = height * 0.67;
-  return (
-    <svg width={REPEAT_BARLINE_W} height={height} style={{ display: "block", flexShrink: 0, pointerEvents: "none" }}>
-      <rect x={thickX} y={0} width={THICK} height={height} fill="black" opacity={0.65} />
-      <rect x={thinX}  y={0} width={THIN}  height={height} fill="black" opacity={0.40} />
-      <circle cx={dotCX} cy={dotY1} r={DOT_R} fill="black" opacity={0.70} />
-      <circle cx={dotCX} cy={dotY2} r={DOT_R} fill="black" opacity={0.70} />
-    </svg>
-  );
-}
+const REPEAT_BARLINE_W = 17;   // ancho reservado para la barra de repetición (px)
 
 // ─── Modal de gestión de repeticiones (solo modo "record") ───────────────────
 function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
@@ -10541,8 +10421,8 @@ export default function App() {
             window.history.replaceState(null, "", "#/");
           }
         } catch {
-          // Entorno de previsualización: sin backend — modo en memoria
-          setDbReady(true);
+          // Entorno de previsualización: sin backend — modo en memoria.
+          // El `finally` de abajo marca dbReady; basta con salir aquí.
           return;
         }
 
