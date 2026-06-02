@@ -1541,6 +1541,28 @@ function EyeIcon({ open = true, size = 15 }) {
   );
 }
 
+// Icono de lápiz (editar) — estética de trazo fino coherente con EyeIcon
+function PencilIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.5 3.5l3 3" />
+      <path d="M12.2 4.8l3 3L7 16l-3.6.6L4 13z" />
+    </svg>
+  );
+}
+
+// Icono de papelera (eliminar) — trazo fino coherente con el resto de iconos
+function TrashIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 5.5h13" />
+      <path d="M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5" />
+      <path d="M5 5.5l.8 10a1.5 1.5 0 0 0 1.5 1.4h5.4a1.5 1.5 0 0 0 1.5-1.4l.8-10" />
+      <path d="M8.5 8.5v5M11.5 8.5v5" />
+    </svg>
+  );
+}
+
 // Icono de onda de audio — barras verticales de altura variable, estética waveform
 function AudioWaveIcon({ size = 16, color = "currentColor" }) {
   const bars = [0.35, 0.6, 0.85, 0.65, 1.0, 0.8, 0.5, 0.9, 0.55, 0.3];
@@ -1555,14 +1577,51 @@ function AudioWaveIcon({ size = 16, color = "currentColor" }) {
   );
 }
 
+// Base común de los botones-icono de acción de la tarjeta de ejercicio.
+// Mismo tamaño/forma para mantener la estética; el color/relleno los diferencia.
+const ICON_BTN_BASE = { display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, flexShrink: 0, cursor: "pointer", transition: "background .15s, color .15s, border-color .15s, box-shadow .15s" };
+
+// Visible/oculto → botón-estado: contorno tenue y tinte ámbar/rojo al ocultar.
 function EyeButton({ visible, onClick, title }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       title={title || (visible ? "Ocultar para alumnos" : "Mostrar a alumnos")}
-      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: `1px solid ${visible ? C.line : "rgba(184,74,58,0.35)"}`, background: "transparent", cursor: "pointer", color: visible ? C.muted : C.danger, flexShrink: 0, transition: "all .15s" }}
+      className="fa-pressable"
+      style={{ ...ICON_BTN_BASE,
+        border: `1px solid ${visible ? C.line : "rgba(184,74,58,0.45)"}`,
+        background: visible ? C.paper : "rgba(184,74,58,0.07)",
+        color: visible ? C.muted : C.danger }}
     >
-      <EyeIcon open={visible} size={14} />
+      <EyeIcon open={visible} size={15} />
+    </button>
+  );
+}
+
+// Editar → acción principal: relleno oscuro sólido (destaca sobre los otros dos).
+function EditIconButton({ onClick, title = "Editar" }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      className="fa-pressable"
+      style={{ ...ICON_BTN_BASE, border: `1px solid ${C.ink}`, background: C.ink, color: C.paper, boxShadow: "0 1px 3px rgba(26,25,21,0.18)" }}
+    >
+      <PencilIcon size={15} />
+    </button>
+  );
+}
+
+// Eliminar → acción destructiva: contorno rojo con tinte suave.
+function DeleteIconButton({ onClick, title = "Eliminar" }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      className="fa-pressable"
+      style={{ ...ICON_BTN_BASE, border: `1px solid rgba(184,74,58,0.45)`, background: "rgba(184,74,58,0.07)", color: C.danger }}
+    >
+      <TrashIcon size={15} />
     </button>
   );
 }
@@ -7507,7 +7566,7 @@ function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, compos
           <Chevron open={open} />
           <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
-            <GhostButton onClick={() => onSelect(ex.id)}>Editar</GhostButton>
+            <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
           </div>
         </div>
         <div className={`fa-expand${open ? " fa-open" : ""}`}>
@@ -7525,7 +7584,7 @@ function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, compos
                 <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
               </MetaItem>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                <DangerOutlineButton onClick={() => onDelete(ex)}>Eliminar</DangerOutlineButton>
+                <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
               </div>
             </div>
           </div>
