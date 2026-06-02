@@ -300,6 +300,15 @@ const SCHEMA_CLICK_MOVE_THR = 6;
 const SCHEMA_CLICK_DUR_FRAC = 0.12;
 const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px) — hitbox permanece en SCHEMA_HND_W
 
+// Devuelve el punto de `pts` más cercano a `v` dentro del umbral; si ninguno
+// está suficientemente cerca, devuelve `v` sin cambios. Usado por el snap del
+// modelo Esquema (arrastre de bloques y bordes).
+const snapToNearest = (v, pts, thr = SCHEMA_SNAP_THR) => {
+  let best = v, bd = thr + 0.01;
+  for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
+  return best;
+};
+
 // ─── Sistema de color por tonalidad (nivel Armonía) ──────────────────────────
 // Tabla maestra: "tonica|modo" → color hex  (tónica en minúscula, bemoles como "b")
 // Orden siguiendo el círculo de quintas del PDF.
@@ -5071,9 +5080,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
           ...ctx.filter(b => b.id !== d.pid && b.id !== d.bid).flatMap(b => [b.start, b.end]),
           ph,
         ];
-        let best = v, bd = SCHEMA_SNAP_THR + 0.01;
-        for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
-        return best;
+        return snapToNearest(v, pts);
       };
       // Para resize y shared-edge: snap a puntos estructurales + otros niveles fijos (imantación vertical)
       // Se excluyen: mismo nivel (evita cuadrícula) y bloques en cascada (se mueven junto al drag)
@@ -5086,9 +5093,7 @@ function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode 
                 .flatMap(b => [b.start, b.end]),
           ph,
         ];
-        let best = v, bd = SCHEMA_SNAP_THR + 0.01;
-        for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
-        return best;
+        return snapToNearest(v, pts);
       };
       // Cascada vertical: aplica los bloques pre-identificados al inicio del drag
       const cascadeBoundary = (arr, newT) => {
