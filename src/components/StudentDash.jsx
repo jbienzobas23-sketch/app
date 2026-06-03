@@ -7,7 +7,8 @@ import { modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { TabBar, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
 import { ExerciseRow } from "./student.jsx";
-import { CoursesPages, PaletteMenuButton } from "./teacher.jsx";
+import { CoursesPages } from "./courses.jsx";
+import { PaletteMenuButton } from "./teacher.jsx";
 
 export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }) {
   const isMobile = useIsMobile();
