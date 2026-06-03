@@ -4,7 +4,8 @@
 import { useState, useMemo } from "react";
 import { S, C, F } from "../theme/tokens.js";
 import { Overline, FieldLabel, TextInput, ErrorMsg, CtaButton, CredentialInput, GhostButton, StatusCircle } from "./primitives.jsx";
-import { generateSalt, hashCredential, verifyCredential } from "../auth/crypto.js";
+import { generateSalt, hashCredential } from "../auth/crypto.js";
+import { login, logout } from "../auth/authClient.js";
 
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
 export function SetupView({ onSetup }) {
@@ -100,13 +101,21 @@ export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGue
     if (!canSubmit) return;
     setLoading(true); setError("");
     try {
-      const found = targetUsers.find((u) => u.username === username.trim().toLowerCase());
-      if (!found) { setError("Usuario no encontrado."); setLoading(false); return; }
-      const ok = await verifyCredential(credential, found.passwordHash, found.salt);
-      if (!ok)    { setError(`${found.credType === "pin" ? "PIN" : "Contraseña"} incorrecta.`); setLoading(false); return; }
-      onLogin(found);
-    } catch { setError("Error al verificar. Inténtalo de nuevo."); }
-    finally  { setLoading(false); }
+      // La verificación de la credencial ocurre en el SERVIDOR (Edge Function):
+      // el cliente nunca recibe el hash ni la sal.
+      const profile = await login(username.trim().toLowerCase(), credential);
+      const roleOk = profile?.role === filterRole || (filterRole === "teacher" && profile?.role === "admin");
+      if (!roleOk) {
+        await logout();
+        setError(`Esta cuenta no puede entrar como ${roleLabel.toLowerCase()}.`);
+        return;
+      }
+      onLogin(profile);
+    } catch (e) {
+      setError(e.message || "No se pudo iniciar sesión.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
