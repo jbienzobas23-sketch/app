@@ -44,3 +44,9 @@ export const SECTION_STYLE = {
   textTransform: "uppercase", color: C.chevron, margin: "0 0 14px",
   fontFamily: FONT_SANS,
 };
+
+// Estilo "guardar/disabled" (ratio de opacidad común) compartido por modales.
+export const disabledStyle = (canSave) => ({
+  opacity: canSave ? 1 : 0.45,
+  cursor:  canSave ? "pointer" : "not-allowed",
+});
