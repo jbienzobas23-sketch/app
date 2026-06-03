@@ -9,7 +9,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { TEACHER_TAB_PATH, useHashRoute } from "./lib/routing.js";
-import { C, F, S } from "./theme/tokens.js";
+import { C, S } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
 import { modelsOf, answerFor } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
@@ -20,203 +20,18 @@ import { calcScore, calcSchemaPlacementScore } from "./lib/scoring.js";
 // ═══ 5. PRIMITIVOS UI COMPARTIDOS ═══════════════════════════════════════════
 
 import { useInjectFonts } from "./theme/fonts.js";
-import { useIsMobile } from "./hooks/useIsMobile.js";
-import { TabBar, StudentFilterBar, Overline, GhostButton } from "./components/primitives.jsx";
 
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
 
-// ═══ 7. VISTAS DE ALUMNO ════════════════════════════════════════════════════
-
-
-import { ModelToggleBar, ExerciseRow } from "./components/student.jsx";
-
-// Dashboard del alumno — cabecera editorial + pestañas + riel de cursos
-function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }) {
-  const isMobile = useIsMobile();
-  const view    = tab;             // controlado por la URL
-  const setView = onTab || (() => {});
-  const [filterModel,   setFilterModel]   = useState("all");
-  const [filterDone,    setFilterDone]    = useState("all");
-
-  const teacherCourses = useMemo(() => {
-    const studentGroupIds = new Set(groups.filter((g) => g.studentIds?.includes(user.id)).map((g) => g.id));
-    return courses.filter((c) => {
-      if (c.hidden) return false;
-      const vis = c.visibility ?? "teacher";
-      if (vis === "public")  return true;
-      if (vis === "group")   return studentGroupIds.has(c.visibilityGroupId);
-      // "teacher" (default): cursos del profesor asignado
-      if (!c.ownerId) return true;
-      return c.ownerId === user.teacherId;
-    });
-  }, [courses, groups, user.id, user.teacherId]);
-
-  const filteredExercises = useMemo(() => {
-    return exercises.filter((ex) => {
-      if (ex.hidden) return false;
-      if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
-      if (filterDone === "done"    && !results[ex.id]) return false;
-      if (filterDone === "notdone" &&  results[ex.id]) return false;
-      return true;
-    });
-  }, [exercises, filterModel, filterDone, results]);
-
-  return (
-    <div style={S.app}>
-      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
-        {user.isGuest && (
-          <div style={{ background: C.noteBg, border: `1px solid rgba(199,122,26,0.28)`, borderRadius: 8, padding: "8px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.noteInk }}>Modo invitado</span>
-            <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>· Los resultados no se guardan al salir</span>
-          </div>
-        )}
-
-        {/* Cabecera editorial */}
-        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <Overline>Alumno</Overline>
-            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
-            {onUpdatePalette && (
-              <PaletteMenuButton current={user.defaultPalette || SCHEMA_PALETTE_DEFAULT} onSelect={onUpdatePalette} />
-            )}
-            {!user.isGuest && onChangeTeacher && (
-              <GhostButton onClick={onChangeTeacher}>{isMobile ? "Profesor" : "Cambiar profesor"}</GhostButton>
-            )}
-            <GhostButton onClick={onLogout}>Salir</GhostButton>
-          </div>
-        </div>
-
-        {/* Pestañas */}
-        <div className="fa-noscroll" style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22, overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
-          <TabBar tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]} value={view} onChange={setView} />
-        </div>
-
-        {/* ── Todos los ejercicios ── */}
-        {view === "all" && (
-          <>
-            <StudentFilterBar
-              filterModel={filterModel} setFilterModel={setFilterModel}
-              filterDone={filterDone}   setFilterDone={setFilterDone}
-            />
-            {filteredExercises.length === 0
-              ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
-                  {exercises.length === 0
-                    ? "Tu profesor aún no ha publicado ejercicios."
-                    : "Ningún ejercicio coincide con los filtros."}
-                </p>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {filteredExercises.map((ex) => (
-                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
-                  ))}
-                </div>
-            }
-          </>
-        )}
-
-        {/* ── Por cursos (rediseño en páginas) ── */}
-        {view === "courses" && (
-          <CoursesPages
-            role="student"
-            courses={teacherCourses}
-            units={units}
-            exercises={exercises}
-            groups={groups}
-            results={results}
-            onExercise={onExercise}
-            onViewCorrection={onViewCorrection}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ═══ 8. REPRODUCTOR DE AUDIO COMPARTIDO ════════════════════════════════════
-
-// Hook compartido por ExerciseView, QuestionManagerView y QuestionnaireView.
-//   onWaveform:      callback(waveformData) tras decodificar el audio.
-//   loopRegionRef:   ref con { audioStart, audioEnd } | null para bucle en
-//                    fragmentos (QuestionnaireView).
-import { useAudioPlayer } from "./hooks/useAudioPlayer.js";
-
-
 import { ExerciseView } from "./components/ExerciseView.jsx";
 import { SchemaExerciseView } from "./components/SchemaExerciseView.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
-import { TeacherDash, QuestionManagerView, CoursesPages, PaletteMenuButton } from "./components/teacher.jsx";
-// ═══ 14b. MULTI-MODEL SESSION VIEW ══════════════════════════════════════════
-// Wrapper para ejercicios con dos modelos: gestiona el estado de alternancia
-// y pasa la barra de toggle a cada vista como prop.
-// El audio se decodifica UNA SOLA VEZ aquí y se comparte con todas las vistas
-// para que cambiar de modelo no recargue ni re-decodifique el audio.
-function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
-  const models = modelsOf(exercise);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const activeModel = models[activeIdx] || models[0];
-
-  // Audio compartido: decodificado una vez, persiste entre cambios de modelo
-  const [sharedWaveformData, setSharedWaveformData] = useState(exercise.waveformData || null);
-  const loopRegionRef = useRef(null);   // QuestionnaireView lo actualiza con su lockedQuestion
-  const onWaveform    = sharedWaveformData ? null : (wd) => setSharedWaveformData(wd);
-  const rawPlayer     = useAudioPlayer(exercise, { onWaveform, loopRegionRef });
-  const sharedAudioPlayer = { ...rawPlayer, waveformData: sharedWaveformData };
-
-  // Al cambiar de modelo, cancelar cualquier bucle de fragmento activo
-  useEffect(() => { loopRegionRef.current = null; }, [activeModel]);
-
-  const toggleNode = models.length > 1 ? (
-    <ModelToggleBar models={models} activeIdx={activeIdx} onSwitch={setActiveIdx} />
-  ) : null;
-
-  // Cada vista tiene su propio estado de UI; al cambiar de modelo se desmonta
-  // y vuelve a montar (React detecta el cambio de key). El audio, sin embargo,
-  // vive aquí y se pasa como sharedAudioPlayer para no re-decodificar.
-  if (activeModel === "esquema") {
-    return (
-      <div key={`schema-${exercise.id}`}>
-        <SchemaExerciseView
-          exercise={exercise}
-          mode={mode}
-          onSubmit={onSubmit}
-          onBack={onBack}
-          modelToggleNode={toggleNode}
-          sharedAudioPlayer={sharedAudioPlayer}
-        />
-      </div>
-    );
-  }
-  if (activeModel === "cuestionario") {
-    return (
-      <div key={`quiz-${exercise.id}`}>
-        <QuestionnaireView
-          exercise={exercise}
-          onSubmit={onSubmit}
-          onBack={onBack}
-          modelToggleNode={toggleNode}
-          sharedAudioPlayer={sharedAudioPlayer}
-          loopRegionRef={loopRegionRef}
-        />
-      </div>
-    );
-  }
-  return (
-    <div key={`interactive-${exercise.id}`}>
-      <ExerciseView
-        exercise={exercise}
-        mode={mode}
-        onSubmit={onSubmit}
-        onBack={onBack}
-        modelToggleNode={toggleNode}
-        sharedAudioPlayer={sharedAudioPlayer}
-      />
-    </div>
-  );
-}
+import { TeacherDash, QuestionManagerView } from "./components/teacher.jsx";
+import { StudentDash } from "./components/StudentDash.jsx";
+import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
 
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
