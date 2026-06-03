@@ -14,6 +14,7 @@ import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js"
 import { modelsOf, answerFor } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore } from "./lib/scoring.js";
+import { createDb } from "./data/db.js";
 
 
 
@@ -169,44 +170,20 @@ export default function App() {
   // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
   // simplemente retornan sin hacer nada: el estado React ya se actualizó.
 
-  const dbUpsertExercise = async (ex) => {
-    const sb = supabaseRef.current; if (!sb) return;
-    // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
-    // eslint-disable-next-line no-unused-vars
-    const { waveformData, ...rest } = ex;
-    pendingSavesRef.current++;
-    const { error } = await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
-    pendingSavesRef.current--;
-    if (error) console.error("[fa_exercises] Error al guardar:", error.message, ex.id);
-  };
-  const dbDeleteExercise = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
-
-  const dbUpsertUser   = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_users").upsert({ id: u.id, data: u }); if (error) console.error("[fa_users] Error al guardar:", error.message); };
-  const dbDeleteUser   = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
-
-  const dbUpsertCategory = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_categories").upsert({ id: c.id, data: c }); if (error) console.error("[fa_categories] Error al guardar:", error.message); };
-  const dbDeleteCategory = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
-
-  const dbUpsertCourse = async (c)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_courses").upsert({ id: c.id, data: c }); if (error) console.error("[fa_courses] Error al guardar:", error.message); };
-  const dbDeleteCourse = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
-
-  const dbUpsertUnit = async (u)  => { const sb = supabaseRef.current; if (!sb) return; const { error } = await sb.from("fa_units").upsert({ id: u.id, data: u }); if (error) console.error("[fa_units] Error al guardar:", error.message); };
-  const dbDeleteUnit = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
-
-  const dbUpsertResult = async (userId, exerciseId, data) => {
-    const sb = supabaseRef.current; if (!sb) return;
-    await sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
-  };
-  const dbDeleteResultsForUser     = async (userId)     => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("user_id", userId); };
-  const dbDeleteResultsForExercise = async (exerciseId) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_results").delete().eq("exercise_id", exerciseId); };
-
-  const dbUpsertSetting = async (key, value) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_settings").upsert({ key, value }); };
-
-  const dbUpsertAudio = async (a)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").upsert({ id: a.id, data: a }); };
-  const dbDeleteAudio = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_audio_library").delete().eq("id", id); };
-
-  const dbUpsertGroup = async (g)  => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").upsert({ id: g.id, data: g }); };
-  const dbDeleteGroup = async (id) => { const sb = supabaseRef.current; if (!sb) return; await sb.from("fa_groups").delete().eq("id", id); };
+  // Capa de datos: los helpers viven en data/db.js y reciben un getter perezoso
+  // del cliente Supabase (se carga async al montar). Se desestructuran con los
+  // mismos nombres para no tocar los puntos de llamada.
+  const {
+    dbUpsertExercise, dbDeleteExercise,
+    dbUpsertUser, dbDeleteUser,
+    dbUpsertCategory, dbDeleteCategory,
+    dbUpsertCourse, dbDeleteCourse,
+    dbUpsertUnit, dbDeleteUnit,
+    dbUpsertResult, dbDeleteResultsForUser, dbDeleteResultsForExercise,
+    dbUpsertSetting,
+    dbUpsertAudio, dbDeleteAudio,
+    dbUpsertGroup, dbDeleteGroup,
+  } = useMemo(() => createDb({ getClient: () => supabaseRef.current, pendingSavesRef }), []);
 
   // ─── Users ───────────────────────────────────────────────────────────────
   const addUser = (newUser) => {
