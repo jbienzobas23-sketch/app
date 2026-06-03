@@ -30,7 +30,8 @@ import { ExerciseView } from "./components/ExerciseView.jsx";
 import { SchemaExerciseView } from "./components/SchemaExerciseView.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
-import { TeacherDash, QuestionManagerView } from "./components/teacher.jsx";
+import { TeacherDash } from "./components/teacher.jsx";
+import { QuestionManagerView } from "./components/QuestionManagerView.jsx";
 import { StudentDash } from "./components/StudentDash.jsx";
 import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
 
