@@ -15,7 +15,8 @@ Migraciones versionadas y Edge Functions del proyecto.
 |---|---|
 | `0001_base_schema.sql` | Tablas `fa_*` (patrón `id`+`data jsonb`). |
 | `0002_user_secrets.sql` | `fa_user_secrets` (hash/salt/recovery fuera del perfil público) con RLS bloqueada (solo `service_role`). |
-| `0003_rls_policies.sql` | *(pendiente)* Activa RLS en todas las `fa_*` y define políticas por rol/visibilidad. |
+| `0003_rls_helpers.sql` | Funciones puente `app_user_id()`/`app_role()`/`app_is_staff()`… (SECURITY DEFINER) que mapean `auth.uid()` → usuario/rol de la app. |
+| `0003_rls_policies.sql` | Activa RLS en todas las `fa_*` y define políticas por rol/visibilidad. **Probado en staging.** |
 
 Aplicar con `supabase db push` (CLI) o desde el SQL editor / conector MCP.
 
@@ -40,8 +41,17 @@ Desplegar: `supabase functions deploy login --no-verify-jwt`.
 - credencial incorrecta / usuario inexistente → 401 genérico.
 - segundo login reutiliza el usuario de Auth (idempotente).
 
+### RLS probada en staging (2026-06-03, con tokens reales)
+- **anon** (solo anon key, sin sesión) → 0 filas en todas las tablas y escritura → 401.
+- **alumno** → solo SUS resultados (no los de otros), solo ejercicios no ocultos,
+  solo sus grupos; no puede escribir (403).
+- **admin** → ve todo y puede escribir (201).
+
 ## Pendiente de Fase 1
-- `0003_rls_policies.sql` (RLS + políticas por rol/visibilidad).
-- Reescribir el cliente: `LoginView`/`SetupView`/alta de usuario vía servidor;
-  quitar `passwordHash`/`salt` del `select` de `fa_users`; `authClient.login()`.
-- Migrar datos de producción (separar secretos) y desplegar todo de una vez.
+- **Cliente: recargar datos DESPUÉS del login.** Con RLS activa, anon no ve nada,
+  así que la carga inicial (que hoy ocurre antes de login) vuelve vacía; tras
+  `setSession` hay que volver a cargar. Sin esto la app se queda sin datos.
+- `LoginView` ya usa el servidor; falta `SetupView`/alta de usuario/reseteo de PIN
+  vía Edge Functions (hoy escriben el hash en `fa_users`, que ya no es el sitio).
+- Migrar datos de producción (separar secretos a `fa_user_secrets`, rellenar
+  `auth_uid` en el primer login) y desplegar RLS+auth+políticas **de una vez**.
