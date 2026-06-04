@@ -4,8 +4,7 @@
 import { useState, useMemo } from "react";
 import { S, C, F } from "../theme/tokens.js";
 import { Overline, FieldLabel, TextInput, ErrorMsg, CtaButton, CredentialInput, GhostButton, StatusCircle } from "./primitives.jsx";
-import { generateSalt, hashCredential } from "../auth/crypto.js";
-import { login, logout, createUser } from "../auth/authClient.js";
+import { login, logout, createUser, requestPinReset, resetPin } from "../auth/authClient.js";
 
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
 export function SetupView({ onSetup }) {
@@ -189,7 +188,7 @@ export function HomeView({ onTeacher, onStudent }) {
 }
 
 // Vista para solicitar enlace de recuperación de PIN por correo
-export function ForgotPinView({ users, supabaseRef, onBack }) {
+export function ForgotPinView({ onBack }) {
   const [username, setUsername] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [sent,     setSent]     = useState(false);
@@ -199,26 +198,12 @@ export function ForgotPinView({ users, supabaseRef, onBack }) {
     if (!username.trim() || loading) return;
     setLoading(true); setError("");
     try {
-      const found = (users || []).find(
-        (u) => u.role === "student" && u.username === username.trim().toLowerCase()
-      );
-      if (!found) { setError("Usuario no encontrado."); return; }
-      if (!found.recoveryEmail) {
-        setError("Este usuario no tiene correo de recuperación. Pide ayuda a tu profesor.");
-        return;
-      }
-      const sb = supabaseRef.current;
-      if (!sb) { setError("Sin conexión al servidor. Inténtalo más tarde."); return; }
-      const { error: sbErr } = await sb.auth.signInWithOtp({
-        email: found.recoveryEmail,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: window.location.origin + (window.location.pathname || "/"),
-        },
-      });
-      if (sbErr) throw sbErr;
+      // El servidor busca el correo de recuperación (en fa_user_secrets) y envía el
+      // enlace. Respuesta genérica: mostramos "enviado" exista o no el usuario, para
+      // no revelar quién tiene cuenta.
+      await requestPinReset(username.trim().toLowerCase(), window.location.origin + (window.location.pathname || "/"));
       setSent(true);
-    } catch { setError("No se pudo enviar el correo. Inténtalo de nuevo."); }
+    } catch (e) { setError(e.message || "No se pudo enviar el correo. Inténtalo de nuevo."); }
     finally { setLoading(false); }
   };
 
@@ -270,28 +255,24 @@ export function ForgotPinView({ users, supabaseRef, onBack }) {
 }
 
 // Vista para configurar nuevo PIN tras llegar desde el enlace de correo
-export function ResetPinView({ users, supabaseSession, onReset, onBack }) {
+export function ResetPinView({ onBack }) {
   const [pin,     setPin]     = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
   const [done,    setDone]    = useState(false);
 
-  const email      = supabaseSession?.user?.email;
-  const targetUser = (users || []).find(
-    (u) => u.recoveryEmail?.toLowerCase() === email?.toLowerCase()
-  );
-
   const canSave = pin.length >= 4 && !loading;
 
   const handleReset = async () => {
-    if (!canSave || !targetUser) return;
+    if (!canSave) return;
     setLoading(true); setError("");
     try {
-      const salt = generateSalt();
-      const hash = await hashCredential(pin, salt);
-      await onReset({ ...targetUser, credType: "pin", passwordHash: hash, salt });
+      // El servidor identifica al usuario por la sesión de recuperación (correo
+      // real del magic link) y actualiza su secreto; el cliente no hashea.
+      await resetPin(pin, "pin");
+      try { await logout(); } catch { /* cerrar la sesión de recuperación */ }
       setDone(true);
-    } catch { setError("Error al actualizar el PIN. Inténtalo de nuevo."); }
+    } catch (e) { setError(e.message || "Error al actualizar el PIN. Inténtalo de nuevo."); }
     finally { setLoading(false); }
   };
 
@@ -310,24 +291,11 @@ export function ResetPinView({ users, supabaseSession, onReset, onBack }) {
     );
   }
 
-  if (!targetUser) {
-    return (
-      <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
-          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 24 }}>
-            No se encontró ningún usuario asociado a este correo. Pide ayuda a tu profesor.
-          </p>
-          <GhostButton full lg onClick={onBack}>← Volver al inicio</GhostButton>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ maxWidth: 380, width: "100%" }}>
         <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
-          <Overline>Recuperar acceso · {targetUser.displayName}</Overline>
+          <Overline>Recuperar acceso</Overline>
           <h1 style={{ ...S.h1 }}>Nuevo PIN de acceso</h1>
         </div>
         <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>

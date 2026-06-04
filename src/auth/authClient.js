@@ -102,3 +102,53 @@ export async function resetCredential(payload) {
   }
   return json.profile;
 }
+
+// requestPinReset(username, redirectTo) — pide recuperar el PIN. El servidor busca
+// el correo de recuperación (en fa_user_secrets) y envía el magic link. Respuesta
+// siempre genérica (no revela si el usuario existe).
+export async function requestPinReset(username, redirectTo) {
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+  try {
+    await fetch(`${SUPABASE_URL}/functions/v1/request-pin-reset`, {
+      method: "POST", headers, body: JSON.stringify({ username, redirectTo }),
+    });
+  } catch {
+    throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
+  }
+  return true;
+}
+
+// resetPin(credential, credType) — fija un nuevo PIN usando la sesión ACTUAL de
+// recuperación (la del magic link, con el correo real). El servidor identifica al
+// usuario por ese correo y actualiza el secreto.
+export async function resetPin(credential, credType = "pin") {
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  } catch { /* sin sesión */ }
+
+  let res, json;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/reset-pin`, {
+      method: "POST", headers, body: JSON.stringify({ credential, credType }),
+    });
+    json = await res.json().catch(() => ({}));
+  } catch {
+    throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
+  }
+  if (!res.ok || !json.ok) {
+    const err = new Error(json.error || "No se pudo actualizar el PIN.");
+    err.status = res.status;
+    throw err;
+  }
+  return true;
+}

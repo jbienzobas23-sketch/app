@@ -61,6 +61,23 @@ restablece la credencial de otro usuario: nuevo hash en el servidor → `fa_user
   el nuevo entra; anon → 401; profesor → usuario que no es su alumno → 403.
   Verificado también EN NAVEGADOR (ResetCredentialModal). ✅
 
+## Edge Functions: `request-pin-reset` + `reset-pin` (recuperación)
+
+Recuperación de PIN por *magic link* (un alumno olvidó su PIN):
+- `request-pin-reset` — busca el correo de recuperación en `fa_user_secrets` (el
+  cliente ya no lo tiene) y envía el enlace. Respuesta SIEMPRE genérica.
+- `reset-pin` — al volver del enlace, la sesión tiene el correo REAL; identifica al
+  usuario por `recovery_email` y actualiza su secreto. Rechaza sesiones de login
+  normal (`@fa.local`).
+
+### Probado en staging (2026-06-03)
+- `request-pin-reset` con usuario válido/ inexistente → respuesta genérica (no
+  filtra); en NAVEGADOR ForgotPinView muestra "Correo enviado". ✅
+- `reset-pin`: anon → 401; sesión de login normal (@fa.local) → 401 (no es
+  recuperación). La actualización del PIN reutiliza la misma lógica ya verificada
+  en `reset-credential`. ⚠️ El recorrido completo del *magic link* requiere un buzón
+  real (infraestructura de email de Supabase) y no se probó de extremo a extremo.
+
 ### Probado en staging (2026-06-03)
 - `admin`/`admin123` (contraseña) → 200 + sesión (rol admin).
 - `alumno1`/`1234` (PIN) → 200 + sesión (rol student).
