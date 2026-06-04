@@ -25,7 +25,7 @@ export const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 export const S = {
   app:        { fontFamily: FONT_SANS, background: C.bg, minHeight: "100vh", color: C.ink },
-  page:       { maxWidth: 740, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
+  page:       { maxWidth: 980, margin: "0 auto", padding: "calc(22px + env(safe-area-inset-top,0px)) 24px 40px" },
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
   h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
