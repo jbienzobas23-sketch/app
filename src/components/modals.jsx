@@ -8,6 +8,7 @@ import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { generateSalt, hashCredential } from "../auth/crypto.js";
+import { createUser } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
 
 // Editor de categoría (nuevo o existente)
@@ -315,21 +316,19 @@ export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave
     if (!canSave) return;
     setLoading(true); setError("");
     try {
-      const salt = generateSalt();
-      const hash = await hashCredential(credValue, salt);
-      onSave({
-        id:           uid(forRole),
-        username:     username.trim().toLowerCase(),
-        displayName:  displayName.trim(),
-        role:         forRole,
+      // El usuario se crea en el SERVIDOR (hash PBKDF2 allí; perfil a fa_users,
+      // secreto a fa_user_secrets). El servidor verifica la autorización del que
+      // llama (profesor solo crea alumnos asignados a sí mismo).
+      const profile = await createUser({
+        username:    username.trim().toLowerCase(),
+        credential:  credValue,
+        role:        forRole,
+        displayName: displayName.trim(),
         credType,
-        passwordHash: hash,
-        salt,
         ...(forRole === "student" ? { teacherId: currentUserId } : {}),
-        createdBy:    currentUserId,
-        createdAt:    Date.now(),
       });
-    } catch { setError("Error al crear la cuenta."); }
+      onSave(profile);
+    } catch (e) { setError(e.message || "Error al crear la cuenta."); }
     finally  { setLoading(false); }
   };
 

@@ -5,7 +5,7 @@ import { useState, useMemo } from "react";
 import { S, C, F } from "../theme/tokens.js";
 import { Overline, FieldLabel, TextInput, ErrorMsg, CtaButton, CredentialInput, GhostButton, StatusCircle } from "./primitives.jsx";
 import { generateSalt, hashCredential } from "../auth/crypto.js";
-import { login, logout } from "../auth/authClient.js";
+import { login, logout, createUser } from "../auth/authClient.js";
 
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
 export function SetupView({ onSetup }) {
@@ -23,19 +23,14 @@ export function SetupView({ onSetup }) {
     if (!canSave) return;
     setLoading(true); setError("");
     try {
-      const salt = generateSalt();
-      const hash = await hashCredential(pass, salt);
-      onSetup({
-        id:           `admin-${Date.now()}`,
-        username:     username.trim().toLowerCase(),
-        displayName:  displayName.trim(),
-        role:         "admin",
-        credType:     "password",
-        passwordHash: hash,
-        salt,
-        createdAt:    Date.now(),
-      });
-    } catch { setError("Error al configurar la cuenta. Inténtalo de nuevo."); }
+      const u = username.trim().toLowerCase();
+      // El admin se crea en el SERVIDOR (hash PBKDF2 allí). Es el caso "bootstrap":
+      // create-user lo permite sin sesión solo si aún no existe ningún admin.
+      await createUser({ username: u, credential: pass, role: "admin", displayName: displayName.trim(), credType: "password" });
+      // Iniciar sesión real con la nueva cuenta y devolver su perfil.
+      const profile = await login(u, pass);
+      onSetup(profile);
+    } catch (e) { setError(e.message || "Error al configurar la cuenta. Inténtalo de nuevo."); }
     finally  { setLoading(false); }
   };
 

@@ -250,11 +250,13 @@ export default function App() {
   const deleteGroup = (id) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
 
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
-  const handleSetup = (adminUser) => {
-    setUsers([adminUser]);
-    setUser(adminUser);
+  const handleSetup = (adminProfile) => {
+    // El admin ya está creado en el servidor (create-user) y con sesión iniciada
+    // (login) desde SetupView. Solo reflejamos el estado y entramos.
+    setUser(adminProfile);
+    setServerHasAdmin(true);
     navigate("/profesor");
-    dbUpsertUser(adminUser);
+    if (supabaseRef.current) loadData(supabaseRef.current);
   };
 
   // ─── Exercises ───────────────────────────────────────────────────────────
