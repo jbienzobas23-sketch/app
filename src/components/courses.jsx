@@ -7,7 +7,8 @@ import { C, F, S } from "../theme/tokens.js";
 import { modelOf, answerStats, questionsOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, StatusCircle, EyeButton, EditIconButton, DeleteIconButton, Overline, GhostButton, CtaButton } from "./primitives.jsx";
+import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton } from "./primitives.jsx";
+import { ExerciseRow } from "./student.jsx";
 
 // ── Pestaña: Cursos ────────────────────────────────────────────────────────
 // ═══ Vista de Cursos — rediseño en dos páginas ══════════════════════════════

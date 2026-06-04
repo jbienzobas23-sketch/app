@@ -25,6 +25,7 @@ import { useInjectFonts } from "./theme/fonts.js";
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
+import { RecoveryEmailModal } from "./components/modals.jsx";
 
 import { ExerciseView } from "./components/ExerciseView.jsx";
 import { SchemaExerciseView } from "./components/SchemaExerciseView.jsx";
