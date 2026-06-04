@@ -7,8 +7,7 @@ import { fmt, uid, toggleInSet } from "../lib/ids.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
-import { generateSalt, hashCredential } from "../auth/crypto.js";
-import { createUser } from "../auth/authClient.js";
+import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
 
 // Editor de categoría (nuevo o existente)
@@ -394,10 +393,11 @@ export function ResetCredentialModal({ targetUser, onSave, onClose }) {
     if (!canSave) return;
     setLoading(true); setError("");
     try {
-      const salt = generateSalt();
-      const hash = await hashCredential(credValue, salt);
-      onSave({ ...targetUser, credType, passwordHash: hash, salt });
-    } catch { setError("Error al actualizar la credencial."); }
+      // El restablecimiento ocurre en el SERVIDOR (hash + actualización de
+      // fa_user_secrets); el cliente no escribe secretos.
+      const profile = await resetCredential({ userId: targetUser.id, credential: credValue, credType });
+      onSave(profile);
+    } catch (e) { setError(e.message || "Error al actualizar la credencial."); }
     finally  { setLoading(false); }
   };
 

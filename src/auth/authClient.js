@@ -72,3 +72,33 @@ export async function createUser(payload) {
   }
   return json.profile;
 }
+
+// resetCredential({ userId, credential, credType }) — un admin/profesor restablece
+// la credencial de otro usuario. El hash se calcula y guarda en el servidor.
+export async function resetCredential(payload) {
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  } catch { /* sin sesión */ }
+
+  let res, json;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/reset-credential`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+    });
+    json = await res.json().catch(() => ({}));
+  } catch {
+    throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
+  }
+  if (!res.ok || !json.profile) {
+    const err = new Error(json.error || "No se pudo restablecer la credencial.");
+    err.status = res.status;
+    throw err;
+  }
+  return json.profile;
+}

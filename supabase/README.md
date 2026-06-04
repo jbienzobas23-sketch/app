@@ -47,6 +47,19 @@ asignados a sí mismo. `verify_jwt=false` (comprueba el JWT del caller dentro).
 - anon → crear profesor → 403; admin → profesor → 200; profesor → alumno → 200
   (teacherId = el propio profesor); profesor → profesor → 403; username duplicado
   → 409. Los usuarios creados **pueden loguear** después (contraseña y PIN). ✅
+- Verificado también EN NAVEGADOR: profesor crea alumno desde AddUserModal y el
+  alumno loguea; admin crea el primer admin desde SetupView (bootstrap).
+
+## Edge Function: `reset-credential`
+
+`functions/reset-credential/index.ts` — un admin (o el profesor del alumno)
+restablece la credencial de otro usuario: nuevo hash en el servidor → `fa_user_secrets`;
+`credType` (público) → `fa_users`. El cliente no escribe secretos.
+
+### Probado en staging (2026-06-03)
+- profesor restablece el PIN de SU alumno → 200; el PIN viejo deja de funcionar y
+  el nuevo entra; anon → 401; profesor → usuario que no es su alumno → 403.
+  Verificado también EN NAVEGADOR (ResetCredentialModal). ✅
 
 ### Probado en staging (2026-06-03)
 - `admin`/`admin123` (contraseña) → 200 + sesión (rol admin).
