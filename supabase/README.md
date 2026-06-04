@@ -35,6 +35,19 @@ de Supabase Auth**. El cliente nunca recibe el hash ni la sal.
 
 Desplegar: `supabase functions deploy login --no-verify-jwt`.
 
+## Edge Function: `create-user`
+
+`functions/create-user/index.ts` — alta de usuarios con el modelo nuevo: hashea
+la credencial en el servidor (PBKDF2) y escribe el perfil público en `fa_users` y
+el secreto en `fa_user_secrets`. Autorización: bootstrap del primer admin sin
+sesión (solo si no hay admin), admin crea cualquiera, profesor solo alumnos
+asignados a sí mismo. `verify_jwt=false` (comprueba el JWT del caller dentro).
+
+### Probado en staging (2026-06-03)
+- anon → crear profesor → 403; admin → profesor → 200; profesor → alumno → 200
+  (teacherId = el propio profesor); profesor → profesor → 403; username duplicado
+  → 409. Los usuarios creados **pueden loguear** después (contraseña y PIN). ✅
+
 ### Probado en staging (2026-06-03)
 - `admin`/`admin123` (contraseña) → 200 + sesión (rol admin).
 - `alumno1`/`1234` (PIN) → 200 + sesión (rol student).
