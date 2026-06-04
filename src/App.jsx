@@ -57,6 +57,10 @@ export default function App() {
 
   const [dbReady, setDbReady] = useState(false);
   const [user,    setUser]    = useState(null);
+  // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
+  // Con RLS, anon no puede leer fa_users, así que el primer arranque no se puede
+  // deducir de la carga; se consulta has_admin().
+  const [serverHasAdmin, setServerHasAdmin] = useState(null);
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
@@ -82,6 +86,50 @@ export default function App() {
   const qmCtx = routeExercise ? { exercise: routeExercise } : null;
   const loginRole = route.name === "login" ? route.params.role : null;
 
+  // Carga todas las entidades desde Supabase y actualiza el estado. Se usa al
+  // montar (anon — con RLS devuelve poco o nada) y de nuevo TRAS el login (con la
+  // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
+  // que el login decida el flujo sin esperar al re-render.
+  const loadData = async (sb) => {
+    if (!sb) return { users };
+    const [exRes, userRes, catRes, courseRes, unitRes, resultRes, settingsRes, audioRes, groupRes] = await Promise.all([
+      sb.from("fa_exercises").select("*"),
+      sb.from("fa_users").select("*"),
+      sb.from("fa_categories").select("*"),
+      sb.from("fa_courses").select("*"),
+      sb.from("fa_units").select("*"),
+      sb.from("fa_results").select("*"),
+      sb.from("fa_settings").select("*"),
+      sb.from("fa_audio_library").select("*"),
+      sb.from("fa_groups").select("*"),
+    ]);
+    const loadedUsers = userRes.data?.length ? userRes.data.map((r) => r.data) : null;
+    if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
+    if (loadedUsers)            setUsers(loadedUsers);
+    if (catRes.data?.length) {
+      const cats = catRes.data.map((r) => r.data);
+      if (!cats.find((c) => c.id === "default")) setCategories([DEFAULT_CATEGORY, ...cats]);
+      else setCategories(cats);
+    }
+    if (courseRes.data?.length) setCourses(courseRes.data.map((r) => r.data));
+    if (unitRes.data?.length)   setUnits(unitRes.data.map((r) => r.data));
+    if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r) => r.data));
+    if (groupRes.data?.length)  setGroups(groupRes.data.map((r) => r.data));
+    if (resultRes.data?.length) {
+      const byUser = {};
+      resultRes.data.forEach((row) => {
+        if (!byUser[row.user_id]) byUser[row.user_id] = {};
+        byUser[row.user_id][row.exercise_id] = row.data;
+      });
+      setResults(byUser);
+    }
+    if (settingsRes.data?.length) {
+      const m = settingsRes.data.find((s) => s.key === "margin");
+      if (m?.value != null) setMargin(Number(m.value));
+    }
+    return { users: loadedUsers || users };
+  };
+
   // ─── Carga inicial desde Supabase (import dinámico) ─────────────────────
   // En la web, el import resuelve y carga datos reales.
   // En el visor de artefactos de Claude, el import falla silenciosamente y
@@ -93,10 +141,14 @@ export default function App() {
         try {
           const mod = await import("./supabase.js");
           supabaseRef.current = mod.supabase;
-          // Detectar sesión desde magic link de recuperación de PIN
-          const { data: { session: magicSession } } = await mod.supabase.auth.getSession();
-          if (magicSession) {
-            setResetSession(magicSession);
+          // Detectar sesión desde magic link de recuperación de PIN. OJO: el login
+          // normal (Fase 1) también crea una sesión de Supabase Auth con email
+          // sintético `${username}@fa.local`; esa NO es de recuperación. Solo lo es
+          // una sesión cuyo email es el correo real (magic link de recuperación).
+          const { data: { session: existingSession } } = await mod.supabase.auth.getSession();
+          const sEmail = existingSession?.user?.email || "";
+          if (existingSession && !sEmail.endsWith("@fa.local")) {
+            setResetSession(existingSession);
             window.history.replaceState(null, "", "#/");
           }
         } catch {
@@ -106,53 +158,19 @@ export default function App() {
         }
 
         const sb = supabaseRef.current;
-        const [
-          exRes, userRes, catRes, courseRes, unitRes,
-          resultRes, settingsRes, audioRes, groupRes,
-        ] = await Promise.all([
-          sb.from("fa_exercises").select("*"),
-          sb.from("fa_users").select("*"),
-          sb.from("fa_categories").select("*"),
-          sb.from("fa_courses").select("*"),
-          sb.from("fa_units").select("*"),
-          sb.from("fa_results").select("*"),
-          sb.from("fa_settings").select("*"),
-          sb.from("fa_audio_library").select("*"),
-          sb.from("fa_groups").select("*"),
-        ]);
+        await loadData(sb);
 
-        if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
-        if (userRes.data?.length)   setUsers(userRes.data.map((r) => r.data));
-        if (catRes.data?.length) {
-          const loaded = catRes.data.map((r) => r.data);
-          // Asegura que la categoría por defecto esté presente
-          if (!loaded.find((c) => c.id === "default")) setCategories([DEFAULT_CATEGORY, ...loaded]);
-          else setCategories(loaded);
-        }
-        if (courseRes.data?.length) setCourses(courseRes.data.map((r) => r.data));
-        if (unitRes.data?.length)   setUnits(unitRes.data.map((r) => r.data));
-        if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r) => r.data));
-        if (groupRes.data?.length)  setGroups(groupRes.data.map((r) => r.data));
-
-        if (resultRes.data?.length) {
-          const byUser = {};
-          resultRes.data.forEach((row) => {
-            if (!byUser[row.user_id]) byUser[row.user_id] = {};
-            byUser[row.user_id][row.exercise_id] = row.data;
-          });
-          setResults(byUser);
-        }
-
-        if (settingsRes.data?.length) {
-          const m = settingsRes.data.find((s) => s.key === "margin");
-          if (m?.value != null) setMargin(Number(m.value));
-        }
+        // ¿Existe ya un admin? (primer arranque) — vía RPC, porque con RLS anon no
+        // puede leer fa_users.
+        try { const { data: ha } = await sb.rpc("has_admin"); setServerHasAdmin(ha === true); } catch { /* ignora */ }
       } catch (e) {
         console.error("Error cargando datos de Supabase:", e);
       } finally {
         setDbReady(true);
       }
     })();
+  // Solo al montar; loadData se redefine cada render pero aquí queremos una única carga.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Advierte al usuario si recarga mientras hay escrituras en vuelo.
@@ -410,12 +428,18 @@ export default function App() {
 
 
   // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
-  const completeLogin = (u) => {
+  const completeLogin = async (u) => {
     setUser(u);
+    // Con RLS, la carga anónima del montaje vino vacía: recargar ahora con la
+    // sesión. loadData devuelve los usuarios para decidir el flujo del alumno.
+    let loaded = { users };
+    if (supabaseRef.current && !u.isGuest) {
+      try { loaded = await loadData(supabaseRef.current); } catch { /* mantiene el estado actual */ }
+    }
     const dest = redirectAfterLogin.current;
     redirectAfterLogin.current = null;
     if (u.role === "student") {
-      const hasTeacher = (users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
+      const hasTeacher = (loaded.users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
       if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
       navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
     } else {
@@ -532,8 +556,13 @@ export default function App() {
   }
 
   // Setup inicial: aún no hay admin
-  const hasAdmin = (users || []).some((u) => u.role === "admin");
-  if (!hasAdmin) return <SetupView onSetup={handleSetup} />;
+  // Primer arranque (mostrar Setup) SOLO si el servidor confirma que no hay admin.
+  // Con backend nos fiamos del RPC has_admin (anon no puede leer fa_users por RLS);
+  // en modo en memoria (sin backend) usamos el estado local con los datos semilla.
+  const noAdmin = supabaseRef.current
+    ? serverHasAdmin === false
+    : !(users || []).some((u) => u.role === "admin");
+  if (noAdmin) return <SetupView onSetup={handleSetup} />;
 
   // Selección de profesor para alumno (al primer login o desde "Cambiar profesor")
   if ((pickingTeacher || route.name === "pick-teacher") && user?.role === "student") {
@@ -604,10 +633,9 @@ export default function App() {
     }
 
     const finishLogin = (u) => {
-      if (u.role === "student" && !u.recoveryEmail) {
-        setPendingLoginUser(u);
-        return;
-      }
+      // El correo de recuperación ahora vive en fa_user_secrets (servidor), no en
+      // el perfil público; el antiguo prompt de configuración se reintroducirá con
+      // una función de servidor (Fase 1, pendiente). Por ahora, login directo.
       completeLogin(u);
     };
 
