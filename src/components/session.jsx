@@ -350,7 +350,10 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
   const canvasRef = useRef(null);
   const paintPreviewRef = useRef(null);   // { fn, start, end } mientras se pinta
   const waveData  = useMemo(
-    () => waveformData || generateWaveform(exerciseId * 13 + 997, Math.max(400, Math.ceil(duration * 30))),
+    // Si `duration` es undefined/NaN (p. ej. ejercicio sin audio aún), Math.ceil
+    // da NaN y `new Array(NaN)` lanzaría "Invalid array length". El `|| 0` lo
+    // neutraliza y Math.max garantiza el mínimo de 400 muestras.
+    () => waveformData || generateWaveform(exerciseId * 13 + 997, Math.max(400, Math.ceil(duration * 30) || 0)),
     [waveformData, exerciseId, duration]
   );
   const stateRef = useRef({});
