@@ -1,13 +1,17 @@
 // ═══ MULTIMODELSESSIONVIEW ════════════════════════════════════════════════════
 // Wrapper para ejercicios con dos modelos: gestiona la alternancia y comparte el
 // audio decodificado entre las vistas. Extraída de App.jsx (Fase 2).
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { modelsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ModelToggleBar } from "./student.jsx";
 import { ExerciseView } from "./ExerciseView.jsx";
-import { SchemaExerciseView } from "./SchemaExerciseView.jsx";
 import { QuestionnaireView } from "./QuestionnaireView.jsx";
+
+// Vista de esquema diferida (code-splitting, Fase 6): ~2k líneas que no hacen
+// falta hasta que se abre un ejercicio de ese modelo.
+const SchemaExerciseView = lazy(() => import("./SchemaExerciseView.jsx").then((m) => ({ default: m.SchemaExerciseView })));
+const schemaFallback = <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#b0b0a8", fontSize: 14 }}>Cargando…</div>;
 
 export function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
   const models = modelsOf(exercise);
@@ -34,14 +38,16 @@ export function MultiModelSessionView({ exercise, mode, onSubmit, onBack }) {
   if (activeModel === "esquema") {
     return (
       <div key={`schema-${exercise.id}`}>
-        <SchemaExerciseView
-          exercise={exercise}
-          mode={mode}
-          onSubmit={onSubmit}
-          onBack={onBack}
-          modelToggleNode={toggleNode}
-          sharedAudioPlayer={sharedAudioPlayer}
-        />
+        <Suspense fallback={schemaFallback}>
+          <SchemaExerciseView
+            exercise={exercise}
+            mode={mode}
+            onSubmit={onSubmit}
+            onBack={onBack}
+            modelToggleNode={toggleNode}
+            sharedAudioPlayer={sharedAudioPlayer}
+          />
+        </Suspense>
       </div>
     );
   }
