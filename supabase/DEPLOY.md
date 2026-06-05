@@ -8,6 +8,47 @@ queda sin acceso a datos.
 > ⚠️ Datos reales de menores. Hacer en una ventana de mantenimiento, con copia de
 > seguridad y verificando cada paso. Ejecutar idealmente con Jon presente.
 
+## ⚑ Estado REAL de producción (verificado 2026-06-05)
+Diferencias respecto a staging que cambian el plan:
+- **9 usuarios**, los 9 con `passwordHash`/`salt` incrustados en `fa_users.data`
+  (modelo viejo). `recovery_email`: 0. `fa_user_secrets` **no existe** aún.
+- Las 9 tablas `fa_*` tienen **RLS activado** y **una política `anon_all`**
+  (`for all to anon using(true) with check(true)`) → hoy cualquiera con la anon
+  key tiene lectura/escritura total. **Staging no tenía esto.**
+- Consecuencias:
+  1. `0001` no se ejecuta (las tablas ya existen; los `id` son `text`).
+  2. Las políticas de `0003_rls_policies` son `to authenticated`; mientras
+     `anon_all` siga viva, anon mantiene acceso total (políticas permisivas = OR).
+     Hay que ejecutar **`0006_drop_legacy_anon_policies.sql`** para asegurar.
+  3. El cliente nuevo entra como `authenticated`: necesita `fa_user_secrets`
+     poblada **y** las políticas `authenticated` ANTES de cortar `anon`, o se
+     queda sin datos.
+
+### Orden de baja-caída (recomendado)
+Evita la ventana de login caído separando el "copiar" del "borrar" secretos.
+Pasos no-destructivos primero; el corte de `anon` al final, ya verificado.
+
+| # | Acción | ¿Rompe algo? | Quién |
+|---|--------|--------------|-------|
+| 0 | Copia de seguridad de prod | no | **Jon** |
+| 1 | `0002` crear `fa_user_secrets` | no (additivo) | Claude/MCP |
+| 2 | `0003_rls_helpers` + `0004_has_admin` (funciones) | no | Claude/MCP |
+| 3 | **Copiar** secretos: el `insert ... select` de `0005` (sin el `update` que borra) | no (cliente viejo sigue) | Claude/MCP |
+| 4 | Desplegar las 3 Edge Functions (`--no-verify-jwt`) | no | Claude/MCP |
+| 5 | `0003_rls_policies` (añade políticas `authenticated`; `anon_all` sigue) | no (app sigue) | Claude/MCP |
+| 6 | Vercel: env vars `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` y desplegar la rama con Fase 1 | no | **Jon** |
+| 7 | Smoke test cliente nuevo: login real, alumno ve lo suyo, profe gestiona | — | Jon+Claude |
+| 8 | **Borrar** secretos del perfil: el `update ... - 'passwordHash' ...` de `0005` + su check 0 filas | rompe login del cliente VIEJO (ya no se usa) | Claude/MCP |
+| 9 | **`0006_drop_legacy_anon_policies.sql`** ← punto de no retorno para anon | corta acceso anónimo | Claude/MCP |
+| 10 | Verificación RLS final (anon=0/401, alumno solo suyo, admin todo) | — | Jon+Claude |
+
+Rollback en cualquier punto tras el 9: recrear `anon_all` o `disable row level
+security` para devolver acceso; restaurar la copia del paso 0 si hay corrupción.
+
+---
+_Lo que sigue es el runbook original (orden lógico por fases); en producción se
+ejecuta según la tabla de baja-caída de arriba._
+
 ## 0. Preparación
 - **Copia de seguridad** de producción (Dashboard → Database → Backups, o `pg_dump`).
 - **Verificar el esquema real** de prod antes de migrar:
