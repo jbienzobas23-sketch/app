@@ -49,7 +49,7 @@ export function CategoryEditorModal({ initialCategory, onSave, onClose }) {
   };
 
   return (
-    <ModalShell width={520} align="top">
+    <ModalShell width={520} align="top" onClose={onClose} label="Categoría">
       <h3 style={{ margin: "0 0 18px", fontSize: 16, fontWeight: 600, color: C.ink }}>
         {isNew ? "Nueva categoría" : "Editar categoría"}
       </h3>
@@ -118,7 +118,7 @@ export function GroupEditorModal({ initial, students, currentUserId, onSave, onC
   };
 
   return (
-    <ModalShell width={480} align="top">
+    <ModalShell width={480} align="top" onClose={onClose} label="Grupo">
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>
         {initial ? "Editar grupo" : "Nuevo grupo"}
       </h3>
@@ -176,7 +176,7 @@ export function CourseFormModal({ initial, groups = [], onSave, onClose }) {
   ];
 
   return (
-    <ModalShell width={480}>
+    <ModalShell width={480} onClose={onClose} label={initial ? "Editar curso" : "Nuevo curso"}>
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar curso" : "Nuevo curso"}</h3>
 
       <label style={S.label}>Nombre del curso</label>
@@ -237,7 +237,7 @@ export function UnitFormModal({ initial, onSave, onClose }) {
   };
 
   return (
-    <ModalShell width={440}>
+    <ModalShell width={440} onClose={onClose} label="Unidad didáctica">
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar unidad" : "Nueva unidad didáctica"}</h3>
       <label style={S.label}>Nombre de la unidad</label>
       <input style={{ ...S.input, marginBottom: 14 }} value={name} autoFocus
@@ -258,7 +258,7 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
   const toggle    = (id) => setSelected((s) => toggleInSet(s, id));
 
   return (
-    <ModalShell width={520} align="top">
+    <ModalShell width={520} align="top" onClose={onClose} label="Añadir ejercicios">
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>Añadir ejercicios desde el banco</h3>
 
       {available.length === 0 ? (
@@ -334,7 +334,7 @@ export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave
   const roleLabel = forRole === "teacher" ? "profesor" : "alumno";
 
   return (
-    <ModalShell width={420}>
+    <ModalShell width={420} onClose={onClose} label="Crear cuenta">
       <h3 style={{ margin: "0 0 18px", fontSize: 16, fontWeight: 600, color: C.ink }}>Crear cuenta de {roleLabel}</h3>
 
       <label style={S.label}>Nombre visible</label>
@@ -402,7 +402,7 @@ export function ResetCredentialModal({ targetUser, onSave, onClose }) {
   };
 
   return (
-    <ModalShell width={420}>
+    <ModalShell width={420} onClose={onClose} label="Resetear acceso">
       <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, color: C.ink }}>Resetear acceso</h3>
       <p style={{ color: C.muted, fontSize: 13, margin: "0 0 18px" }}>
         Usuario: <strong style={{ color: C.ink }}>{targetUser.displayName}</strong>
@@ -494,7 +494,7 @@ export function RecoveryEmailModal({ onSave, onSkip }) {
 export function AudioLibraryPickerModal({ library, onPick, onClose }) {
   const [previewId, setPreviewId] = useState(null);
   return (
-    <ModalShell width={560} align="top">
+    <ModalShell width={560} align="top" onClose={onClose} label="Elegir audio">
       <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: C.ink }}>Elegir audio del almacén</h3>
 
       {library.length === 0 ? (
@@ -596,7 +596,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
   };
 
   return (
-    <ModalShell width={480} align="top">
+    <ModalShell width={480} align="top" onClose={onClose} label="Audio">
       <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar audio" : "Añadir audio al almacén"}</h3>
 
       <label style={S.label}>Título</label>
@@ -679,7 +679,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
   };
 
   return (
-    <ModalShell width={560} align="top">
+    <ModalShell width={560} align="top" onClose={onClose} label="Pregunta">
       <h3 style={{ margin: "0 0 18px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar pregunta" : "Nueva pregunta"}</h3>
 
       <label style={S.label}>Tipo</label>
