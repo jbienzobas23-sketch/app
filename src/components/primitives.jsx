@@ -6,7 +6,39 @@ import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js
 import { scoreBg, scoreColor } from "../lib/color.js";
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
-export function ModalShell({ children, width = 480, align = "center", zIndex = 200 }) {
+// Accesibilidad (Fase 5): role="dialog"/aria-modal, foco inicial dentro del
+// diálogo, trampa de foco (Tab cicla dentro), devolución del foco al cerrar y,
+// si se pasa `onClose`, cierre con Escape. `label` da el nombre accesible.
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+export function ModalShell({ children, width = 480, align = "center", zIndex = 200, onClose, label = "Diálogo" }) {
+  const cardRef = useRef(null);
+  useEffect(() => {
+    const prevFocus = document.activeElement;
+    const card = cardRef.current;
+    // Foco inicial: solo lo movemos si aún no está dentro del diálogo (respeta
+    // modales que ya enfocan su propio input vía autoFocus).
+    if (card && !card.contains(document.activeElement)) {
+      const f = card.querySelectorAll(FOCUSABLE);
+      (f[0] || card).focus?.();
+    }
+    const onKey = (e) => {
+      if (e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); return; }
+      if (e.key === "Tab" && card) {
+        const f = [...card.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      // Devolver el foco al elemento que lo tenía antes de abrir el modal.
+      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+    };
+  }, [onClose]);
+
   const isTop = align === "top";
   return (
     <div style={{
@@ -17,7 +49,8 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
       padding:   isTop ? "32px 16px" : undefined,
       zIndex,
     }}>
-      <div style={{ ...S.card, width, maxWidth: "92vw", marginBottom: 0 }}>
+      <div ref={cardRef} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
+        style={{ ...S.card, width, maxWidth: "92vw", marginBottom: 0, outline: "none" }}>
         {children}
       </div>
     </div>
@@ -27,7 +60,7 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
 // Modal de confirmación destructiva
 export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = "Eliminar" }) {
   return (
-    <ModalShell width={400} zIndex={300}>
+    <ModalShell width={400} zIndex={300} onClose={onCancel} label="Confirmación">
       <p style={{ margin: "0 0 18px", color: C.ink, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-line" }}>{message}</p>
       <div style={{ ...S.row, gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onCancel} style={S.btn} autoFocus>Cancelar</button>
@@ -101,7 +134,7 @@ export function CredentialInput({ kind, value, onChange, placeholder, autoFocus,
 // Botón redondo de tipo "+5s / −5s / play"
 export function CircleButton({ onClick, disabled, title, children, size = 42, primary = false, fontSize }) {
   return (
-    <button onClick={onClick} disabled={disabled} title={title} style={{
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={title} style={{
       width: size, height: size, borderRadius: "50%",
       background: primary ? C.ink : "transparent",
       border:     primary ? `1px solid ${C.ink}` : `1px solid ${C.line}`,
@@ -313,7 +346,7 @@ export function BarIconButton({ onClick, disabled, title, children, danger = fal
 export function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed = false }) {
   const deg = open ? 180 : rotate90WhenClosed ? -90 : 0;
   return (
-    <svg width={size} height={size} viewBox="0 0 13 13" fill="none"
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 13 13" fill="none"
       style={{ flexShrink: 0, transition: "transform 0.18s ease", transform: `rotate(${deg}deg)` }}>
       <path d="M2.5 4.5L6.5 8.5L10.5 4.5" stroke={color} strokeWidth="1.4"
         strokeLinecap="round" strokeLinejoin="round" />
@@ -477,12 +510,12 @@ export function TagInput({ tags = [], onChange, suggestions = [] }) {
 // ─── EyeIcon / EyeButton — visibilidad de ejercicios, cursos, unidades ────────
 export function EyeIcon({ open = true, size = 15 }) {
   return open ? (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <ellipse cx="10" cy="10" rx="8" ry="5" />
       <circle cx="10" cy="10" r="2.2" fill="currentColor" stroke="none" />
     </svg>
   ) : (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 3l14 14" />
       <path d="M6.5 6.5C4.5 7.6 3 9 3 10c0 2.8 3.1 5 7 5a9 9 0 0 0 3.5-.7" />
       <path d="M10 5c3.9 0 7 2.2 7 5a6.3 6.3 0 0 1-1.5 2.5" />
@@ -493,7 +526,7 @@ export function EyeIcon({ open = true, size = 15 }) {
 // Icono de lápiz (editar) — estética de trazo fino coherente con EyeIcon
 export function PencilIcon({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M13.5 3.5l3 3" />
       <path d="M12.2 4.8l3 3L7 16l-3.6.6L4 13z" />
     </svg>
@@ -503,7 +536,7 @@ export function PencilIcon({ size = 15 }) {
 // Icono de papelera (eliminar) — trazo fino coherente con el resto de iconos
 export function TrashIcon({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3.5 5.5h13" />
       <path d="M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5" />
       <path d="M5 5.5l.8 10a1.5 1.5 0 0 0 1.5 1.4h5.4a1.5 1.5 0 0 0 1.5-1.4l.8-10" />
@@ -516,7 +549,7 @@ export function TrashIcon({ size = 15 }) {
 export function AudioWaveIcon({ size = 16, color = "currentColor" }) {
   const bars = [0.35, 0.6, 0.85, 0.65, 1.0, 0.8, 0.5, 0.9, 0.55, 0.3];
   return (
-    <svg width={size} height={size * 0.875} viewBox="0 0 20 14" fill="none" style={{ flexShrink: 0 }}>
+    <svg aria-hidden="true" focusable="false" width={size} height={size * 0.875} viewBox="0 0 20 14" fill="none" style={{ flexShrink: 0 }}>
       {bars.map((h, i) => {
         const bh = h * 12;
         const y  = (14 - bh) / 2;
@@ -536,6 +569,7 @@ export function EyeButton({ visible, onClick, title }) {
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       title={title || (visible ? "Ocultar para alumnos" : "Mostrar a alumnos")}
+      aria-label={title || (visible ? "Ocultar para alumnos" : "Mostrar a alumnos")}
       className="fa-pressable"
       style={{ ...ICON_BTN_BASE,
         border: `1px solid ${visible ? C.line : "rgba(184,74,58,0.45)"}`,
@@ -553,6 +587,7 @@ export function EditIconButton({ onClick, title = "Editar" }) {
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       title={title}
+      aria-label={title}
       className="fa-pressable"
       style={{ ...ICON_BTN_BASE, border: `1px solid ${C.ink}`, background: C.ink, color: C.paper, boxShadow: "0 1px 3px rgba(26,25,21,0.18)" }}
     >
@@ -567,6 +602,7 @@ export function DeleteIconButton({ onClick, title = "Eliminar" }) {
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       title={title}
+      aria-label={title}
       className="fa-pressable"
       style={{ ...ICON_BTN_BASE, border: `1px solid rgba(184,74,58,0.45)`, background: "rgba(184,74,58,0.07)", color: C.danger }}
     >
@@ -582,10 +618,11 @@ export function RemoveIconButton({ onClick, title = "Quitar" }) {
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       title={title}
+      aria-label={title}
       className="fa-pressable"
       style={{ ...ICON_BTN_BASE, border: `1px solid rgba(184,74,58,0.45)`, background: "rgba(184,74,58,0.07)", color: C.danger }}
     >
-      <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+      <svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
         <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
       </svg>
     </button>
