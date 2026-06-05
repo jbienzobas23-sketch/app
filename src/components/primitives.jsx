@@ -6,7 +6,39 @@ import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js
 import { scoreBg, scoreColor } from "../lib/color.js";
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
-export function ModalShell({ children, width = 480, align = "center", zIndex = 200 }) {
+// Accesibilidad (Fase 5): role="dialog"/aria-modal, foco inicial dentro del
+// diálogo, trampa de foco (Tab cicla dentro), devolución del foco al cerrar y,
+// si se pasa `onClose`, cierre con Escape. `label` da el nombre accesible.
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+export function ModalShell({ children, width = 480, align = "center", zIndex = 200, onClose, label = "Diálogo" }) {
+  const cardRef = useRef(null);
+  useEffect(() => {
+    const prevFocus = document.activeElement;
+    const card = cardRef.current;
+    // Foco inicial: solo lo movemos si aún no está dentro del diálogo (respeta
+    // modales que ya enfocan su propio input vía autoFocus).
+    if (card && !card.contains(document.activeElement)) {
+      const f = card.querySelectorAll(FOCUSABLE);
+      (f[0] || card).focus?.();
+    }
+    const onKey = (e) => {
+      if (e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); return; }
+      if (e.key === "Tab" && card) {
+        const f = [...card.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      // Devolver el foco al elemento que lo tenía antes de abrir el modal.
+      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+    };
+  }, [onClose]);
+
   const isTop = align === "top";
   return (
     <div style={{
@@ -17,7 +49,8 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
       padding:   isTop ? "32px 16px" : undefined,
       zIndex,
     }}>
-      <div style={{ ...S.card, width, maxWidth: "92vw", marginBottom: 0 }}>
+      <div ref={cardRef} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
+        style={{ ...S.card, width, maxWidth: "92vw", marginBottom: 0, outline: "none" }}>
         {children}
       </div>
     </div>
@@ -27,7 +60,7 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
 // Modal de confirmación destructiva
 export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = "Eliminar" }) {
   return (
-    <ModalShell width={400} zIndex={300}>
+    <ModalShell width={400} zIndex={300} onClose={onCancel} label="Confirmación">
       <p style={{ margin: "0 0 18px", color: C.ink, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-line" }}>{message}</p>
       <div style={{ ...S.row, gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onCancel} style={S.btn} autoFocus>Cancelar</button>
