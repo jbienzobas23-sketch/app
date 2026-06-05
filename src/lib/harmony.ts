@@ -1,10 +1,15 @@
 // ═══ SISTEMA DE COLOR POR TONALIDAD (NIVEL ARMONÍA) ══════════════════════════
 // Tabla maestra "tonica|modo" → color, parseo de etiquetas tonales y cálculo de
-// colores de bloque. Extraídas de App.jsx (Fase 0) sin cambiar su lógica.
+// colores de bloque. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3)
+// sin cambiar la lógica.
+
+export type Modo = "mayor" | "menor";
+export interface HarmonyParsed { tonica: string; modo: Modo; }
+export interface BlockColors { bg: string; textColor: string; }
 
 // Tabla maestra: "tonica|modo" → color hex  (tónica en minúscula, bemoles como "b")
 // Orden siguiendo el círculo de quintas del PDF.
-export const HARMONY_COLORS = {
+export const HARMONY_COLORS: Record<string, string> = {
   "si|mayor":   "#FF4F4F",
   "sol#|menor": "#E64545",
   "lab|menor":  "#E64545",
@@ -37,13 +42,13 @@ export const HARMONY_COLORS = {
 // Parsea un label y devuelve { tonica, modo } o null.
 // Clave: preserva la caja de la M/m original para distinguir Mayor de menor
 // ANTES de hacer toLowerCase.
-export function parseHarmonyLabel(raw) {
+export function parseHarmonyLabel(raw: string | null | undefined): HarmonyParsed | null {
   if (!raw) return null;
   const s = raw.trim();
 
   // ── 1. Detectar modo mirando el label ORIGINAL (caja preservada) ──────────
   // Probamos de más específico a menos:
-  let modo = null;
+  let modo: Modo | null = null;
   let rest = s;
 
   if (/\bmayor\b/i.test(s))       { modo = "mayor"; rest = s.replace(/\s*\bmayor\b\s*/i, " "); }
@@ -66,14 +71,14 @@ export function parseHarmonyLabel(raw) {
   t = t.replace(/♭/g, "b").replace(/♯/g, "#");
 
   // Enarmónicos → forma canónica del mapa
-  const ENARM = { "re#":"mib", "mi#":"fa", "la#":"sib", "si#":"do" };
+  const ENARM: Record<string, string> = { "re#": "mib", "mi#": "fa", "la#": "sib", "si#": "do" };
   t = ENARM[t] ?? t;
 
   return { tonica: t, modo };
 }
 
 // Devuelve { bg, textColor } para un bloque del nivel Armonía.
-export function harmonyBlockColors(label, fallbackColor) {
+export function harmonyBlockColors(label: string, fallbackColor: string): BlockColors {
   const parsed = parseHarmonyLabel(label);
   let bg = fallbackColor;
   if (parsed) {
@@ -81,10 +86,10 @@ export function harmonyBlockColors(label, fallbackColor) {
     bg = HARMONY_COLORS[key] ?? fallbackColor;
   }
   if (!bg || bg[0] !== "#") return { bg: bg || fallbackColor, textColor: "#FFFFFF" };
-  const r = parseInt(bg.slice(1,3),16)/255;
-  const g = parseInt(bg.slice(3,5),16)/255;
-  const b = parseInt(bg.slice(5,7),16)/255;
-  const lin = c => c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
-  const L   = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+  const r = parseInt(bg.slice(1, 3), 16) / 255;
+  const g = parseInt(bg.slice(3, 5), 16) / 255;
+  const b = parseInt(bg.slice(5, 7), 16) / 255;
+  const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const L   = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   return { bg, textColor: L > 0.35 ? "#1C1A14" : "#FFFFFF" };
 }

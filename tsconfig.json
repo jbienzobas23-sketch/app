@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    /* Migración gradual: .js y .ts conviven. El JS existente NO se type-checkea
+       todavía (checkJs:false); strict aplica a los .ts nuevos. Vite/tsc resuelven
+       un import "./x.js" hacia x.ts (resolución bundler), así que convertir un
+       fichero a .ts NO obliga a tocar los importadores. */
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}
