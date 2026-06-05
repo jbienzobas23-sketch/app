@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FUNCIONES ARMÓNICAS · APP ROOT
@@ -28,13 +28,25 @@ import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPic
 import { RecoveryEmailModal } from "./components/modals.jsx";
 
 import { ExerciseView } from "./components/ExerciseView.jsx";
-import { SchemaExerciseView } from "./components/SchemaExerciseView.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
-import { TeacherDash } from "./components/teacher.jsx";
-import { QuestionManagerView } from "./components/QuestionManagerView.jsx";
 import { StudentDash } from "./components/StudentDash.jsx";
 import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
+
+// Carga diferida (code-splitting) de lo pesado que no hace falta en el arranque:
+// el subsistema de profesor (los alumnos no lo cargan) y la vista de esquema
+// (~2k líneas; se carga al abrir un ejercicio de ese tipo). Cada uso va envuelto
+// en <Suspense> (ver LazyView). Los módulos exportan con nombre → adaptamos a default.
+const TeacherDash = lazy(() => import("./components/teacher.jsx").then((m) => ({ default: m.TeacherDash })));
+const QuestionManagerView = lazy(() => import("./components/QuestionManagerView.jsx").then((m) => ({ default: m.QuestionManagerView })));
+const SchemaExerciseView = lazy(() => import("./components/SchemaExerciseView.jsx").then((m) => ({ default: m.SchemaExerciseView })));
+
+// Fallback mientras se descarga un chunk diferido. Pantalla completa, sobria.
+const lazyFallback = (
+  <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: C.muted, fontSize: 14 }}>
+    Cargando…
+  </div>
+);
 
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
@@ -698,7 +710,7 @@ export default function App() {
     // Ejercicio de un solo modelo (o modo record/preview con el modelo primario)
     const m = exModels[0];
     if (m === "esquema") {
-      return <SchemaExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+      return <Suspense fallback={lazyFallback}><SchemaExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} /></Suspense>;
     }
     if (exCtx.mode === "student" && m === "cuestionario") {
       return <QuestionnaireView exercise={sessionExercise} onSubmit={submitAnswer} onBack={onBack} />;
@@ -711,11 +723,13 @@ export default function App() {
     if (isStudent) { navigate("/alumno"); return null; }
     if (!qmCtx) return <NotFound to="/profesor" />;
     return (
-      <QuestionManagerView
-        exercise={qmCtx.exercise}
-        onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate("/profesor"); }}
-        onBack={() => navigate("/profesor")}
-      />
+      <Suspense fallback={lazyFallback}>
+        <QuestionManagerView
+          exercise={qmCtx.exercise}
+          onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate("/profesor"); }}
+          onBack={() => navigate("/profesor")}
+        />
+      </Suspense>
     );
   }
 
@@ -762,6 +776,7 @@ export default function App() {
 
   // ── Panel del profesor / admin ──
   return (
+    <Suspense fallback={lazyFallback}>
     <TeacherDash
       currentUser={user}
       users={users}
@@ -801,5 +816,6 @@ export default function App() {
       audioLibrary={audioLibrary}
       onAddAudio={addAudio} onUpdateAudio={updateAudio} onDeleteAudio={deleteAudio}
     />
+    </Suspense>
   );
 }
