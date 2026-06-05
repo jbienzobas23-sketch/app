@@ -30,6 +30,11 @@ export default [
       // que no-unused-vars sí detecte componentes muertos (sin falsos positivos).
       'react/jsx-uses-vars': 'error',
       'react/jsx-uses-react': 'off',
+      // Componente JSX usado sin importar/definir → ERROR. El `no-undef` base de
+      // eslint NO analiza identificadores JSX, así que SIN esta regla un
+      // `<ProgressRing/>` sin su import pasa lint y build (causó la "vista de
+      // curso en blanco"). Esta regla cierra ese agujero en el propio lint.
+      'react/jsx-no-undef': 'error',
       // Reglas de los hooks de React.
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',

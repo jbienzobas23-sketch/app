@@ -1,0 +1,41 @@
+name: CI
+
+# Verifica lint + build + tests en cada push y en cada Pull Request.
+# El lint incluye `react/jsx-no-undef` (componente JSX usado sin importar → error),
+# que cierra el agujero que el build de Vite no detecta.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Cancela ejecuciones anteriores de la misma rama/PR si llega un push nuevo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint · Build · Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
