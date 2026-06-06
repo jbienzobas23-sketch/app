@@ -2,11 +2,15 @@
 // Paletas seleccionables, color automático de partes/frases y color de bloque.
 // Extraídas de App.jsx (Fase 0) sin cambiar su lógica.
 import { _hexToHsl, _hslToHex, lightenColor } from "./color.js";
-import { harmonyBlockColors } from "./harmony.js";
+import { harmonyBlockColors, type BlockColors } from "./harmony.js";
 import { SCHEMA_LEVELS, SCHEMA_SNAP_THR } from "./schema.js";
+import type { Exercise, Button } from "./types.js";
+
+export interface Palette { id: string; name: string; parts: string[]; }
+interface ColorBlock { customColor?: string; level?: number; label?: string; start: number; end: number; }
 
 // Color de bloque para el nivel de Partes según la etiqueta (modo automático).
-export function partBlockColor(label) {
+export function partBlockColor(label?: string | null): string {
   const s=(label??'').trim().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
   if(/^reex|^recap/.test(s))          return '#C4A55E'; // casi igual a Exposición
   if(/^expo/.test(s))                  return '#C4985A'; // ámbar cálido
@@ -34,7 +38,7 @@ export function partBlockColor(label) {
 //   · la frase "a" es la versión MÁS CLARA  (columna 2)
 //   · la frase "b" es la versión INTERMEDIA (columna 3)
 // y así sucesivamente para c, d, e… aclarando progresivamente.
-export const SCHEMA_PALETTES = [
+export const SCHEMA_PALETTES: Palette[] = [
   { id: "p1", name: "Paleta 1", parts: ["#F78584", "#9FC2FF", "#FFD269", "#98D897"] },
   { id: "p2", name: "Paleta 2", parts: ["#A0EB6E", "#FFAA32", "#FF5C91", "#48BBCD"] },
   { id: "p3", name: "Paleta 3", parts: ["#F1C1D2", "#C1D9BA", "#F25480", "#D882E0"] },
@@ -43,18 +47,18 @@ export const SCHEMA_PALETTES = [
 ];
 // Paleta por defecto del esquema.
 export const SCHEMA_PALETTE_DEFAULT = "p1";
-export const getSchemaPalette = (id) => SCHEMA_PALETTES.find(p => p.id === id) || null;
+export const getSchemaPalette = (id?: string | null): Palette | null => SCHEMA_PALETTES.find(p => p.id === id) || null;
 
 // Devuelve la paleta efectiva: la del ejercicio si existe, si no la preferencia
 // del usuario, y por último la de por defecto (P1).
-export function effectivePaletteId(exercise, userPref) {
+export function effectivePaletteId(exercise?: Exercise | null, userPref?: string | null): string {
   return (exercise && exercise.schemaPalette) || userPref || SCHEMA_PALETTE_DEFAULT;
 }
 
 // Genera hasta 8 colores de CATEGORÍA a partir de los 4 colores base de la
 // paleta. Los 4 primeros son los colores tal cual; del 5º al 8º se derivan
 // oscureciendo/aclarando para mantener contraste con texto blanco en los botones.
-export function getCategoryColorsFromPalette(paletteId) {
+export function getCategoryColorsFromPalette(paletteId?: string | null): string[] {
   const pal = getSchemaPalette(paletteId) || SCHEMA_PALETTES[0];
   const base = pal.parts;
   const out = [...base];
@@ -68,14 +72,14 @@ export function getCategoryColorsFromPalette(paletteId) {
 // Devuelve una copia del ejercicio con los colores de los botones de cada
 // categoría reasignados según la paleta activa (por índice de botón). No muta
 // el original. También fija schemaPalette para que el esquema use la misma.
-export function applyPaletteToExercise(exercise, paletteId) {
+export function applyPaletteToExercise(exercise: Exercise | null, paletteId: string): Exercise | null {
   if (!exercise) return exercise;
   const colors = getCategoryColorsFromPalette(paletteId);
-  const recolorButtons = (buttons) =>
+  const recolorButtons = (buttons?: Button[]): Button[] | undefined =>
     Array.isArray(buttons)
       ? buttons.map((b, i) => ({ ...b, color: colors[i % colors.length] }))
       : buttons;
-  const next = { ...exercise, schemaPalette: paletteId };
+  const next: Exercise = { ...exercise, schemaPalette: paletteId };
   if (Array.isArray(exercise.categories))
     next.categories = exercise.categories.map(c => ({ ...c, buttons: recolorButtons(c.buttons) }));
   if (Array.isArray(exercise.modes))
@@ -85,7 +89,7 @@ export function applyPaletteToExercise(exercise, paletteId) {
 
 // Devuelve el índice de ranura A/B/C/D (0..3) para una etiqueta de PARTE,
 // o null si es una sección neutra (intro/coda/puente) sin color temático.
-export function partSlotIndex(label) {
+export function partSlotIndex(label?: string | null): number | null {
   const s = (label ?? '').trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   if (/^reex|^recap|^expo/.test(s))      return 0;            // A / Exposición / Reexposición
   if (/^desa/.test(s))                   return 1;            // B / Desarrollo
@@ -96,14 +100,14 @@ export function partSlotIndex(label) {
 }
 
 // Índice de frase a partir de su letra: a→0, b→1, c→2…  (null si no aplica)
-export function phraseSlotIndex(label) {
+export function phraseSlotIndex(label?: string | null): number | null {
   const s = (label ?? '').trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const m = s.match(/^([a-z])[''`´'']?[\d''`´'']*$/);
   return m ? (m[1].charCodeAt(0) - 97) : null;
 }
 
 // Color de una PARTE según la paleta activa (o automático si paletteId="auto"/null).
-export function partColorFromPalette(label, paletteId) {
+export function partColorFromPalette(label?: string | null, paletteId?: string | null): string {
   const pal = getSchemaPalette(paletteId);
   if (!pal) return partBlockColor(label);                    // modo automático original
   const slot = partSlotIndex(label);
@@ -120,7 +124,7 @@ export function partColorFromPalette(label, paletteId) {
 // Trabajamos con FRACCIONES de ese margen (no incrementos fijos) para que la
 // relación se conserve igual en colores intensos (P5) y en pasteles (P1/P3),
 // sin que las frases se saturen en blanco ni se confundan con la parte.
-export function phraseColorFromPalette(phraseLabel, parentPartColor, paletteId) {
+export function phraseColorFromPalette(phraseLabel: string | null | undefined, parentPartColor: string, paletteId?: string | null): string {
   const pal = getSchemaPalette(paletteId);
   const idx = phraseSlotIndex(phraseLabel);
   if (!pal) {
@@ -146,7 +150,7 @@ export function phraseColorFromPalette(phraseLabel, parentPartColor, paletteId) 
 // Calcula { bg, textColor } para cualquier bloque de esquema, replicando el
 // sistema de colores del ejercicio real.
 // paletteId: "auto"/null → colores automáticos por etiqueta; "p1".."p5" → paleta seleccionada.
-export function schemaBlockColor(b, allBlocks, paletteId = SCHEMA_PALETTE_DEFAULT) {
+export function schemaBlockColor(b: ColorBlock, allBlocks: ColorBlock[], paletteId: string = SCHEMA_PALETTE_DEFAULT): BlockColors {
   if (b.customColor) return harmonyBlockColors(null, b.customColor);
   if (b.level === 3)  return harmonyBlockColors(b.label, SCHEMA_LEVELS[2].color);
   if (b.level === 1)  return harmonyBlockColors(null, partColorFromPalette(b.label, paletteId));
@@ -161,7 +165,7 @@ export function schemaBlockColor(b, allBlocks, paletteId = SCHEMA_PALETTE_DEFAUL
 // Devuelve el punto de `pts` más cercano a `v` dentro del umbral; si ninguno
 // está suficientemente cerca, devuelve `v` sin cambios. Usado por el snap del
 // modelo Esquema (arrastre de bloques y bordes).
-export const snapToNearest = (v, pts, thr = SCHEMA_SNAP_THR) => {
+export const snapToNearest = (v: number, pts: number[], thr = SCHEMA_SNAP_THR): number => {
   let best = v, bd = thr + 0.01;
   for (const bv of pts) { const dd = Math.abs(v - bv); if (dd < bd) { bd = dd; best = bv; } }
   return best;

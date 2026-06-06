@@ -78,7 +78,7 @@ export function parseHarmonyLabel(raw: string | null | undefined): HarmonyParsed
 }
 
 // Devuelve { bg, textColor } para un bloque del nivel Armonía.
-export function harmonyBlockColors(label: string, fallbackColor: string): BlockColors {
+export function harmonyBlockColors(label: string | null | undefined, fallbackColor: string): BlockColors {
   const parsed = parseHarmonyLabel(label);
   let bg = fallbackColor;
   if (parsed) {
