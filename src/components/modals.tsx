@@ -15,7 +15,7 @@ import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagIn
 // Usuario (perfil) — campos consumidos por los formularios de cuenta.
 interface UserLike { id: string; displayName?: string; username?: string; credType?: string; [k: string]: unknown; }
 // Audio del almacén compartido.
-interface AudioItem { id: string; title?: string; composer?: string; description?: string; tags?: string[]; url?: string; duration?: number | null; createdAt?: number; [k: string]: unknown; }
+export interface AudioItem { id: string; title?: string; composer?: string; description?: string; tags?: string[]; url?: string; duration?: number | null; createdAt?: number; [k: string]: unknown; }
 // Botón editable dentro del editor de categoría.
 interface EditButton { id: string; name: string; color: string; key: string; }
 

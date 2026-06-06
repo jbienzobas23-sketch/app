@@ -1,6 +1,7 @@
 // ═══ EXERCISEDETAILVIEW (CREACIÓN/EDICIÓN DE EJERCICIO) ══════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, type ComponentType } from "react";
+import type { Exercise, Category, Button } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../lib/audio.js";
@@ -10,15 +11,39 @@ import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, models
 import { MODEL_META } from "../lib/modelMeta.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { ConfirmModal, AudioWaveIcon, CtaButton } from "./primitives.jsx";
-import { FragmentRangeSelector } from "./session.jsx";
-import { AudioLibraryPickerModal } from "./modals.jsx";
+import { FragmentRangeSelector as _FragmentRangeSelector } from "./session.jsx";
+import { AudioLibraryPickerModal, type AudioItem } from "./modals.js";
+
+// session.jsx aún sin tipar; el cast permite consumirlo desde TSX.
+const FragmentRangeSelector = _FragmentRangeSelector as ComponentType<any>;
+
+// Categoría con botones garantizados (las que llegan por props siempre los tienen).
+type CatWithButtons = Category & { buttons: Button[] };
+// Bloque del esquema de referencia (clave) almacenado en el ejercicio.
+interface KeyBlock { level: number; start: number; end: number; label?: string; [k: string]: unknown; }
+
+interface ExerciseDetailViewProps {
+  exercise: Exercise | null;
+  onBack: () => void;
+  onRecord: (ex: Exercise) => void;
+  onPreview?: (ex: Exercise) => void;
+  onManageQuestions?: (ex: Exercise) => void;
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onCreate: (ex: Record<string, unknown>) => void;
+  onDelete: () => void;
+  categories: CatWithButtons[];
+  audioLibrary?: AudioItem[];
+}
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }) {
-  const isCreating = exercise == null;
+export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }: ExerciseDetailViewProps) {
+  const isCreating = exerciseProp == null;
+  // En modo creación no se accede a los campos de `exercise` (todo va guardado
+  // por `isCreating`); el cast evita propagar `| null` por todo el componente.
+  const exercise = exerciseProp as Exercise;
 
   // Estado del formulario
-  const [title, setTitle] = useState(isCreating ? "" : exercise.title);
+  const [title, setTitle] = useState(isCreating ? "" : (exercise.title ?? ""));
   // comboId: id de MODEL_COMBOS — puede ser un solo modelo o un combo doble
   const [comboId, setComboId] = useState(() =>
     isCreating ? DEFAULT_MODEL_ID : comboIdFromModels(modelsOf(exercise))
@@ -27,7 +52,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
   const selectedModels = activeCombo.models;          // ej. ["interactivo","cuestionario"]
   const model          = selectedModels[0];           // modelo primario (backward compat)
 
-  const initialCatIds = useMemo(() => {
+  const initialCatIds = useMemo<Set<string>>(() => {
     if (isCreating) return new Set([categories[0]?.id || "default"]);
     const exIds = new Set(categoriesOf(exercise).map((m) => m.id));
     const valid = categories.filter((m) => exIds.has(m.id)).map((m) => m.id);
@@ -36,50 +61,50 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
   }, []);
 
   // Map<catId, Set<btnId>>
-  const initialBtnIds = useMemo(() => {
-    const map = new Map();
+  const initialBtnIds = useMemo<Map<string, Set<string>>>(() => {
+    const map = new Map<string, Set<string>>();
     categories.forEach((cat) => {
       const exCat = isCreating ? null : categoriesOf(exercise).find((c) => c.id === cat.id);
-      map.set(cat.id, new Set(exCat ? exCat.buttons.map((b) => b.id) : cat.buttons.map((b) => b.id)));
+      map.set(cat.id, new Set((exCat ? (exCat.buttons ?? []) : cat.buttons).map((b) => b.id)));
     });
     return map;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState(initialCatIds);
-  const [selectedButtonIds,   setSelectedButtonIds]   = useState(initialBtnIds);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(initialCatIds);
+  const [selectedButtonIds,   setSelectedButtonIds]   = useState<Map<string, Set<string>>>(initialBtnIds);
 
-  const [audioUrl,       setAudioUrl]       = useState(isCreating ? null : (exercise.audioUrl || null));
-  const [audioName,      setAudioName]      = useState(isCreating ? null : (exercise.audioName || null));
-  const [audioDuration,  setAudioDuration]  = useState(() => {
+  const [audioUrl,       setAudioUrl]       = useState<string | null>(isCreating ? null : (exercise.audioUrl || null));
+  const [audioName,      setAudioName]      = useState<string | null>(isCreating ? null : ((exercise.audioName as string | undefined) || null));
+  const [audioDuration,  setAudioDuration]  = useState<number | null>(() => {
     if (isCreating) return null;
     const lib = (exercise.audioUrl || null)
       ? audioLibrary.find(a => a.url === exercise.audioUrl)
       : null;
-    return lib?.duration || exercise.audioTotalDuration || null;
+    return lib?.duration || (exercise.audioTotalDuration as number | undefined) || null;
   });
-  const [waveformData,   setWaveformData]   = useState(isCreating ? null : (exercise.waveformData || null));
+  const [waveformData,   setWaveformData]   = useState<number[] | null>(isCreating ? null : (exercise.waveformData || null));
   // Fragmento de audio: inicio y fin en el audio completo (segundos), o null = sin fragmento
-  const [fragStart,      setFragStart]      = useState(isCreating ? null : (exercise.audioFragmentStart ?? null));
-  const [fragEnd,        setFragEnd]        = useState(isCreating ? null : (exercise.audioFragmentEnd   ?? null));
+  const [fragStart,      setFragStart]      = useState<number | null>(isCreating ? null : (exercise.audioFragmentStart ?? null));
+  const [fragEnd,        setFragEnd]        = useState<number | null>(isCreating ? null : (exercise.audioFragmentEnd   ?? null));
   const [manualDuration, setManualDuration] = useState(
     !isCreating && !exercise.audioName && exercise.duration ? String(exercise.duration) : ""
   );
   const [showConfirmDel,    setShowConfirmDel]    = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
-  const [listenOnly,                setListenOnly]                = useState(isCreating ? false : (exercise.listenOnly ?? false));
-  const [immediateSchemaFeedback,   setImmediateSchemaFeedback]   = useState(isCreating ? false : (exercise.immediateSchemaFeedback ?? false));
+  const [listenOnly,                setListenOnly]                = useState<boolean>(isCreating ? false : Boolean(exercise.listenOnly ?? false));
+  const [immediateSchemaFeedback,   setImmediateSchemaFeedback]   = useState<boolean>(isCreating ? false : Boolean(exercise.immediateSchemaFeedback ?? false));
   const [showComposer,              setShowComposer]              = useState(isCreating ? true  : (exercise.showComposer ?? true));
-  const [schemaLevels,      setSchemaLevels]      = useState(
-    () => new Set(isCreating ? [1,2,3,4] : (exercise.schemaLevels ?? [1,2,3,4]))
+  const [schemaLevels,      setSchemaLevels]      = useState<Set<number>>(
+    () => new Set(isCreating ? [1,2,3,4] : ((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]))
   );
-  const toggleSchemaLevel = (id) => setSchemaLevels(prev => {
+  const toggleSchemaLevel = (id: number) => setSchemaLevels(prev => {
     const n = new Set(prev);
     if (n.has(id)) { if (n.size > 1) n.delete(id); } else n.add(id);
     return n;
   });
 
-  const toggleCategory = (id) => setSelectedCategoryIds((prev) => {
+  const toggleCategory = (id: string) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
     if (next.has(id)) { if (next.size > 1) next.delete(id); return next; }
     // Categorías de grados con cifrado: son exclusivas (van solas). Al activar
@@ -95,7 +120,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
     return next;
   });
 
-  const toggleButton = (catId, btnId) => setSelectedButtonIds((prev) => {
+  const toggleButton = (catId: string, btnId: string) => setSelectedButtonIds((prev) => {
     const next = new Map(prev);
     const btns = new Set(next.get(catId) || []);
     if (btns.has(btnId)) { if (btns.size > 1) btns.delete(btnId); } else btns.add(btnId);
@@ -106,10 +131,10 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
   // BUG FIX: cancelación de detecciones de audio obsoletas cuando el usuario
   // pega otra URL antes de que termine la primera decodificación.
   const urlReqRef = useRef(0);
-  const handleUrlInput = (rawUrl) => {
+  const handleUrlInput = (rawUrl: string) => {
     const url = rawUrl.trim();
     setAudioUrl(url || null);
-    setAudioName(url ? url.split("/").pop().split("?")[0] || "audio" : null);
+    setAudioName(url ? (url.split("/").pop()?.split("?")[0] || "audio") : null);
     setAudioDuration(null);
     setWaveformData(null);
     setFragStart(null);
@@ -138,13 +163,13 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
     urlReqRef.current++;
   };
 
-  const handlePickFromLibrary = (audio) => {
+  const handlePickFromLibrary = (audio: AudioItem) => {
     urlReqRef.current++;                        // descarta cualquier carga en curso
-    setAudioUrl(audio.url);
-    setAudioName(audio.title);
-    setAudioDuration(audio.duration);
+    setAudioUrl(audio.url ?? null);
+    setAudioName(audio.title ?? null);
+    setAudioDuration(audio.duration ?? null);
     setWaveformData(null);                      // se recalcula al reproducir
-    setManualDuration(String(audio.duration));
+    setManualDuration(String(audio.duration ?? ""));
     setFragStart(null);                         // reset fragmento al cambiar audio
     setFragEnd(null);
     setShowLibraryPicker(false);
@@ -157,10 +182,10 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
     || (!isCreating && !exercise.audioFragmentStart ? exercise.duration : null)
     || null;
   // Duración efectiva del ejercicio (del fragmento si está definido, del audio completo si no)
-  const effDuration = hasExistingAudio
+  const effDuration: number = hasExistingAudio
     ? (fragStart != null && fragEnd != null
         ? Math.round((fragEnd - fragStart) * 10) / 10
-        : (audioDuration || (!isCreating ? exercise.duration : 0)))
+        : (audioDuration || (!isCreating ? (exercise.duration ?? 0) : 0)))
     : (parseInt(manualDuration) || 0);
 
   // Compositor del audio actualmente seleccionado (para el toggle)
@@ -182,7 +207,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
     if (selectedModels.includes("esquema") && (exercise.immediateSchemaFeedback ?? false) !== immediateSchemaFeedback) return true;
     if ((exercise.showComposer ?? true) !== showComposer) return true;
     if (selectedModels.includes("esquema")) {
-      const exLvs = new Set(exercise.schemaLevels ?? [1,2,3,4]);
+      const exLvs = new Set((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
     }
 
@@ -218,12 +243,12 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
     const hasCuestionario = selectedModels.includes("cuestionario");
     const chosen = hasInteractivo ? categories.filter((m) => selectedCategoryIds.has(m.id)) : [];
 
-    const applyBtnFilter = (cat) => {
+    const applyBtnFilter = (cat: CatWithButtons): CatWithButtons => {
       const selBtns = selectedButtonIds.get(cat.id);
       const btns    = selBtns ? cat.buttons.filter((b) => selBtns.has(b.id)) : cat.buttons;
       return { ...cat, buttons: btns.length >= 1 ? btns : cat.buttons };
     };
-    const safe = (chosen.length ? chosen : (hasInteractivo ? [DEFAULT_CATEGORY] : [])).map(applyBtnFilter);
+    const safe = (chosen.length ? chosen : (hasInteractivo ? [DEFAULT_CATEGORY as CatWithButtons] : [])).map(applyBtnFilter);
     // Las categorías de grados con cifrado requieren pistas visibles (el alumno
     // rellena sobre los huecos de la clave). Se fuerza showHint = true.
     const forceHint = hasInteractivo && safe.some((c) => c.hasFigures);
@@ -252,7 +277,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
       return;
     }
 
-    const patch = { title: title.trim(), duration: effDuration, model, models: selectedModels };
+    const patch: Record<string, unknown> = { title: title.trim(), duration: effDuration, model, models: selectedModels };
     if (hasInteractivo) {
       const keepIds = new Set(safe.map((m) => m.id));
       const prev    = exercise.answers || {};
@@ -371,7 +396,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
                   <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.quiz, fontWeight: 600,
                     textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
                     padding: "1px 6px", borderRadius: 4 }}>
-                    {fmt(fragStart)} – {fmt(fragEnd)}
+                    {fmt(fragStart ?? 0)} – {fmt(fragEnd ?? 0)}
                   </span>
                 )}
               </p>
@@ -379,7 +404,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
                 totalDuration={totalAudioDuration}
                 start={fragStart}
                 end={fragEnd}
-                onChange={({ start, end }) => { setFragStart(start); setFragEnd(end); }}
+                onChange={({ start, end }: { start: number; end: number }) => { setFragStart(start); setFragEnd(end); }}
                 onClear={() => { setFragStart(null); setFragEnd(null); }}
                 onDefine={() => { setFragStart(0); setFragEnd(totalAudioDuration); }}
                 audioUrl={audioUrl}
@@ -484,7 +509,7 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
                                   style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
                                 <span style={{ width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO }}>{btn.id}</span>
                                 <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
-                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{btn.key.toUpperCase()}]</span>
+                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{(btn.key ?? "").toUpperCase()}]</span>
                               </label>
                             );
                           })}
@@ -587,9 +612,10 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
               </label>
             </div>
             {(() => {
-              const key = exercise.schemaKey;
-              const hasKey = Array.isArray(key) && key.length > 0;
-              const keyLevels = SCHEMA_LEVELS.filter(lv => !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id));
+              const key = (exercise.schemaKey as KeyBlock[] | undefined) ?? [];
+              const hasKey = key.length > 0;
+              const keyLvls = exercise.schemaLevels as number[] | undefined;
+              const keyLevels = SCHEMA_LEVELS.filter(lv => !keyLvls || keyLvls.length === 0 || keyLvls.includes(lv.id));
               const byLevel = hasKey ? keyLevels.map(lv => ({ lv, blocks: key.filter(b => b.level === lv.id) })).filter(x => x.blocks.length > 0) : [];
               return (
                 <div style={{ border: `1px solid ${hasKey ? C.fnT + "55" : C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, background: hasKey ? `rgba(63,155,91,0.05)` : C.paper2 }}>
@@ -606,9 +632,10 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
                           <span style={{ fontSize: 10, fontWeight: 700, color: lv.color, minWidth: 48, textTransform: "uppercase", letterSpacing: 0.5 }}>{lv.sub}</span>
                           <div style={{ flex: 1, position: "relative", height: 28, background: "rgba(26,25,21,0.05)", borderRadius: 4, overflow: "hidden" }}>
                             {blocks.map((b, i) => {
-                              const lPct = (b.start / exercise.duration) * 100;
-                              const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
-                              const { bg, textColor } = schemaBlockColor(b, key, exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT);
+                              const exDur = exercise.duration || 1;
+                              const lPct = (b.start / exDur) * 100;
+                              const wPct = Math.max(((b.end - b.start) / exDur) * 100, 0.5);
+                              const { bg, textColor } = schemaBlockColor(b, key, (exercise.schemaPalette as string | undefined) || SCHEMA_PALETTE_DEFAULT);
                               if (lv.id === 3) {
                                 return (
                                   <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
@@ -641,8 +668,8 @@ export function ExerciseDetailView({ exercise, onBack, onRecord, onPreview, onMa
               );
             })()}
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => onRecord(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !exercise.schemaKey?.length ? C.ink : C.paper2, color: !exercise.schemaKey?.length ? C.paper : C.ink, border: !exercise.schemaKey?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
-                <span>{exercise.schemaKey?.length ? "Regrabar clave" : "Grabar clave"}</span>
+              <button onClick={() => onRecord(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.ink : C.paper2, color: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.paper : C.ink, border: !(exercise.schemaKey as unknown[] | undefined)?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                <span>{(exercise.schemaKey as unknown[] | undefined)?.length ? "Regrabar clave" : "Grabar clave"}</span>
                 <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
               </button>
               {onPreview && (
