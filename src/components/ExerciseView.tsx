@@ -1,21 +1,55 @@
 // ═══ EXERCISEVIEW (SESIÓN INTERACTIVA) ═══════════════════════════════════════
 // Vista de sesión del modelo interactivo + RepeatManagerModal. Extraídas de
 // App.jsx (Fase 2) sin cambiar su lógica.
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode, type ComponentType } from "react";
+import type { Exercise } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
+import type { FigItem } from "../lib/figures.js";
 import { SCHEMA_MIN_DUR } from "../lib/schema.js";
+import { resolveOverlap } from "../lib/scoring.js";
 import { categoriesOf, answerFor } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, EMPTY_IVS } from "../lib/sessionConstants.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ModalShell, CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton } from "./primitives.jsx";
-import { WaveformDisplay, AudioScrubber, FigureLabel, FunctionButtons } from "./session.jsx";
+import { WaveformDisplay as _WaveformDisplay, AudioScrubber as _AudioScrubber, FigureLabel as _FigureLabel, FunctionButtons as _FunctionButtons } from "./session.jsx";
 
-export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
-  const dur          = exercise.duration;
+// session.jsx aún sin tipar; los casts permiten consumirlo desde TSX.
+const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
+const AudioScrubber   = _AudioScrubber   as ComponentType<any>;
+const FigureLabel     = _FigureLabel     as ComponentType<any>;
+const FunctionButtons = _FunctionButtons as ComponentType<any>;
+
+// ── Tipos locales de la sesión interactiva ───────────────────────────────────
+// Intervalo marcado por el alumno/profesor sobre la onda.
+interface IV { id: string; fn: string; start: number; end: number; fig?: string | null; _anim?: number; }
+// Pulsación en curso (función + inicio; end cuando se congela).
+interface Pressing { fn: string; start: number; end?: number | null; }
+// Botón de función (grado) y categoría con sus botones garantizados.
+interface FnButton { id: string; name?: string; color?: string; key?: string; }
+interface ExCategory { id: string; name?: string; hasFigures?: boolean; buttons: FnButton[]; }
+
+type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: number[] | null };
+
+interface ExerciseSubmit {
+  entries: Array<{ categoryId: string; intervals: Array<{ fn: string; start: number; end: number }> }>;
+  currentCategoryId: string;
+}
+
+interface ExerciseViewProps {
+  exercise: Exercise;
+  mode: string;
+  onSubmit: (result: ExerciseSubmit) => void;
+  onBack: () => void;
+  modelToggleNode?: ReactNode;
+  sharedAudioPlayer?: SharedAudioPlayer | null;
+}
+
+export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }: ExerciseViewProps) {
+  const dur          = exercise.duration as number;
   const exCategories = categoriesOf(exercise);
   const initialCategoryId = useMemo(() => {
     if (mode === "record") {
@@ -27,26 +61,27 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   }, [exercise.id]);
 
   const [currentCategoryId, setCurrentCategoryId] = useState(initialCategoryId);
-  const exCategory = exCategories.find((m) => m.id === currentCategoryId) || exCategories[0];
+  // Categoría activa con `buttons` garantizado (la sesión siempre opera sobre una).
+  const exCategory = ((exCategories.find((m) => m.id === currentCategoryId) || exCategories[0]) ?? { id: "", buttons: [] }) as ExCategory;
   const colorByFn  = useMemo(() => {
-    const m = {};
-    exCategory.buttons.forEach((b) => { m[b.id] = b.color; });
+    const m: Record<string, string> = {};
+    exCategory.buttons.forEach((b) => { m[b.id] = b.color ?? C.ink; });
     return m;
   }, [exCategory]);
 
-  const [intervalsByCategory, setIntervalsByCategory] = useState({});
-  const [pressing,     setPressing]     = useState(null);
-  const [selected,     setSelected]     = useState(null);
-  const [paintFn,      setPaintFn]      = useState(null);   // grado activo como pincel (modo colorear)
+  const [intervalsByCategory, setIntervalsByCategory] = useState<Record<string, IV[]>>({});
+  const [pressing,     setPressing]     = useState<Pressing | null>(null);
+  const [selected,     setSelected]     = useState<string | null>(null);
+  const [paintFn,      setPaintFn]      = useState<string | null>(null);   // grado activo como pincel (modo colorear)
   // Refs siempre-frescos para leer desde handlers/timers sin closures stale.
-  const selectedRef = useRef(null); selectedRef.current = selected;
-  const paintFnRef  = useRef(null); paintFnRef.current  = paintFn;
+  const selectedRef = useRef<string | null>(null); selectedRef.current = selected;
+  const paintFnRef  = useRef<string | null>(null); paintFnRef.current  = paintFn;
   const playingRef2 = useRef(false);
-  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
   // Cuando hay reproductor compartido, se omite la carga propia de audio
-  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd: number[]) => setLocalWaveformData(wd) : null;
   const localPlayer = useAudioPlayer(
     sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
     { onWaveform: localOnWaveform }
@@ -69,7 +104,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     () => (mode === "student" && exercise.showHint ? (answerFor(exercise, currentCategoryId) || EMPTY_IVS) : EMPTY_IVS),
     [mode, exercise, currentCategoryId]
   );
-  const setIntervals = (updater) => setIntervalsByCategory((prev) => {
+  const setIntervals = (updater: IV[] | ((cur: IV[]) => IV[])) => setIntervalsByCategory((prev) => {
     const cur  = prev[currentCategoryId] || [];
     const next = typeof updater === "function" ? updater(cur) : updater;
     return { ...prev, [currentCategoryId]: next };
@@ -78,7 +113,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); setPaintFn(null); }, [exercise.id]);
 
   // Cambio de categoría: cierra el intervalo en curso de la actual
-  const switchCategory = (newId) => {
+  const switchCategory = (newId: string) => {
     if (newId === currentCategoryId) return;
     setPaintFn(null);
     if (pressing) {
@@ -98,30 +133,30 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   // Helper para añadir un intervalo nuevo (cerrando el actual).
   // opts.anim marca el intervalo con un timestamp para animar su aparición
   // (relleno) en el canvas — se usa al hacer snap sobre una pista.
-  const commitInterval = (fn, start, end, opts) => {
-    const newIv = { id: uid("iv"), fn, start, end };
+  const commitInterval = (fn: string, start: number, end: number, opts?: { fig?: string | null; anim?: boolean }) => {
+    const newIv: IV = { id: uid("iv"), fn, start, end };
     if (opts?.fig != null) newIv.fig = opts.fig;
     if (opts?.anim) newIv._anim = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    setIntervals((prev) => [...resolveOverlap(prev, newIv), newIv]);
+    setIntervals((prev) => [...(resolveOverlap(prev, newIv) as IV[]), newIv]);
   };
 
   // Ref siempre-fresco para detecting si el tiempo actual cae sobre una pista.
-  const snapHintRef = useRef(null);
-  snapHintRef.current = (t) => {
+  const snapHintRef = useRef<(t: number) => IV | null>(() => null);
+  snapHintRef.current = (t: number) => {
     if (!exercise.showHint) return null;
-    return answerFor(exercise, currentCategoryId).find((h) => t >= h.start && t <= h.end) || null;
+    return (answerFor(exercise, currentCategoryId) as IV[]).find((h) => t >= h.start && t <= h.end) || null;
   };
 
   // Ref síncrono del estado de pressing. Se actualiza ANTES de llamar a setState,
   // por lo que el canvas lo lee sin esperar el ciclo de re-render de React (~16 ms).
   // Esto elimina el salto visual de 1 frame al pisar o soltar un botón.
-  const pressingRef = useRef(null);
+  const pressingRef = useRef<Pressing | null>(null);
 
   // Teclado (mantén pulsada la tecla mientras suena)
   const togglePlayRef = useRef(togglePlay);
   useEffect(() => { togglePlayRef.current = togglePlay; });
   useEffect(() => {
-    const down = (e) => {
+    const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (btn) {
@@ -145,7 +180,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
       }
       if (e.key === " ") { e.preventDefault(); togglePlayRef.current(); }
     };
-    const up = (e) => {
+    const up = (e: KeyboardEvent) => {
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
       if (!btn) return;
       const p = pressingRef.current;
@@ -174,7 +209,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     setPaintFn(exCategory.buttons[0]?.id || null);
   };
 
-  const handleFnDown = (fn) => {
+  const handleFnDown = (fn: string) => {
     // En modo colorear, pulsar un grado cambia el pincel (no marca).
     if (paintFnRef.current) { setPaintFn(fn); return; }
     // Con un bloque seleccionado, los botones lo EDITAN (no marcan en vivo):
@@ -195,7 +230,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     pressingRef.current = newP; setPressing(newP);
     if (p && now - p.start > 0.1) commitInterval(p.fn, p.start, now);
   };
-  const handleFnUp = (fn) => {
+  const handleFnUp = (fn: string) => {
     if (paintFnRef.current) return;            // en colorear, el down ya cambió el pincel
     // Tap con un bloque seleccionado → cambiar su grado.
     if (selectedRef.current) {
@@ -215,7 +250,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     }
   };
   // Commit desde el pincel (modo colorear): crea un bloque del grado actual.
-  const handlePaintCommit = (t0, t1) => {
+  const handlePaintCommit = (t0: number, t1: number) => {
     if (paintFnRef.current) commitInterval(paintFnRef.current, t0, t1);
   };
 
@@ -225,11 +260,11 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     if (p && p.end == null) {   // solo si activo, no si congelado
       const end = timeRef.current;
       const cur = byCategory[currentCategoryId] || [];
-      const newIv = { id: uid("iv"), fn: p.fn, start: p.start, end };
-      byCategory = { ...byCategory, [currentCategoryId]: [...resolveOverlap(cur, newIv), newIv] };
+      const newIv: IV = { id: uid("iv"), fn: p.fn, start: p.start, end };
+      byCategory = { ...byCategory, [currentCategoryId]: [...(resolveOverlap(cur, newIv) as IV[]), newIv] };
     }
-    const touched = Object.entries(byCategory);
-    const source  = touched.length > 0 ? touched : [[currentCategoryId, []]];
+    const touched = Object.entries(byCategory) as Array<[string, IV[]]>;
+    const source: Array<[string, IV[]]> = touched.length > 0 ? touched : [[currentCategoryId, []]];
     onSubmit({
       entries: source.map(([categoryId, ivs]) => ({
         categoryId,
@@ -242,7 +277,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   const deleteSelected = () => { setIntervals((p) => p.filter((iv) => iv.id !== selected)); setSelected(null); };
 
   // Drag de borde de intervalo desde la banda del canvas (resize)
-  const beginDragEdgeCanvas = (e, ivId, which, rect) => {
+  const beginDragEdgeCanvas = (e: any, ivId: string, which: "start" | "end", rect: DOMRect) => {
     setSelected(ivId);
     const origIvs = intervals;
     const origIv  = origIvs.find((iv) => iv.id === ivId);
@@ -252,23 +287,23 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
       onMove: (ev, getX) => {
         const xRel = getX(ev) - rect.left;
         const t = Math.max(0, Math.min(dur, timeRef.current + (xRel - W / 2) * VISIBLE_SECS / W));
-        const updated = which === "start"
+        const updated: IV = which === "start"
           ? { ...origIv, start: Math.min(origIv.end - 0.1, t) }
           : { ...origIv, end:   Math.max(origIv.start + 0.1, t) };
-        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), updated), updated]);
+        setIntervals([...(resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), updated) as IV[]), updated]);
       },
     });
   };
 
   // Drag del cuerpo de intervalo desde la banda del canvas (mover)
-  const beginDragBodyCanvas = (e, ivId, rect) => {
+  const beginDragBodyCanvas = (e: any, ivId: string, rect: DOMRect) => {
     setSelected(ivId);
     const origIvs = intervals;
     const iv0     = origIvs.find((iv) => iv.id === ivId);
     if (!iv0) return;
     const len = iv0.end - iv0.start;
     const W   = rect.width;
-    let x0 = null, moved = false;
+    let x0 = 0, moved = false;
     startPointerDrag(e, {
       onStart: (ev, getX) => { x0 = getX(ev); },
       onMove:  (ev, getX) => {
@@ -277,7 +312,8 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
         if (!moved) return;
         const dt = (x - x0) * VISIBLE_SECS / W;
         const ns = Math.max(0, Math.min(dur - len, iv0.start + dt));
-        setIntervals([...resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), { ...iv0, start: ns, end: ns + len }), { ...iv0, start: ns, end: ns + len }]);
+        const movedIv: IV = { ...iv0, start: ns, end: ns + len };
+        setIntervals([...(resolveOverlap(origIvs.filter((iv) => iv.id !== ivId), movedIv) as IV[]), movedIv]);
       },
       // La selección persiste tras soltar (igual que los bloques del esquema):
       // no se hace toggle; para deseleccionar, pulsar en una zona vacía.
@@ -285,7 +321,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   };
 
   // Dispatcher de clicks/drag en la zona de banda de la onda
-  const handleBandPointerDown = (e, clientX, rect) => {
+  const handleBandPointerDown = (e: any, clientX: number, rect: DOMRect) => {
     const W       = rect.width;
     const pxPerSec = W / VISIBLE_SECS;
     const t       = timeRef.current;
@@ -409,11 +445,11 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
         {/* Control de cifrado (categorías de grados): debajo de los botones.
             Switch Tríada/Cuatríada grande + opciones de inversión. */}
         {selected && selectedIv && exCategory.hasFigures && (() => {
-          const setFig = (figId) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
+          const setFig = (figId: string) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
           const curFig = selectedIv.fig;
           const isQuad = curFig != null && !isTriadFig(curFig);
           // Botón de inversión teñido con el acento de su familia.
-          const FigBtn = ({ item, accent, i = 0 }) => {
+          const FigBtn = ({ item, accent, i = 0 }: { item: FigItem; accent: string; i?: number }) => {
             const isSel = curFig === item.id;
             return (
               <button key={item.id} className="fa-pressable fa-opt-in" onClick={() => setFig(item.id)}
@@ -430,7 +466,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
           // Columna de una familia: tarjeta teñida con cabecera del color de acento.
           // `single`: cuando es la única columna (p. ej. solo diatónica) no se
           // estira a todo el ancho; se limita a ~el ancho del botón "Cuatríada".
-          const FamilyColumn = ({ gk, single }) => {
+          const FamilyColumn = ({ gk, single }: { gk: string; single: boolean }) => {
             const grp = FIG_GROUPS[gk], accent = grp.accent;
             // single → mitad derecha (bajo el botón "Cuatríada"); resto → reparto equitativo.
             const widthStyle = single ? { width: "calc(50% - 5px)", flex: "0 0 auto", marginLeft: "auto" } : { flex: 1, minWidth: 0 };
@@ -514,15 +550,18 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
 
 
 
-// ─── Repeat timeline helpers ────────────────────────────────────────────────
-
-
-import { resolveOverlap } from "../lib/scoring.js";
-
 // ─── Modal de gestión de repeticiones (solo modo "record") ───────────────────
-export function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
-  const [reps, setReps] = useState(
-    (exercise.repetitions || []).map(r => ({ ...r, first: { ...r.first }, second: { ...r.second } }))
+interface RepSegment { start: number; end: number; }
+interface Repetition { id: string; label?: string; first: RepSegment; second: RepSegment; }
+interface RepeatManagerModalProps {
+  exercise: Exercise;
+  duration: number;
+  onSave: (reps: Repetition[]) => void;
+  onClose: () => void;
+}
+export function RepeatManagerModal({ exercise, duration, onSave, onClose }: RepeatManagerModalProps) {
+  const [reps, setReps] = useState<Repetition[]>(
+    ((exercise.repetitions as Repetition[] | undefined) || []).map(r => ({ ...r, first: { ...r.first }, second: { ...r.second } }))
   );
   const [err, setErr] = useState("");
 
@@ -562,7 +601,7 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
   };
 
   // Cuando cambia first.end, propaga a second.start
-  const updFirst = (id, field, raw) => {
+  const updFirst = (id: string, field: "start" | "end", raw: string) => {
     setErr("");
     const v = Math.max(0, parseFloat(raw) || 0);
     setReps(p => p.map(r => {
@@ -577,7 +616,7 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }) {
       return { ...r, first: newFirst, second: newSecond };
     }));
   };
-  const updSecondEnd = (id, raw) => {
+  const updSecondEnd = (id: string, raw: string) => {
     setErr("");
     const v = Math.max(0, parseFloat(raw) || 0);
     setReps(p => p.map(r => r.id === id ? { ...r, second: { ...r.second, end: v } } : r));
