@@ -8,12 +8,13 @@ import { C, F } from "../theme/tokens.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette } from "../lib/palette.js";
 import { Chevron } from "./primitives.jsx";
 
-export function PaletteMenuButton({ current, onSelect, label = "Paleta" }) {
+interface Props { current?: string | null; onSelect: (id: string) => void; label?: string; }
+export function PaletteMenuButton({ current, onSelect, label = "Paleta" }: Props) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onDown = (e: MouseEvent | TouchEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };

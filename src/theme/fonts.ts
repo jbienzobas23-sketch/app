@@ -4,7 +4,7 @@
 import { useEffect } from "react";
 
 // Inyecta Google Fonts una sola vez al montar la app
-export function useInjectFonts() {
+export function useInjectFonts(): void {
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (!document.querySelector('link[data-gf="fa-v3"]')) {

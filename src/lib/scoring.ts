@@ -1,14 +1,18 @@
 // ═══ SCORING E INTERVALOS ════════════════════════════════════════════════════
 // Funciones puras de puntuación (interactivo, cuestionario, esquema) y utilidades
-// de intervalos. Extraídas de App.jsx (Fase 0) sin cambiar su lógica.
+// de intervalos. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 
-export const getAt = (intervals, t) => {
+export interface Interval { start: number; end: number; fn: string; }
+export interface SchemaBlock { level: number; start: number; end: number; }
+export interface Question { id: string; type?: string; correctOptionId?: string; }
+
+export const getAt = (intervals: Interval[], t: number): string | null => {
   for (const iv of intervals) if (t >= iv.start && t < iv.end) return iv.fn;
   return null;
 };
 
-export const resolveOverlap = (existing, newInterval) => {
-  const result = [];
+export const resolveOverlap = (existing: Interval[], newInterval: Interval): Interval[] => {
+  const result: Interval[] = [];
   for (const iv of existing) {
     if (iv.end <= newInterval.start || iv.start >= newInterval.end) { result.push(iv); continue; }
     if (iv.start < newInterval.start) result.push({ ...iv, end: newInterval.start });
@@ -17,7 +21,7 @@ export const resolveOverlap = (existing, newInterval) => {
   return result;
 };
 
-export const calcScore = (teacherAns, studentAns, duration, margin = 1) => {
+export const calcScore = (teacherAns: Interval[], studentAns: Interval[], duration: number, margin = 1): number | null => {
   if (!teacherAns.length) return null;
   const STEP = 0.1;
   let tot = 0, ok = 0;
@@ -34,14 +38,22 @@ export const calcScore = (teacherAns, studentAns, duration, margin = 1) => {
   return tot > 0 ? Math.round((ok / tot) * 100) : 0;
 };
 
-export const calcQuestionnaireScore = (questions, answers) => {
+export const calcQuestionnaireScore = (
+  questions: Question[] | null | undefined,
+  answers: Record<string, string> | null | undefined,
+): number | null => {
   const testQs = (questions || []).filter((q) => q.type === "test" && q.correctOptionId);
   if (testQs.length === 0) return null;
-  const correct = testQs.filter((q) => (answers || {})[q.id] === q.correctOptionId).length;
+  const ans = (answers || {}) as Record<string, string>;
+  const correct = testQs.filter((q) => ans[q.id] === q.correctOptionId).length;
   return Math.round((correct / testQs.length) * 100);
 };
 
-export const calcSchemaPlacementScore = (keyBlocks, studentBlocks, margin = 3) => {
+export const calcSchemaPlacementScore = (
+  keyBlocks: SchemaBlock[] | null | undefined,
+  studentBlocks: SchemaBlock[],
+  margin = 3,
+): number | null => {
   if (!keyBlocks?.length) return null;
   let correct = 0;
   for (const kb of keyBlocks) {

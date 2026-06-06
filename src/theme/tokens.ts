@@ -46,7 +46,7 @@ export const SECTION_STYLE = {
 };
 
 // Estilo "guardar/disabled" (ratio de opacidad común) compartido por modales.
-export const disabledStyle = (canSave) => ({
+export const disabledStyle = (canSave: boolean) => ({
   opacity: canSave ? 1 : 0.45,
   cursor:  canSave ? "pointer" : "not-allowed",
 });

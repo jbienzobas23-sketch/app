@@ -1,15 +1,21 @@
 // ═══ CIFRADO DE BAJO (INVERSIONES) ═══════════════════════════════════════════
 // Grupos de cifrado para categorías con hasFigures, índice id→item y helpers.
-// Extraídos de App.jsx (Fase 0) sin cambiar su lógica.
+// Extraídos de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
+
+export interface Glyph { d: string; pre: string; strike: boolean; }
+export interface FigItem { id: string; top: Glyph | null; bot: Glyph | null; }
+export interface FigGroup { label: string | null; accent: string; items: FigItem[]; }
+export type FigItemIndexed = FigItem & { kind: string };
 
 // Cada cifra se compone de hasta dos "glifos" apilados (top/bot). Cada glifo es
 // { d: dígito, pre: "+"|"♭"|"", strike: bool } para reproducir el cifrado real
 // (dígitos tachados de las séptimas de dominante/disminuida, prefijos +/♭).
-export const g = (d, opts = {}) => ({ d, pre: opts.pre || "", strike: !!opts.strike });
+export const g = (d: string, opts: { pre?: string; strike?: boolean } = {}): Glyph =>
+  ({ d, pre: opts.pre || "", strike: !!opts.strike });
 
 // Grupos de cifrado. `kind` identifica la familia; cada item lleva id único
 // (kind+inversión) para guardarse en la marca y comparar en corrección.
-export const FIG_GROUPS = {
+export const FIG_GROUPS: Record<string, FigGroup> = {
   triada: { label: null, accent: "#1A1915", items: [
     { id: "t0", top: null,      bot: null },              // fundamental
     { id: "t1", top: g("6"),    bot: null },              // 6
@@ -42,17 +48,17 @@ export const FIG_GROUPS = {
 };
 
 // Índice id → item (con su kind), para lookup O(1).
-export const FIG_BY_ID = {};
+export const FIG_BY_ID: Record<string, FigItemIndexed> = {};
 for (const [kind, grp] of Object.entries(FIG_GROUPS)) {
   for (const it of grp.items) FIG_BY_ID[it.id] = { ...it, kind };
 }
 // Compatibilidad con marcas antiguas (fig en formato "6", "6/4", "7"…).
-export const FIG_LEGACY = { "": "t0", "6": "t1", "6/4": "t2", "7": "d0", "6/5": "d1", "4/3": "d2", "2": "d3" };
-export const figureOf = (id) => FIG_BY_ID[id] || FIG_BY_ID[FIG_LEGACY[id || ""]] || FIG_BY_ID.t0;
-export const isTriadFig = (id) => (figureOf(id).kind === "triada");
+export const FIG_LEGACY: Record<string, string> = { "": "t0", "6": "t1", "6/4": "t2", "7": "d0", "6/5": "d1", "4/3": "d2", "2": "d3" };
+export const figureOf = (id?: string | null): FigItemIndexed => FIG_BY_ID[id ?? ""] || FIG_BY_ID[FIG_LEGACY[id ?? ""]] || FIG_BY_ID.t0;
+export const isTriadFig = (id?: string | null): boolean => (figureOf(id).kind === "triada");
 
 // Qué grupos de cuatríada ofrece cada grado (además de la tríada).
-export const quadGroupsForDegree = (fn) => {
+export const quadGroupsForDegree = (fn: string): string[] => {
   if (fn === "V")   return ["dia", "dom"];
   if (fn === "VII") return ["dia", "semi", "dim"];
   return ["dia"];
