@@ -6,8 +6,27 @@ import { S, C, F } from "../theme/tokens.js";
 import { Overline, FieldLabel, TextInput, ErrorMsg, CtaButton, CredentialInput, GhostButton, StatusCircle } from "./primitives.jsx";
 import { login, logout, createUser, requestPinReset, resetPin } from "../auth/authClient.js";
 
+// ── Interfaces de props ──────────────────────────────────────────────────────
+type AuthProfile = Record<string, unknown>;
+type AuthUser = { username: string; role: string; credType?: string; [k: string]: unknown };
+type Teacher = { id: string; displayName: string; username: string; [k: string]: unknown };
+
+interface SetupViewProps { onSetup: (profile: AuthProfile) => void; }
+interface LoginViewProps {
+  roleLabel: string; filterRole: string;
+  users: AuthUser[];
+  onLogin: (profile: AuthProfile) => void; onBack: () => void;
+  onGuest?: () => void; onForgotPin?: () => void;
+}
+interface HomeViewProps { onTeacher: () => void; onStudent: () => void; }
+interface SimpleBackProps { onBack: () => void; }
+interface TeacherPickerViewProps {
+  teachers: Teacher[]; currentTeacherId?: string | null;
+  onPick: (teacher: Teacher) => void; onLogout: () => void;
+}
+
 // Pantalla de primera ejecución (aún no existe ninguna cuenta admin)
-export function SetupView({ onSetup }) {
+export function SetupView({ onSetup }: SetupViewProps) {
   const [displayName, setDisplayName] = useState("");
   const [username,    setUsername]    = useState("admin");
   const [pass,        setPass]        = useState("");
@@ -27,9 +46,9 @@ export function SetupView({ onSetup }) {
       // create-user lo permite sin sesión solo si aún no existe ningún admin.
       await createUser({ username: u, credential: pass, role: "admin", displayName: displayName.trim(), credType: "password" });
       // Iniciar sesión real con la nueva cuenta y devolver su perfil.
-      const profile = await login(u, pass);
+      const profile = await login(u, pass) as AuthProfile;
       onSetup(profile);
-    } catch (e) { setError(e.message || "Error al configurar la cuenta. Inténtalo de nuevo."); }
+    } catch (e) { setError((e as Error).message || "Error al configurar la cuenta. Inténtalo de nuevo."); }
     finally  { setLoading(false); }
   };
 
@@ -73,7 +92,7 @@ export function SetupView({ onSetup }) {
 }
 
 // Pantalla de login (alumno/profesor/admin)
-export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onForgotPin }) {
+export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGuest, onForgotPin }: LoginViewProps) {
   const [username,   setUsername]   = useState("");
   const [credential, setCredential] = useState("");
   const [loading,    setLoading]    = useState(false);
@@ -97,7 +116,7 @@ export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGue
     try {
       // La verificación de la credencial ocurre en el SERVIDOR (Edge Function):
       // el cliente nunca recibe el hash ni la sal.
-      const profile = await login(username.trim().toLowerCase(), credential);
+      const profile = await login(username.trim().toLowerCase(), credential) as AuthProfile | null;
       const roleOk = profile?.role === filterRole || (filterRole === "teacher" && profile?.role === "admin");
       if (!roleOk) {
         await logout();
@@ -106,7 +125,7 @@ export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGue
       }
       onLogin(profile);
     } catch (e) {
-      setError(e.message || "No se pudo iniciar sesión.");
+      setError((e as Error).message || "No se pudo iniciar sesión.");
     } finally {
       setLoading(false);
     }
@@ -167,7 +186,7 @@ export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGue
 }
 
 // Pantalla inicial: selección de rol
-export function HomeView({ onTeacher, onStudent }) {
+export function HomeView({ onTeacher, onStudent }: HomeViewProps) {
   return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px))" }}>
       <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
@@ -188,7 +207,7 @@ export function HomeView({ onTeacher, onStudent }) {
 }
 
 // Vista para solicitar enlace de recuperación de PIN por correo
-export function ForgotPinView({ onBack }) {
+export function ForgotPinView({ onBack }: SimpleBackProps) {
   const [username, setUsername] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [sent,     setSent]     = useState(false);
@@ -203,7 +222,7 @@ export function ForgotPinView({ onBack }) {
       // no revelar quién tiene cuenta.
       await requestPinReset(username.trim().toLowerCase(), window.location.origin + (window.location.pathname || "/"));
       setSent(true);
-    } catch (e) { setError(e.message || "No se pudo enviar el correo. Inténtalo de nuevo."); }
+    } catch (e) { setError((e as Error).message || "No se pudo enviar el correo. Inténtalo de nuevo."); }
     finally { setLoading(false); }
   };
 
@@ -255,7 +274,7 @@ export function ForgotPinView({ onBack }) {
 }
 
 // Vista para configurar nuevo PIN tras llegar desde el enlace de correo
-export function ResetPinView({ onBack }) {
+export function ResetPinView({ onBack }: SimpleBackProps) {
   const [pin,     setPin]     = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
@@ -272,7 +291,7 @@ export function ResetPinView({ onBack }) {
       await resetPin(pin, "pin");
       try { await logout(); } catch { /* cerrar la sesión de recuperación */ }
       setDone(true);
-    } catch (e) { setError(e.message || "Error al actualizar el PIN. Inténtalo de nuevo."); }
+    } catch (e) { setError((e as Error).message || "Error al actualizar el PIN. Inténtalo de nuevo."); }
     finally { setLoading(false); }
   };
 
@@ -315,8 +334,8 @@ export function ResetPinView({ onBack }) {
 }
 
 // Selector de profesor (para alumnos al primer login)
-export function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }) {
-  const [hoverId, setHoverId] = useState(null);
+export function TeacherPickerView({ teachers, currentTeacherId, onPick, onLogout }: TeacherPickerViewProps) {
+  const [hoverId, setHoverId] = useState<string | null>(null);
   return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ maxWidth: 400, width: "100%" }}>

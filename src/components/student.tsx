@@ -1,6 +1,7 @@
 // ═══ COMPONENTES DE ALUMNO ═══════════════════════════════════════════════════
 // Barra de alternancia de modelos y tarjeta de ejercicio. Extraídos (Fase 2).
 import { useState } from "react";
+import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, F } from "../theme/tokens.js";
 import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
 import { modelOf, modelsOf, questionsOf, categoriesOf } from "../lib/domain.js";
@@ -9,8 +10,12 @@ import { scoreBg, scoreColor } from "../lib/color.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { StatusCircle, Chevron, MetaItem, CategoryDots } from "./primitives.jsx";
 
+// ── Interfaces de props ──────────────────────────────────────────────────────
+interface ModelToggleBarProps { models: string[]; activeIdx: number; onSwitch: (idx: number) => void; }
+interface ExerciseRowProps { ex: Exercise; result?: ExerciseResult | null; onOpen: (ex: Exercise) => void; onViewCorrection?: (ex: Exercise) => void; }
+
 // Barra de alternancia entre modelos (se inyecta entre título y waveform en sesiones con 2 modelos)
-export function ModelToggleBar({ models, activeIdx, onSwitch }) {
+export function ModelToggleBar({ models, activeIdx, onSwitch }: ModelToggleBarProps) {
   if (!models || models.length < 2) return null;
   return (
     <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
@@ -65,7 +70,7 @@ export function ModelToggleBar({ models, activeIdx, onSwitch }) {
 }
 
 // Tarjeta colapsable de ejercicio (alumno) — franja de tipo + metadatos desplegables
-export function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
+export function ExerciseRow({ ex, result, onOpen, onViewCorrection }: ExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const isMobile  = useIsMobile();
   const meta      = modelMeta(ex);
@@ -130,7 +135,7 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection }) {
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
                 {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
               </MetaItem>
-              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
               {isQuiz
                 ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
                 : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}

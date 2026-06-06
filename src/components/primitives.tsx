@@ -1,30 +1,64 @@
 // ═══ PRIMITIVOS UI COMPARTIDOS ═══════════════════════════════════════════════
 // Modales, barras, inputs, iconos y botones-icono reutilizados por toda la app.
 // Extraídos de App.jsx (Fase 2) sin cambiar su lógica ni su aspecto.
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor } from "../lib/color.js";
+
+// ── Tipos de props de los primitivos ────────────────────────────────────────
+type Tab = { id: string; label: string };
+type Option = { id: string; label: string; accent?: string };
+
+interface ModalShellProps { children: ReactNode; width?: number; align?: "center"|"top"; zIndex?: number; onClose?: () => void; label?: string; }
+interface ConfirmModalProps { message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; }
+interface ErrorMsgProps { children?: ReactNode; style?: CSSProperties; }
+interface TabBarProps { tabs: Tab[]; value: string; onChange: (id: string) => void; variant?: "primary"|"secondary"; }
+interface ScoreBadgeProps { score?: number | null; suffix?: string; emptyLabel?: string; }
+interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; }
+interface CircleButtonProps { onClick?: () => void; disabled?: boolean; title?: string; children: ReactNode; size?: number; primary?: boolean; fontSize?: number; }
+interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: string; cancelLabel?: string; }
+interface SessionHeaderProps { exercise: { title?: string; composerName?: string; showComposer?: boolean; [k: string]: unknown }; onBack: () => void; modelId: string; rightSlot?: ReactNode; }
+interface SessionHintProps { modelId: string; extra?: ReactNode; }
+interface StickyActionBarProps { children: ReactNode; secondary?: ReactNode; info?: ReactNode; }
+interface BarSubmitButtonProps { onClick: () => void; children: ReactNode; disabled?: boolean; accent?: string; }
+interface BarIconButtonProps { onClick: () => void; disabled?: boolean; title?: string; children: ReactNode; danger?: boolean; }
+interface ChevronProps { open: boolean; size?: number; color?: string; rotate90WhenClosed?: boolean; }
+interface StatusCircleProps { done?: boolean; size?: number; }
+interface ProgressRingProps { ready: number; total: number; size?: number; stroke?: number; }
+interface CategoryDotsProps { buttons: Array<{ id?: string; name?: string; color?: string }> }
+interface SuggestInputProps { value: string; onChange: (v: string) => void; suggestions?: string[]; placeholder?: string; autoFocus?: boolean; style?: CSSProperties; }
+interface TagInputProps { tags?: string[]; onChange: (tags: string[]) => void; suggestions?: string[]; }
+interface IconButtonProps { onClick: () => void; title?: string; }
+interface FilterDropdownProps { label: string; options: string[]; selected: string[]; onToggle: (v: string) => void; onClear: () => void; accent?: string; }
+interface PillSelectProps { value: string; onChange: (v: string) => void; options: Option[]; accent?: string; }
+interface TeacherFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; allComposers: string[]; filterComposers: string[]; setFilterComposers: (v: string[]) => void; allTags: string[]; filterTags: string[]; setFilterTags: (v: string[]) => void; }
+interface StudentFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; filterDone: string; setFilterDone: (v: string) => void; }
+interface OverlineProps { children: ReactNode; style?: CSSProperties; }
+interface ButtonProps { children: ReactNode; onClick?: () => void; full?: boolean; lg?: boolean; disabled?: boolean; }
+interface FieldLabelProps { children: ReactNode; }
+interface TextInputProps { value: string; onChange: (v: string) => void; placeholder?: string; type?: string; big?: boolean; }
+interface MetaItemProps { label: string; children: ReactNode; }
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
 // Accesibilidad (Fase 5): role="dialog"/aria-modal, foco inicial dentro del
 // diálogo, trampa de foco (Tab cicla dentro), devolución del foco al cerrar y,
 // si se pasa `onClose`, cierre con Escape. `label` da el nombre accesible.
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-export function ModalShell({ children, width = 480, align = "center", zIndex = 200, onClose, label = "Diálogo" }) {
-  const cardRef = useRef(null);
+export function ModalShell({ children, width = 480, align = "center", zIndex = 200, onClose, label = "Diálogo" }: ModalShellProps) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const prevFocus = document.activeElement;
+    const prevFocus = document.activeElement as HTMLElement | null;
     const card = cardRef.current;
     // Foco inicial: solo lo movemos si aún no está dentro del diálogo (respeta
     // modales que ya enfocan su propio input vía autoFocus).
     if (card && !card.contains(document.activeElement)) {
-      const f = card.querySelectorAll(FOCUSABLE);
-      (f[0] || card).focus?.();
+      const f = card.querySelectorAll<HTMLElement>(FOCUSABLE);
+      (f[0] ?? card).focus?.();
     }
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); return; }
       if (e.key === "Tab" && card) {
-        const f = [...card.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+        const f = [...card.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
         if (!f.length) return;
         const first = f[0], last = f[f.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -35,7 +69,7 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
     return () => {
       document.removeEventListener("keydown", onKey, true);
       // Devolver el foco al elemento que lo tenía antes de abrir el modal.
-      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+      prevFocus?.focus();
     };
   }, [onClose]);
 
@@ -58,7 +92,7 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
 }
 
 // Modal de confirmación destructiva
-export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = "Eliminar" }) {
+export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = "Eliminar" }: ConfirmModalProps) {
   return (
     <ModalShell width={400} zIndex={300} onClose={onCancel} label="Confirmación">
       <p style={{ margin: "0 0 18px", color: C.ink, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-line" }}>{message}</p>
@@ -73,14 +107,14 @@ export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = "Eli
 }
 
 // Mensaje de error en rojo (oculto si children es vacío)
-export function ErrorMsg({ children, style }) {
+export function ErrorMsg({ children, style }: ErrorMsgProps) {
   if (!children) return null;
   return <p style={{ fontSize: 12, color: C.danger, margin: "0 0 12px", ...style }}>{children}</p>;
 }
 
 // Barra de pestañas con underline. variant="primary" para pestañas principales,
 // "secondary" para tabs de configuración (más pequeñas, color atenuado).
-export function TabBar({ tabs, value, onChange, variant = "primary" }) {
+export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarProps) {
   const isPrim = variant === "primary";
   return tabs.map(({ id, label }) => {
     const active = value === id;
@@ -105,7 +139,7 @@ export function TabBar({ tabs, value, onChange, variant = "primary" }) {
 }
 
 // Badge de puntuación con color según rango. Usado en dashboards.
-export function ScoreBadge({ score, suffix = "%", emptyLabel = "—" }) {
+export function ScoreBadge({ score, suffix = "%", emptyLabel = "—" }: ScoreBadgeProps) {
   return (
     <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score) }}>
       {score == null ? emptyLabel : `${score}${suffix}`}
@@ -114,7 +148,7 @@ export function ScoreBadge({ score, suffix = "%", emptyLabel = "—" }) {
 }
 
 // Input de credencial (PIN numérico o contraseña)
-export function CredentialInput({ kind, value, onChange, placeholder, autoFocus, onSubmit, marginBottom = 14, style }) {
+export function CredentialInput({ kind, value, onChange, placeholder, autoFocus, onSubmit, marginBottom = 14, style }: CredentialInputProps) {
   const isPin = kind === "pin";
   return (
     <input
@@ -132,7 +166,7 @@ export function CredentialInput({ kind, value, onChange, placeholder, autoFocus,
 }
 
 // Botón redondo de tipo "+5s / −5s / play"
-export function CircleButton({ onClick, disabled, title, children, size = 42, primary = false, fontSize }) {
+export function CircleButton({ onClick, disabled, title, children, size = 42, primary = false, fontSize }: CircleButtonProps) {
   return (
     <button onClick={onClick} disabled={disabled} title={title} aria-label={title} style={{
       width: size, height: size, borderRadius: "50%",
@@ -165,7 +199,7 @@ export function AudioLoadingOverlay() {
 
 // Pie de modal estándar: botón "Cancelar" + acción principal (guardar/crear).
 // Centraliza el patrón que se repetía en casi todos los formularios modales.
-export function ModalFooter({ onCancel, onSave, canSave = true, saveLabel = "Guardar", cancelLabel = "Cancelar" }) {
+export function ModalFooter({ onCancel, onSave, canSave = true, saveLabel = "Guardar", cancelLabel = "Cancelar" }: ModalFooterProps) {
   return (
     <div style={{ ...S.row, gap: 8, justifyContent: "flex-end" }}>
       <button onClick={onCancel} style={S.btn}>{cancelLabel}</button>
@@ -191,8 +225,8 @@ const SESSION_MODEL_META = {
 
 // Cabecera unificada de sesión: volver + título + píldora del modelo activo.
 // Sustituye/clarifica a ExercisePageHeader en las vistas de ejercicio S2.
-export function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
-  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+export function SessionHeader({ exercise, onBack, modelId, rightSlot = null }: SessionHeaderProps) {
+  const meta = SESSION_MODEL_META[modelId as keyof typeof SESSION_MODEL_META] || SESSION_MODEL_META.interactivo;
   return (
     <div style={{
       background: C.paper, borderBottom: `1px solid ${C.line}`, flexShrink: 0,
@@ -236,8 +270,8 @@ export function SessionHeader({ exercise, onBack, modelId, rightSlot = null }) {
 // Banner de ayuda destacado y descartable, al inicio del área de trabajo.
 // Hace evidente el modelo de interacción de un vistazo, sin sustituir el texto
 // fino de pie ya existente (que se mantiene como recordatorio).
-export function SessionHint({ modelId, extra = null }) {
-  const meta = SESSION_MODEL_META[modelId] || SESSION_MODEL_META.interactivo;
+export function SessionHint({ modelId, extra = null }: SessionHintProps) {
+  const meta = SESSION_MODEL_META[modelId as keyof typeof SESSION_MODEL_META] || SESSION_MODEL_META.interactivo;
   const storeKey = `fa_hint_seen_${modelId}`;
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem(storeKey) !== "1"; } catch { return true; }
@@ -278,7 +312,7 @@ export function SessionHint({ modelId, extra = null }) {
 // Barra de acción inferior fija. Garantiza que la acción principal (Entregar /
 // Guardar clave) esté siempre visible y al alcance del pulgar en móvil.
 // `secondary` permite añadir controles a la izquierda (deshacer, borrar…).
-export function StickyActionBar({ children, secondary = null, info = null }) {
+export function StickyActionBar({ children, secondary = null, info = null }: StickyActionBarProps) {
   return (
     <div className="fa-sticky-bar" style={{
       background: "rgba(255,255,255,0.86)",
@@ -304,7 +338,7 @@ export function StickyActionBar({ children, secondary = null, info = null }) {
 }
 
 // Botón submit grande para la barra fija — variante full-bleed amigable al pulgar
-export function BarSubmitButton({ onClick, children, disabled = false, accent = C.ink }) {
+export function BarSubmitButton({ onClick, children, disabled = false, accent = C.ink }: BarSubmitButtonProps) {
   return (
     <button onClick={onClick} disabled={disabled} className="fa-pressable" style={{
       background: accent, color: C.paper, border: `1px solid ${accent}`,
@@ -325,7 +359,7 @@ export function BarSubmitButton({ onClick, children, disabled = false, accent = 
 }
 
 // Botón circular compacto para la barra de acción (deshacer / borrar)
-export function BarIconButton({ onClick, disabled, title, children, danger = false }) {
+export function BarIconButton({ onClick, disabled, title, children, danger = false }: BarIconButtonProps) {
   return (
     <button onClick={onClick} disabled={disabled} title={title} aria-label={title} className="fa-pressable" style={{
       width: 40, height: 40, borderRadius: 10, flexShrink: 0,
@@ -343,7 +377,7 @@ export function BarIconButton({ onClick, disabled, title, children, danger = fal
 
 // ── Primitivos del sistema editorial V1 ──────────────────────────────────────
 
-export function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed = false }) {
+export function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed = false }: ChevronProps) {
   const deg = open ? 180 : rotate90WhenClosed ? -90 : 0;
   return (
     <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 13 13" fill="none"
@@ -354,7 +388,7 @@ export function Chevron({ open, size = 13, color = C.chevron, rotate90WhenClosed
   );
 }
 
-export function StatusCircle({ done, size = 14 }) {
+export function StatusCircle({ done, size = 14 }: StatusCircleProps) {
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? C.ink : C.bg, border: done ? "none" : `1.5px solid ${C.chevron}`, flexShrink: 0 }}>
       {done && (
@@ -368,7 +402,7 @@ export function StatusCircle({ done, size = 14 }) {
 
 // Anillo de progreso SVG — usado en la vista de Cursos (unidades / cursos).
 // done → relleno verde con ✓; en curso → fracción ready/total centrada.
-export function ProgressRing({ ready, total, size = 46, stroke = 4 }) {
+export function ProgressRing({ ready, total, size = 46, stroke = 4 }: ProgressRingProps) {
   const r     = (size - stroke) / 2;
   const circ  = 2 * Math.PI * r;
   const pct   = total ? ready / total : 0;
@@ -392,7 +426,7 @@ export function ProgressRing({ ready, total, size = 46, stroke = 4 }) {
   );
 }
 
-export function CategoryDots({ buttons }) {
+export function CategoryDots({ buttons }: CategoryDotsProps) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       {buttons.map((b) => <span key={b.id} title={b.name} style={{ width: 9, height: 9, borderRadius: "50%", background: b.color, border: "1px solid rgba(0,0,0,0.08)" }} />)}
@@ -401,9 +435,9 @@ export function CategoryDots({ buttons }) {
 }
 
 // ─── SuggestInput — campo de texto con desplegable de sugerencias ────────────
-export function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocus, style }) {
+export function SuggestInput({ value, onChange, suggestions = [], placeholder, autoFocus, style }: SuggestInputProps) {
   const [show, setShow] = useState(false);
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const filtered = suggestions.filter(
     (s) => s.toLowerCase().includes(value.toLowerCase()) && s !== value
@@ -436,16 +470,16 @@ export function SuggestInput({ value, onChange, suggestions = [], placeholder, a
 }
 
 // ─── TagInput — editor de etiquetas con sugerencias de reutilización ─────────
-export function TagInput({ tags = [], onChange, suggestions = [] }) {
+export function TagInput({ tags = [], onChange, suggestions = [] }: TagInputProps) {
   const [input, setInput] = useState("");
   const [showSug, setShowSug] = useState(false);
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const filtered = suggestions.filter(
     (s) => s.toLowerCase().includes(input.toLowerCase()) && !tags.includes(s)
   );
 
-  const addTag = (tag) => {
+  const addTag = (tag: string) => {
     const t = tag.trim();
     if (!t || tags.includes(t)) return;
     onChange([...tags, t]);
@@ -454,9 +488,9 @@ export function TagInput({ tags = [], onChange, suggestions = [] }) {
     inputRef.current?.focus();
   };
 
-  const removeTag = (t) => onChange(tags.filter((x) => x !== t));
+  const removeTag = (t: string) => onChange(tags.filter((x) => x !== t));
 
-  const handleKey = (e) => {
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if ((e.key === "Enter" || e.key === ",") && input.trim()) {
       e.preventDefault();
       addTag(input);
@@ -508,7 +542,7 @@ export function TagInput({ tags = [], onChange, suggestions = [] }) {
 }
 
 // ─── EyeIcon / EyeButton — visibilidad de ejercicios, cursos, unidades ────────
-export function EyeIcon({ open = true, size = 15 }) {
+export function EyeIcon({ open = true, size = 15 }: { open?: boolean; size?: number }) {
   return open ? (
     <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <ellipse cx="10" cy="10" rx="8" ry="5" />
@@ -524,7 +558,7 @@ export function EyeIcon({ open = true, size = 15 }) {
 }
 
 // Icono de lápiz (editar) — estética de trazo fino coherente con EyeIcon
-export function PencilIcon({ size = 15 }) {
+export function PencilIcon({ size = 15 }: { size?: number }) {
   return (
     <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M13.5 3.5l3 3" />
@@ -534,7 +568,7 @@ export function PencilIcon({ size = 15 }) {
 }
 
 // Icono de papelera (eliminar) — trazo fino coherente con el resto de iconos
-export function TrashIcon({ size = 15 }) {
+export function TrashIcon({ size = 15 }: { size?: number }) {
   return (
     <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3.5 5.5h13" />
@@ -546,7 +580,7 @@ export function TrashIcon({ size = 15 }) {
 }
 
 // Icono de onda de audio — barras verticales de altura variable, estética waveform
-export function AudioWaveIcon({ size = 16, color = "currentColor" }) {
+export function AudioWaveIcon({ size = 16, color = "currentColor" }: { size?: number; color?: string }) {
   const bars = [0.35, 0.6, 0.85, 0.65, 1.0, 0.8, 0.5, 0.9, 0.55, 0.3];
   return (
     <svg aria-hidden="true" focusable="false" width={size} height={size * 0.875} viewBox="0 0 20 14" fill="none" style={{ flexShrink: 0 }}>
@@ -564,7 +598,7 @@ export function AudioWaveIcon({ size = 16, color = "currentColor" }) {
 const ICON_BTN_BASE = { display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, flexShrink: 0, cursor: "pointer", transition: "background .15s, color .15s, border-color .15s, box-shadow .15s" };
 
 // Visible/oculto → botón-estado: contorno tenue y tinte ámbar/rojo al ocultar.
-export function EyeButton({ visible, onClick, title }) {
+export function EyeButton({ visible, onClick, title }: { visible: boolean; onClick: () => void; title?: string }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -582,7 +616,7 @@ export function EyeButton({ visible, onClick, title }) {
 }
 
 // Editar → acción principal: relleno oscuro sólido (destaca sobre los otros dos).
-export function EditIconButton({ onClick, title = "Editar" }) {
+export function EditIconButton({ onClick, title = "Editar" }: IconButtonProps) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -597,7 +631,7 @@ export function EditIconButton({ onClick, title = "Editar" }) {
 }
 
 // Eliminar → acción destructiva: contorno rojo con tinte suave.
-export function DeleteIconButton({ onClick, title = "Eliminar" }) {
+export function DeleteIconButton({ onClick, title = "Eliminar" }: IconButtonProps) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -613,7 +647,7 @@ export function DeleteIconButton({ onClick, title = "Eliminar" }) {
 
 // Quitar de una lista (sin borrar) → mismo molde rojo pero glifo ✕, para no
 // confundir con la eliminación definitiva (papelera).
-export function RemoveIconButton({ onClick, title = "Quitar" }) {
+export function RemoveIconButton({ onClick, title = "Quitar" }: IconButtonProps) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -630,14 +664,14 @@ export function RemoveIconButton({ onClick, title = "Quitar" }) {
 }
 
 // ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
-export function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }) {
+export function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef<HTMLDivElement | null>(null);
   const count = selected.length;
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
@@ -689,7 +723,7 @@ export function FilterDropdown({ label, options, selected, onToggle, onClear, ac
 }
 
 // ─── Pill select estilizado ────────────────────────────────────────────────────
-export function PillSelect({ value, onChange, options, accent = C.ink }) {
+export function PillSelect({ value, onChange, options, accent = C.ink }: PillSelectProps) {
   const active = value !== options[0]?.id;
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
@@ -716,9 +750,9 @@ const MODEL_OPTIONS = [
   { id: "esquema",      label: "Esquema" },
 ];
 
-export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags }) {
-  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
-  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags }: TeacherFilterBarProps) {
+  const toggleComposer = (val: string) => setFilterComposers(filterComposers.includes(val) ? filterComposers.filter((x) => x !== val) : [...filterComposers, val]);
+  const toggleTag      = (val: string) => setFilterTags(filterTags.includes(val) ? filterTags.filter((x) => x !== val) : [...filterTags, val]);
   const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
 
   return (
@@ -754,7 +788,7 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
 }
 
 // ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
-export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }) {
+export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }: StudentFilterBarProps) {
   const active = filterModel !== "all" || filterDone !== "all";
   const DONE_OPTIONS = [
     { id: "all",     label: "Todos",     accent: C.ink  },
@@ -787,27 +821,27 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
   );
 }
 
-export function Overline({ children, style }) {
+export function Overline({ children, style }: OverlineProps) {
   return <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", color: C.chevron, textTransform: "uppercase", marginBottom: 6, ...style }}>{children}</div>;
 }
 
-export function GhostButton({ children, onClick, full, lg, disabled }) {
+export function GhostButton({ children, onClick, full, lg, disabled }: ButtonProps) {
   return (
     <button onClick={onClick} disabled={disabled} style={{ background: C.paper, border: `1px solid ${C.rail}`, borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 14px", fontFamily: F.sans, fontSize: lg ? 14 : 13, fontWeight: 500, color: "#555", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
   );
 }
 
-export function CtaButton({ children, onClick, disabled, full, lg }) {
+export function CtaButton({ children, onClick, disabled, full, lg }: ButtonProps) {
   return (
     <button onClick={onClick} disabled={disabled} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: lg ? 8 : 7, padding: lg ? "12px 18px" : "7px 15px", fontFamily: F.sans, fontSize: lg ? 14 : 12, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, opacity: disabled ? 0.4 : 1, width: full ? "100%" : undefined }}>{children}</button>
   );
 }
 
-export function FieldLabel({ children }) {
+export function FieldLabel({ children }: FieldLabelProps) {
   return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#999", marginBottom: 6 }}>{children}</label>;
 }
 
-export function TextInput({ value, onChange, placeholder, type = "text", big }) {
+export function TextInput({ value, onChange, placeholder, type = "text", big }: TextInputProps) {
   const [focus, setFocus] = useState(false);
   return (
     <input type={type} value={value} placeholder={placeholder}
@@ -816,7 +850,7 @@ export function TextInput({ value, onChange, placeholder, type = "text", big }) 
   );
 }
 
-export function MetaItem({ label, children }) {
+export function MetaItem({ label, children }: MetaItemProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
