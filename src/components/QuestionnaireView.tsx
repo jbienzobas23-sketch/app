@@ -1,42 +1,66 @@
 // ═══ QUESTIONNAIREVIEW (CUESTIONARIO) ════════════════════════════════════════
 // Vista del alumno para ejercicios tipo cuestionario. Extraída de App.jsx (Fase 2).
-import { useState, useRef } from "react";
+import { useState, useRef, type ReactNode, type ComponentType } from "react";
+import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { calcQuestionnaireScore } from "../lib/scoring.js";
 import { questionsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
-import { WaveformDisplay } from "./session.jsx";
+import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
+
+// session.jsx aún no está tipado; el cast permite consumirlo desde TSX.
+const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
+
+// El player compartido (MultiModelSessionView) es el valor de useAudioPlayer
+// ampliado con la waveform decodificada una sola vez.
+type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: number[] | null };
+
+// En un cuestionario cada pregunta tiene fragmento de audio (start/end) definido.
+type QuizQuestion = Question & { audioStart: number; audioEnd: number };
+
+interface QuestionnaireResult { type: "cuestionario"; answers: Record<string, string>; score: number | null; }
+
+interface QuestionnaireViewProps {
+  exercise: Exercise;
+  onSubmit: (result: QuestionnaireResult) => void;
+  onBack: () => void;
+  modelToggleNode?: ReactNode;
+  sharedAudioPlayer?: SharedAudioPlayer | null;
+  loopRegionRef?: { current: Question | null } | null;
+}
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null }) {
-  const dur       = exercise.duration;
-  const questions = questionsOf(exercise);
+export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null }: QuestionnaireViewProps) {
+  const dur       = exercise.duration as number;
+  const questions = questionsOf(exercise) as QuizQuestion[];
 
-  const [answers,        setAnswers]        = useState({});
-  const [expandedId,     setExpandedId]     = useState(null);
-  const [lockedQuestion, setLockedQuestion] = useState(null);
-  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+  const [answers,        setAnswers]        = useState<Record<string, string>>({});
+  const [expandedId,     setExpandedId]     = useState<string | null>(null);
+  const [lockedQuestion, setLockedQuestion] = useState<QuizQuestion | null>(null);
+  const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
   // Ref de bucle: usa el externo (del padre) si está disponible, para que el
   // reproductor compartido vea los cambios de fragmento bloqueado
-  const ownLoopRegionRef = useRef(null);
+  const ownLoopRegionRef = useRef<Question | null>(null);
   const loopRegionRef    = externalLoopRef || ownLoopRegionRef;
   loopRegionRef.current  = lockedQuestion;   // sincronizado cada render
 
-  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd) => setLocalWaveformData(wd) : null;
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd: number[]) => setLocalWaveformData(wd) : null;
   const localPlayer = useAudioPlayer(
     sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
-    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : loopRegionRef }
+    // La pregunta bloqueada siempre tiene audioStart/audioEnd; el ref encaja con
+    // la región de bucle que espera el reproductor.
+    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : (loopRegionRef as { current: { audioStart: number; audioEnd: number } | null }) }
   );
   const {
     time, playing, audioReady, audioError, hasAudio,
     timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
 
-  const selectQuestion = (q) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
+  const selectQuestion = (q: QuizQuestion) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
   // playFrom queda disponible si más adelante se quiere un botón "escuchar este fragmento" desde la card de pregunta.
    
@@ -158,7 +182,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
                     {q.type === "test" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                        {q.options.map((opt) => {
+                        {(q.options ?? []).map((opt) => {
                           const isSel = answers[q.id] === opt.id;
                           return (
                             <button key={opt.id} className="fa-pressable"

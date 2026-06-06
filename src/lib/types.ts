@@ -20,10 +20,20 @@ export interface Category {
   [k: string]: unknown;
 }
 
+export interface QuestionOption {
+  id: string;
+  text?: string;
+  [k: string]: unknown;
+}
+
 export interface Question {
   id: string;
   type?: string;
+  text?: string;
+  options?: QuestionOption[];
   correctOptionId?: string | null;
+  audioStart?: number;
+  audioEnd?: number;
   [k: string]: unknown;
 }
 

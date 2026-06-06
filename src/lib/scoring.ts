@@ -4,7 +4,7 @@
 
 export interface Interval { start: number; end: number; fn: string; }
 export interface SchemaBlock { level: number; start: number; end: number; }
-export interface Question { id: string; type?: string; correctOptionId?: string; }
+export interface Question { id: string; type?: string; correctOptionId?: string | null; }
 
 export const getAt = (intervals: Interval[], t: number): string | null => {
   for (const iv of intervals) if (t >= iv.start && t < iv.end) return iv.fn;
