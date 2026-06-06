@@ -3,22 +3,41 @@
 // credencial con PBKDF2 en el SERVIDOR y devuelve una sesión real de Supabase
 // Auth. El cliente solo recibe la sesión (nunca el hash ni la sal) y la fija con
 // supabase.auth.setSession. A partir de ahí todas las consultas van autenticadas.
+// Migrado a TypeScript (Fase 3).
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "../supabase.js";
 
 const LOGIN_URL = `${SUPABASE_URL}/functions/v1/login`;
 
+// Error con código HTTP adjunto, para que la UI distinga 401/429/…
+interface HttpError extends Error { status?: number; }
+// Forma tolerante de las respuestas JSON de las Edge Functions.
+interface AuthResponse { session?: { access_token: string; refresh_token: string }; profile?: unknown; error?: string; ok?: boolean; }
+
+function authHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+}
+
+// Sustituye el header Authorization por el token de sesión actual (si lo hay).
+async function withSessionToken(headers: Record<string, string>): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  } catch { /* sin sesión: bootstrap/recuperación */ }
+}
+
 // login(username, credential) → perfil público del usuario.
 // Lanza Error con .status (401 credencial incorrecta, 429 demasiados intentos).
-export async function login(username, credential) {
-  let res, json;
+export async function login(username: string, credential: string): Promise<unknown> {
+  let res!: Response;
+  let json!: AuthResponse;
   try {
     res = await fetch(LOGIN_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ username, credential }),
     });
     json = await res.json().catch(() => ({}));
@@ -26,7 +45,7 @@ export async function login(username, credential) {
     throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
   }
   if (!res.ok || !json.session) {
-    const err = new Error(json.error || "No se pudo iniciar sesión.");
+    const err: HttpError = new Error(json.error || "No se pudo iniciar sesión.");
     err.status = res.status;
     throw err;
   }
@@ -36,7 +55,7 @@ export async function login(username, credential) {
 }
 
 // Cierra la sesión de Supabase Auth.
-export async function logout() {
+export async function logout(): Promise<void> {
   try { await supabase.auth.signOut(); } catch { /* sin sesión */ }
 }
 
@@ -45,18 +64,12 @@ export async function logout() {
 // (si lo hay) para la autorización; sin sesión solo sirve para el bootstrap del
 // primer admin. payload: { username, credential, role, displayName, credType?,
 // teacherId?, recoveryEmail? }. Devuelve el perfil público creado.
-export async function createUser(payload) {
-  const headers = {
-    "Content-Type": "application/json",
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  };
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-  } catch { /* sin sesión: bootstrap */ }
+export async function createUser(payload: Record<string, unknown>): Promise<unknown> {
+  const headers = authHeaders();
+  await withSessionToken(headers);
 
-  let res, json;
+  let res!: Response;
+  let json!: AuthResponse;
   try {
     res = await fetch(`${SUPABASE_URL}/functions/v1/create-user`, {
       method: "POST", headers, body: JSON.stringify(payload),
@@ -66,7 +79,7 @@ export async function createUser(payload) {
     throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
   }
   if (!res.ok || !json.profile) {
-    const err = new Error(json.error || "No se pudo crear el usuario.");
+    const err: HttpError = new Error(json.error || "No se pudo crear el usuario.");
     err.status = res.status;
     throw err;
   }
@@ -75,18 +88,12 @@ export async function createUser(payload) {
 
 // resetCredential({ userId, credential, credType }) — un admin/profesor restablece
 // la credencial de otro usuario. El hash se calcula y guarda en el servidor.
-export async function resetCredential(payload) {
-  const headers = {
-    "Content-Type": "application/json",
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  };
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-  } catch { /* sin sesión */ }
+export async function resetCredential(payload: Record<string, unknown>): Promise<unknown> {
+  const headers = authHeaders();
+  await withSessionToken(headers);
 
-  let res, json;
+  let res!: Response;
+  let json!: AuthResponse;
   try {
     res = await fetch(`${SUPABASE_URL}/functions/v1/reset-credential`, {
       method: "POST", headers, body: JSON.stringify(payload),
@@ -96,7 +103,7 @@ export async function resetCredential(payload) {
     throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
   }
   if (!res.ok || !json.profile) {
-    const err = new Error(json.error || "No se pudo restablecer la credencial.");
+    const err: HttpError = new Error(json.error || "No se pudo restablecer la credencial.");
     err.status = res.status;
     throw err;
   }
@@ -106,12 +113,8 @@ export async function resetCredential(payload) {
 // requestPinReset(username, redirectTo) — pide recuperar el PIN. El servidor busca
 // el correo de recuperación (en fa_user_secrets) y envía el magic link. Respuesta
 // siempre genérica (no revela si el usuario existe).
-export async function requestPinReset(username, redirectTo) {
-  const headers = {
-    "Content-Type": "application/json",
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  };
+export async function requestPinReset(username: string, redirectTo: string): Promise<boolean> {
+  const headers = authHeaders();
   try {
     await fetch(`${SUPABASE_URL}/functions/v1/request-pin-reset`, {
       method: "POST", headers, body: JSON.stringify({ username, redirectTo }),
@@ -125,18 +128,12 @@ export async function requestPinReset(username, redirectTo) {
 // resetPin(credential, credType) — fija un nuevo PIN usando la sesión ACTUAL de
 // recuperación (la del magic link, con el correo real). El servidor identifica al
 // usuario por ese correo y actualiza el secreto.
-export async function resetPin(credential, credType = "pin") {
-  const headers = {
-    "Content-Type": "application/json",
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  };
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-  } catch { /* sin sesión */ }
+export async function resetPin(credential: string, credType = "pin"): Promise<boolean> {
+  const headers = authHeaders();
+  await withSessionToken(headers);
 
-  let res, json;
+  let res!: Response;
+  let json!: AuthResponse;
   try {
     res = await fetch(`${SUPABASE_URL}/functions/v1/reset-pin`, {
       method: "POST", headers, body: JSON.stringify({ credential, credType }),
@@ -146,7 +143,7 @@ export async function resetPin(credential, credType = "pin") {
     throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
   }
   if (!res.ok || !json.ok) {
-    const err = new Error(json.error || "No se pudo actualizar el PIN.");
+    const err: HttpError = new Error(json.error || "No se pudo actualizar el PIN.");
     err.status = res.status;
     throw err;
   }
