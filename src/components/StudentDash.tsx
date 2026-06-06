@@ -1,7 +1,7 @@
 // ═══ STUDENTDASH (DASHBOARD DEL ALUMNO) ══════════════════════════════════════
 // Cabecera, pestañas (todos los ejercicios / por cursos) y filtros. Extraída (Fase 2).
 import { useState, useMemo } from "react";
-import type { Exercise, ExerciseResult } from "../lib/types.js";
+import type { Exercise, ExerciseResult, Unit } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 import { modelsOf } from "../lib/domain.js";
@@ -20,7 +20,7 @@ interface StudentDashProps {
   exercises: Exercise[];
   results: Record<string, ExerciseResult>;
   courses: CourseItem[];
-  units: unknown[];
+  units: Unit[];
   groups?: GroupItem[];
   onExercise: (ex: Exercise) => void;
   onViewCorrection?: (ex: Exercise) => void;

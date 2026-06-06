@@ -3,12 +3,48 @@
 // Extraída de teacher.jsx (Fase 2, subdivisión). Los modales los gestiona el
 // componente padre (TeacherDash) vía callbacks.
 import { useState } from "react";
+import type { ReactNode } from "react";
+import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { modelOf, answerStats, questionsOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton } from "./primitives.jsx";
 import { ExerciseRow } from "./student.jsx";
+
+// ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
+type AskConfirm = (message: string, onConfirm: () => void) => void;
+interface UnitStats { num: number; total: number; }
+interface CourseStats { num: number; total: number; units: number; }
+
+// Conjunto de datos común que reciben casi todas las vistas de cursos.
+interface CoursesData {
+  role: Role;
+  courses: Course[];
+  units: Unit[];
+  exercises: Exercise[];
+  results: ResultsMap;
+  groups?: Group[];
+}
+
+// Callbacks de edición/navegación que fluyen desde TeacherDash hasta los paneles.
+interface CoursesCallbacks {
+  onExercise?: (ex: Exercise) => void;
+  onViewCorrection?: (ex: Exercise) => void;
+  onPickFromBank?: (unitId: string) => void;
+  onCreateNewExInUnit?: (unitId: string) => void;
+  onRemoveExFromUnit?: (unitId: string, exId: string) => void;
+  onSelectExercise?: (exId: string) => void;
+  onEditUnit?: (unit: Unit) => void;
+  onUpdateUnit?: (unit: Unit) => void;
+  onDeleteUnit?: (unitId: string, courseId: string) => void;
+  onCreateUnit?: (courseId: string) => void;
+  onUpdateCourse?: (course: Course) => void;
+  onEditCourse?: (course: Course) => void;
+  onDeleteCourse?: (courseId: string) => void;
+  onCreateCourse?: () => void;
+  askConfirm?: AskConfirm;
+}
 
 // ── Pestaña: Cursos ────────────────────────────────────────────────────────
 // ═══ Vista de Cursos — rediseño en dos páginas ══════════════════════════════
@@ -20,31 +56,31 @@ import { ExerciseRow } from "./student.jsx";
 //   · alumno   → sin edición, progreso = ejercicios completados.
 
 // — Helpers de forma/progreso, conscientes del rol —
-function courseUnitList(course, units, role) {
-  const ordered = (course?.unitIds || []).map((id) => units.find((u) => u.id === id)).filter(Boolean);
+function courseUnitList(course: Course | null | undefined, units: Unit[], role: Role): Unit[] {
+  const ordered = (course?.unitIds || []).map((id) => units.find((u) => u.id === id)).filter(Boolean) as Unit[];
   return role === "student" ? ordered.filter((u) => !u.hidden) : ordered;
 }
-function unitExList(unit, exercises, role) {
-  const ordered = (unit?.exerciseIds || []).map((id) => exercises.find((e) => e.id === id)).filter(Boolean);
+function unitExList(unit: Unit | null | undefined, exercises: Exercise[], role: Role): Exercise[] {
+  const ordered = (unit?.exerciseIds || []).map((id) => exercises.find((e) => e.id === id)).filter(Boolean) as Exercise[];
   return role === "student" ? ordered.filter((e) => !e.hidden) : ordered;
 }
 // ¿La clave del ejercicio está lista? (misma lógica que el acordeón anterior)
-function exKeyReady(ex) {
+function exKeyReady(ex: Exercise): boolean {
   const isQuiz = modelOf(ex) === "cuestionario";
   const exQs   = questionsOf(ex);
   const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
   return isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
 }
 // Progreso de una unidad → { num, total }. Profesor: claves listas. Alumno: hechos.
-function unitProgress(unit, exercises, role, results) {
+function unitProgress(unit: Unit, exercises: Exercise[], role: Role, results: ResultsMap): UnitStats {
   const exs = unitExList(unit, exercises, role);
   const num = role === "student"
-    ? exs.filter((e) => results?.[e.id] != null).length
+    ? exs.filter((e) => results?.[String(e.id)] != null).length
     : exs.filter(exKeyReady).length;
   return { num, total: exs.length };
 }
 // Progreso agregado de un curso → { num, total, units }.
-function courseProgress(course, units, exercises, role, results) {
+function courseProgress(course: Course, units: Unit[], exercises: Exercise[], role: Role, results: ResultsMap): CourseStats {
   const cu = courseUnitList(course, units, role);
   let num = 0, total = 0;
   cu.forEach((u) => { const s = unitProgress(u, exercises, role, results); num += s.num; total += s.total; });
@@ -52,18 +88,19 @@ function courseProgress(course, units, exercises, role, results) {
 }
 
 // — Iconos de línea (mismo lenguaje gráfico que la app) —
-export function ArrowRightIcon({ size = 14, color = "currentColor" }) {
+interface IconProps { size?: number; color?: string; }
+export function ArrowRightIcon({ size = 14, color = "currentColor" }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}><path d="M3 8h9M8.5 4l4 4-4 4" /></svg>;
 }
-export function ChevronLeftIcon({ size = 14, color = "currentColor" }) {
+export function ChevronLeftIcon({ size = 14, color = "currentColor" }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}><path d="M10 3L5 8l5 5" /></svg>;
 }
-export function ChevronRightIcon({ size = 15, color = C.chevron }) {
+export function ChevronRightIcon({ size = 15, color = C.chevron }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}><path d="M6 3l5 5-5 5" /></svg>;
 }
 
 // — Insignia de visibilidad del curso (solo profesor) —
-export function CourseVisBadge({ course, groups = [] }) {
+export function CourseVisBadge({ course, groups = [] }: { course: Course; groups?: Group[] }) {
   const vis = course.visibility || "teacher";
   if (vis === "public") return <span style={{ ...S.badge, background: "rgba(63,155,91,0.12)", color: C.fnT, fontSize: 10 }}>Público</span>;
   if (vis === "group") {
@@ -74,14 +111,14 @@ export function CourseVisBadge({ course, groups = [] }) {
 }
 
 // — Botón "añadir" de borde punteado, ancho completo —
-export function DashedAddButton({ children, onClick }) {
+export function DashedAddButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
     <button onClick={onClick} style={{ width: "100%", boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "transparent", border: `1.5px dashed ${C.rail}`, color: "#555", borderRadius: 10, padding: "12px", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{children}</button>
   );
 }
 
 // — Barra de progreso fina (curso / unidad) —
-export function CourseProgressBar({ num, total, width = 120, accent = C.ink }) {
+export function CourseProgressBar({ num, total, width = 120, accent = C.ink }: { num: number; total: number; width?: number; accent?: string }) {
   const pct  = total ? (num / total) * 100 : 0;
   const done = total > 0 && num === total;
   return (
@@ -95,7 +132,7 @@ export function CourseProgressBar({ num, total, width = 120, accent = C.ink }) {
 }
 
 // ── Página 1 · Tarjeta de curso (rejilla) ────────────────────────────────────
-export function CourseCard({ course, units, exercises, role, results, groups, onOpen }) {
+export function CourseCard({ course, units, exercises, role, results, groups, onOpen }: Omit<CoursesData, "courses"> & { course: Course; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
   const cs   = courseProgress(course, units, exercises, role, results);
   const pct  = cs.total ? (cs.num / cs.total) * 100 : 0;
@@ -125,7 +162,7 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
   );
 }
 
-export function CoursesLanding({ role, courses, units, exercises, results, groups, onOpen, onCreateCourse }) {
+export function CoursesLanding({ role, courses, units, exercises, results, groups, onOpen, onCreateCourse }: CoursesData & { onOpen: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, paddingBottom: 16, marginBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
@@ -145,7 +182,7 @@ export function CoursesLanding({ role, courses, units, exercises, results, group
 }
 
 // — Desplegable para cambiar de curso sin salir del detalle —
-export function CourseDropdown({ courses, currentId, role, units, exercises, results, onSwitch }) {
+export function CourseDropdown({ courses, currentId, role, units, exercises, results, onSwitch }: { courses: Course[]; currentId: string; role: Role; units: Unit[]; exercises: Exercise[]; results: ResultsMap; onSwitch: (courseId: string) => void }) {
   const [open, setOpen] = useState(false);
   const course = courses.find((c) => c.id === currentId);
   if (!course) return null;
@@ -184,7 +221,7 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
 }
 
 // — Tarjeta de ejercicio (profesor, "versión B") —
-export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }) {
+export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
   const [hover, setHover] = useState(false);
   const meta     = modelMeta(ex);
   const keyReady = exKeyReady(ex);
@@ -198,19 +235,19 @@ export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemove
         </span>
         <StatusCircle done={keyReady} size={16} />
       </div>
-      <div onClick={() => onSelectExercise(ex.id)} style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.25, minHeight: 36, cursor: "pointer" }}>{ex.title}</div>
+      <div onClick={() => onSelectExercise(String(ex.id))} style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.25, minHeight: 36, cursor: "pointer" }}>{ex.title}</div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 11 }}>
         <span style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 600, color: keyReady ? C.fnT : C.muted }}>{keyReady ? "Clave lista" : "Sin clave"}</span>
         <div style={{ display: "flex", gap: 6, opacity: show ? 1 : 0, pointerEvents: show ? "auto" : "none", transition: "opacity .12s" }}>
-          <EditIconButton onClick={() => onSelectExercise(ex.id)} title={`Editar "${ex.title}"`} />
-          <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unitId, ex.id))} title={`Quitar "${ex.title}" de la unidad`} />
+          <EditIconButton onClick={() => onSelectExercise(String(ex.id))} title={`Editar "${ex.title}"`} />
+          <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unitId, String(ex.id)))} title={`Quitar "${ex.title}" de la unidad`} />
         </div>
       </div>
     </div>
   );
 }
 
-export function EmptyExercises({ role }) {
+export function EmptyExercises({ role }: { role: Role }) {
   return (
     <div style={{ padding: "44px 20px", textAlign: "center", border: `1px dashed ${C.rail}`, borderRadius: 12 }}>
       <div style={{ fontFamily: F.serif, fontSize: 18, color: C.ink2 }}>{role === "student" ? "Aún no hay ejercicios" : "Unidad sin ejercicios"}</div>
@@ -220,12 +257,32 @@ export function EmptyExercises({ role }) {
 }
 
 // — Panel de ejercicios de la unidad seleccionada (profesor: tarjetas; alumno: filas) —
+interface CourseExercisesPanelProps {
+  unit: Unit | null;
+  course: Course;
+  exercises: Exercise[];
+  role: Role;
+  results: ResultsMap;
+  isMobile: boolean;
+  onExercise?: (ex: Exercise) => void;
+  onViewCorrection?: (ex: Exercise) => void;
+  onPickFromBank?: (unitId: string) => void;
+  onCreateNewExInUnit?: (unitId: string) => void;
+  onRemoveExFromUnit?: (unitId: string, exId: string) => void;
+  onSelectExercise?: (exId: string) => void;
+  onEditUnit?: (unit: Unit) => void;
+  onUpdateUnit?: (unit: Unit) => void;
+  onDeleteUnit?: (unitId: string, courseId: string) => void;
+  onAfterDeleteUnit?: () => void;
+  askConfirm?: AskConfirm;
+}
+const noop = () => {};
 export function CourseExercisesPanel({
   unit, course, exercises, role, results, isMobile,
   onExercise, onViewCorrection,
-  onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit, onSelectExercise,
-  onEditUnit, onUpdateUnit, onDeleteUnit, onAfterDeleteUnit, askConfirm,
-}) {
+  onPickFromBank = noop, onCreateNewExInUnit = noop, onRemoveExFromUnit = noop, onSelectExercise = noop,
+  onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop,
+}: CourseExercisesPanelProps) {
   if (!unit) {
     return <div style={{ padding: "56px 20px", textAlign: "center", fontFamily: F.serif, fontSize: 19, color: C.ink2 }}>Selecciona una unidad</div>;
   }
@@ -245,7 +302,7 @@ export function CourseExercisesPanel({
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
             <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
             <EditIconButton onClick={() => onEditUnit(unit)} title={`Editar unidad "${unit.name}"`} />
-            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => { onDeleteUnit(unit.id, course.id); onAfterDeleteUnit && onAfterDeleteUnit(); })} title={`Eliminar unidad "${unit.name}"`} />
+            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => { onDeleteUnit(unit.id, course.id); onAfterDeleteUnit?.(); })} title={`Eliminar unidad "${unit.name}"`} />
             <span style={{ width: 1, height: 22, background: C.line, margin: "0 2px" }} />
             <GhostButton onClick={() => onPickFromBank(unit.id)}>+ Del banco</GhostButton>
             <CtaButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo</CtaButton>
@@ -272,7 +329,7 @@ export function CourseExercisesPanel({
       </div>
       <div style={{ padding: "14px 18px" }}>
         {exs.length
-          ? <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{exs.map((ex) => <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />)}</div>
+          ? <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
           : <EmptyExercises role={role} />}
       </div>
     </>
@@ -280,7 +337,7 @@ export function CourseExercisesPanel({
 }
 
 // — Panel izquierdo: lista vertical de unidades con anillo de progreso —
-export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit }) {
+export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit = noop }: { course: Course; units: Unit[]; exercises: Exercise[]; role: Role; results: ResultsMap; selUnitId: string | null; onSelectUnit: (unitId: string) => void; onCreateUnit?: (courseId: string) => void }) {
   const cu = courseUnitList(course, units, role);
   return (
     <div>
@@ -310,14 +367,27 @@ export function UnitsList({ course, units, exercises, role, results, selUnitId, 
 }
 
 // ── Página 2 · Detalle del curso (escritorio): barra + dos paneles ───────────
+interface CourseDetailProps extends CoursesCallbacks {
+  role: Role;
+  courses: Course[];
+  courseId: string;
+  units: Unit[];
+  exercises: Exercise[];
+  results: ResultsMap;
+  groups?: Group[];
+  selUnitId: string | null;
+  setSelUnitId: (id: string | null) => void;
+  onBack: () => void;
+  onSwitch: (courseId: string) => void;
+}
 export function CourseDetail({
   role, courses, courseId, units, exercises, results, groups,
   selUnitId, setSelUnitId, onBack, onSwitch,
-  onUpdateCourse, onEditCourse, onDeleteCourse,
-  onCreateUnit, onEditUnit, onDeleteUnit, onUpdateUnit,
+  onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop,
+  onCreateUnit = noop, onEditUnit, onDeleteUnit, onUpdateUnit,
   onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit, onSelectExercise,
-  onExercise, onViewCorrection, askConfirm,
-}) {
+  onExercise, onViewCorrection, askConfirm = noop,
+}: CourseDetailProps) {
   const course = courses.find((c) => c.id === courseId);
   if (!course) return null;
   const cu   = courseUnitList(course, units, role);
@@ -363,7 +433,7 @@ export function CourseDetail({
 }
 
 // ── Móvil: flujo de 3 niveles (push) ─────────────────────────────────────────
-export function MobileTopBar({ title, onBack }) {
+export function MobileTopBar({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, marginBottom: 14, borderBottom: `1px solid ${C.line}` }}>
       {onBack && <button onClick={onBack} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon /></button>}
@@ -372,7 +442,7 @@ export function MobileTopBar({ title, onBack }) {
   );
 }
 
-export function MobileCoursesScreen({ role, courses, units, exercises, results, groups, onOpenCourse, onCreateCourse }) {
+export function MobileCoursesScreen({ role, courses, units, exercises, results, groups, onOpenCourse, onCreateCourse }: CoursesData & { onOpenCourse: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
       <div style={{ paddingBottom: 14, marginBottom: 14, borderBottom: `2px solid ${C.ink}` }}>
@@ -405,11 +475,27 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
   );
 }
 
+interface MobileUnitsScreenProps {
+  role: Role;
+  course: Course;
+  units: Unit[];
+  exercises: Exercise[];
+  results: ResultsMap;
+  groups?: Group[];
+  onBack: () => void;
+  onOpenUnit: (unitId: string) => void;
+  onCreateUnit?: (courseId: string) => void;
+  onUpdateCourse?: (course: Course) => void;
+  onEditCourse?: (course: Course) => void;
+  onDeleteCourse?: (courseId: string) => void;
+  onAfterDeleteCourse?: () => void;
+  askConfirm?: AskConfirm;
+}
 export function MobileUnitsScreen({
   role, course, units, exercises, results, groups,
-  onBack, onOpenUnit, onCreateUnit,
-  onUpdateCourse, onEditCourse, onDeleteCourse, onAfterDeleteCourse, askConfirm,
-}) {
+  onBack, onOpenUnit, onCreateUnit = noop,
+  onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop, onAfterDeleteCourse, askConfirm = noop,
+}: MobileUnitsScreenProps) {
   const cu = courseUnitList(course, units, role);
   const cs = courseProgress(course, units, exercises, role, results);
   return (
@@ -425,7 +511,7 @@ export function MobileUnitsScreen({
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
             <EditIconButton onClick={() => onEditCourse(course)} title={`Editar curso "${course.name}"`} />
-            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onAfterDeleteCourse && onAfterDeleteCourse(); })} title={`Eliminar curso "${course.name}"`} />
+            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onAfterDeleteCourse?.(); })} title={`Eliminar curso "${course.name}"`} />
           </div>
         )}
       </div>
@@ -454,10 +540,11 @@ export function MobileUnitsScreen({
   );
 }
 
-export function MobileExercisesScreen({ role, course, unit, exercises, results, onBack, panelProps }) {
+type PanelCallbacks = Omit<CourseExercisesPanelProps, "unit" | "course" | "exercises" | "role" | "results" | "isMobile">;
+export function MobileExercisesScreen({ role, course, unit, exercises, results, onBack, panelProps }: { role: Role; course: Course; unit: Unit | null; exercises: Exercise[]; results: ResultsMap; onBack: () => void; panelProps: PanelCallbacks }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      <MobileTopBar title={course.name} onBack={onBack} />
+      <MobileTopBar title={course.name ?? ""} onBack={onBack} />
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, background: C.paper, overflow: "hidden" }}>
         <CourseExercisesPanel unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile {...panelProps} />
       </div>
@@ -465,9 +552,14 @@ export function MobileExercisesScreen({ role, course, unit, exercises, results, 
   );
 }
 
-export function MobileCoursesFlow(props) {
+// Props del orquestador de cursos (recibe datos + todos los callbacks del padre).
+type CoursesPagesProps = CoursesData & CoursesCallbacks;
+
+type MobileNav = { level: "courses" | "units" | "exercises"; courseId: string | null; unitId: string | null };
+
+export function MobileCoursesFlow(props: CoursesPagesProps) {
   const { role, courses, units, exercises, results, groups } = props;
-  const [nav, setNav] = useState({ level: "courses", courseId: null, unitId: null });
+  const [nav, setNav] = useState<MobileNav>({ level: "courses", courseId: null, unitId: null });
   const course = nav.courseId ? courses.find((c) => c.id === nav.courseId) : null;
   const goCourses = () => setNav({ level: "courses", courseId: null, unitId: null });
 
@@ -492,13 +584,13 @@ export function MobileCoursesFlow(props) {
 }
 
 // — Orquestador: páginas (escritorio) o flujo de niveles (móvil) —
-export function CoursesPages(props) {
+export function CoursesPages(props: CoursesPagesProps) {
   const { role, courses, units } = props;
   const isMobile = useIsMobile();
-  const [page, setPage]           = useState({ name: "list", courseId: null });
-  const [selUnitId, setSelUnitId] = useState(null);
+  const [page, setPage]           = useState<{ name: "list" | "detail"; courseId: string | null }>({ name: "list", courseId: null });
+  const [selUnitId, setSelUnitId] = useState<string | null>(null);
 
-  const openCourse = (courseId) => {
+  const openCourse = (courseId: string) => {
     const c  = courses.find((x) => x.id === courseId);
     const cu = c ? courseUnitList(c, units, role) : [];
     setSelUnitId(cu[0]?.id ?? null);
@@ -512,11 +604,11 @@ export function CoursesPages(props) {
     return <CoursesLanding role={role} courses={courses} units={units} exercises={props.exercises} results={props.results} groups={props.groups}
       onOpen={openCourse} onCreateCourse={props.onCreateCourse} />;
   }
-  return <CourseDetail {...props} courseId={page.courseId} selUnitId={selUnitId} setSelUnitId={setSelUnitId}
+  return <CourseDetail {...props} courseId={current.id} selUnitId={selUnitId} setSelUnitId={setSelUnitId}
     onBack={() => setPage({ name: "list", courseId: null })} onSwitch={openCourse} />;
 }
 
 // ── Pestaña: Cursos (profesor) — ahora delega en CoursesPages ────────────────
-export function CoursesTab(props) {
+export function CoursesTab(props: Omit<CoursesPagesProps, "role">) {
   return <CoursesPages role="teacher" {...props} />;
 }
