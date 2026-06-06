@@ -45,5 +45,15 @@ export interface Exercise {
   audioFragmentStart?: number;
   audioFragmentEnd?: number | null;
   waveformData?: number[] | null;
+  // Campos de presentación — usados en tarjetas y cabeceras de sesión
+  composerName?: string;
+  showComposer?: boolean;
+  [k: string]: unknown;
+}
+
+// Resultado de un ejercicio (respuesta del alumno almacenada en Supabase)
+export interface ExerciseResult {
+  score?: number | null;
+  teacherCorrection?: { corrected?: boolean; [k: string]: unknown };
   [k: string]: unknown;
 }

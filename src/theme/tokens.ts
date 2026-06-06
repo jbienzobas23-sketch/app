@@ -1,6 +1,7 @@
 // ═══ DESIGN TOKENS ══════════════════════════════════════════════════════════
 // Tokens compartidos de color, tipografía y estilos base. Extraídos de App.jsx
 // (Fase 0) sin cambios de valor para no alterar el aspecto de la app.
+import type { CSSProperties } from "react";
 
 export const C = {
   // Base palette
@@ -33,11 +34,11 @@ export const S = {
   btn:        { background: C.paper, border: `1px solid ${C.line}`, color: "#555", borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: FONT_SANS },
   btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: "#fff", borderRadius: 7, padding: "7px 15px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
   btnDanger:  { background: "transparent", border: `1px solid rgba(184,74,58,0.4)`, color: C.danger, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
-  input:      { background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, color: C.ink, padding: "9px 12px", fontSize: 13, width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS, outline: "none" },
-  row:        { display: "flex", alignItems: "center", gap: 10 },
+  input:      { background: C.field, border: `1px solid ${C.line}`, borderRadius: 7, color: C.ink, padding: "9px 12px", fontSize: 13, width: "100%", boxSizing: "border-box" as const, fontFamily: FONT_SANS, outline: "none" },
+  row:        { display: "flex" as const, alignItems: "center", gap: 10 },
   badge:      { fontSize: 11, padding: "2px 8px", borderRadius: 4, fontWeight: 600 },
   divider:    { border: "none", borderTop: `1px solid ${C.line}`, margin: "16px 0" },
-};
+} satisfies Record<string, CSSProperties>;
 
 export const SECTION_STYLE = {
   fontSize: 10, fontWeight: 700, letterSpacing: "0.15em",

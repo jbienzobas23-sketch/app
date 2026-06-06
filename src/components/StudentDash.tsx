@@ -1,6 +1,7 @@
 // ═══ STUDENTDASH (DASHBOARD DEL ALUMNO) ══════════════════════════════════════
 // Cabecera, pestañas (todos los ejercicios / por cursos) y filtros. Extraída (Fase 2).
 import { useState, useMemo } from "react";
+import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 import { modelsOf } from "../lib/domain.js";
@@ -10,7 +11,27 @@ import { ExerciseRow } from "./student.jsx";
 import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
 
-export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }) {
+// ── Interfaces de props ──────────────────────────────────────────────────────
+interface StudentUser { id: string; teacherId?: string; displayName: string; isGuest?: boolean; defaultPalette?: string; [k: string]: unknown; }
+interface CourseItem { id: string; hidden?: boolean; visibility?: string; visibilityGroupId?: string; ownerId?: string; [k: string]: unknown; }
+interface GroupItem { id: string; studentIds?: string[]; [k: string]: unknown; }
+interface StudentDashProps {
+  user: StudentUser;
+  exercises: Exercise[];
+  results: Record<string, ExerciseResult>;
+  courses: CourseItem[];
+  units: unknown[];
+  groups?: GroupItem[];
+  onExercise: (ex: Exercise) => void;
+  onViewCorrection?: (ex: Exercise) => void;
+  onLogout: () => void;
+  onChangeTeacher?: () => void;
+  onUpdatePalette?: (palette: string) => void;
+  tab?: string;
+  onTab?: (tab: string) => void;
+}
+
+export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }: StudentDashProps) {
   const isMobile = useIsMobile();
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
@@ -23,7 +44,7 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
       if (c.hidden) return false;
       const vis = c.visibility ?? "teacher";
       if (vis === "public")  return true;
-      if (vis === "group")   return studentGroupIds.has(c.visibilityGroupId);
+      if (vis === "group")   return studentGroupIds.has(c.visibilityGroupId ?? "");
       // "teacher" (default): cursos del profesor asignado
       if (!c.ownerId) return true;
       return c.ownerId === user.teacherId;
@@ -34,8 +55,8 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
     return exercises.filter((ex) => {
       if (ex.hidden) return false;
       if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
-      if (filterDone === "done"    && !results[ex.id]) return false;
-      if (filterDone === "notdone" &&  results[ex.id]) return false;
+      if (filterDone === "done"    && !results[String(ex.id ?? "")]) return false;
+      if (filterDone === "notdone" &&  results[String(ex.id ?? "")]) return false;
       return true;
     });
   }, [exercises, filterModel, filterDone, results]);
@@ -87,7 +108,7 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
                 </p>
               : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                   {filteredExercises.map((ex) => (
-                    <ExerciseRow key={ex.id} ex={ex} result={results[ex.id]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                    <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                   ))}
                 </div>
             }
