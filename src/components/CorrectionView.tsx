@@ -1,6 +1,7 @@
 // ═══ CORRECTIONVIEW (CORRECCIÓN / REVISIÓN) ══════════════════════════════════
 // SchemaPlayhead + CorrectionView (alumno y profesor). Extraídas de App.jsx (Fase 2).
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import type { Exercise } from "../lib/types.js";
 import { C, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
 import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
@@ -10,11 +11,44 @@ import { categoriesOf, answerFor, btnOf, questionsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ScoreBadge } from "./primitives.jsx";
 
+// ── Tipos locales de corrección ──────────────────────────────────────────────
+interface TeacherCorrection {
+  corrected?: boolean;
+  levelComments?: Record<string, string>;
+  blockComments?: Record<string, string>;
+  questionComments?: Record<string, string>;
+  globalComment?: string;
+  totalScore?: number | null;
+  [k: string]: unknown;
+}
+interface SchemaBlock { id: string; level: number; start: number; end: number; label?: string; bodyText?: string; [k: string]: unknown; }
+interface CorrectionIv { fn: string; start: number; end: number; [k: string]: unknown; }
+interface CorrectionResult {
+  type?: string;
+  teacherCorrection?: TeacherCorrection;
+  blocks?: SchemaBlock[];
+  placementScore?: number | null;
+  schemaPalette?: string;
+  score?: number | null;
+  answers?: Record<string, string>;
+  categoryId?: string;
+  modeId?: string;
+  intervals?: CorrectionIv[];
+  extras?: Array<{ categoryId?: string; modeId?: string; score?: number | null }>;
+  [k: string]: unknown;
+}
+interface CorrectionStudent { id: string; displayName?: string; name?: string; [k: string]: unknown; }
+type SaveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"], correction: TeacherCorrection) => void;
+// Valor de los inputs de puntuación: vacío ("") o número/cadena del campo.
+type ScoreInput = string | number;
+
+interface SchemaPlayheadProps { timeRef: { current: number }; duration: number; }
+
 // Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
-export function SchemaPlayhead({ timeRef, duration }) {
-  const lineRef = useRef(null);
+export function SchemaPlayhead({ timeRef, duration }: SchemaPlayheadProps) {
+  const lineRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    let raf;
+    let raf: number;
     const tick = () => {
       if (lineRef.current && duration > 0) {
         const pct = Math.min(100, (timeRef.current / duration) * 100);
@@ -34,19 +68,30 @@ export function SchemaPlayhead({ timeRef, duration }) {
   );
 }
 
-export function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }) {
-  const dur = exercise.duration;
+interface CorrectionViewProps {
+  exercise: Exercise;
+  result: CorrectionResult;
+  margin?: number;
+  onBack: () => void;
+  backLabel?: string;
+  isTeacherMode?: boolean;
+  student?: CorrectionStudent | null;
+  onSaveCorrection?: SaveCorrection | null;
+}
+
+export function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }: CorrectionViewProps) {
+  const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
 
   // Hooks siempre en el mismo orden (reglas de React)
-  const [lvComments,   setLvComments]   = useState(() => tc?.levelComments   || {});
-  const [blkComments,  setBlkComments]  = useState(() => tc?.blockComments   || {});
+  const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => tc?.levelComments   || {});
+  const [blkComments,  setBlkComments]  = useState<Record<string, string>>(() => tc?.blockComments   || {});
   const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
-  const [schemaScore,  setSchemaScore]  = useState(tc?.totalScore ?? "");
+  const [schemaScore,  setSchemaScore]  = useState<ScoreInput>(tc?.totalScore ?? "");
   const [showBlkForm,  setShowBlkForm]  = useState(false);
-  const [qComments,    setQComments]    = useState(() => tc?.questionComments || {});
+  const [qComments,    setQComments]    = useState<Record<string, string>>(() => tc?.questionComments || {});
   const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
-  const [quizScore,    setQuizScore]    = useState(tc?.totalScore ?? "");
+  const [quizScore,    setQuizScore]    = useState<ScoreInput>(tc?.totalScore ?? "");
 
   // Audio — siempre incondicional (reglas de hooks)
   const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
@@ -54,21 +99,22 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
     const blocks      = result.blocks || [];
-    const schemaKey   = exercise.schemaKey || [];
+    const schemaKey   = (exercise.schemaKey as SchemaBlock[] | undefined) || [];
     const hasKey      = schemaKey.length > 0;
     const ps          = result.placementScore ?? null;
     const studentPalette = result.schemaPalette || SCHEMA_PALETTE_DEFAULT;   // paleta elegida por el alumno
     const keyPalette     = exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT;  // paleta de la clave (profesor)
+    const schemaLevels = exercise.schemaLevels as number[] | undefined;
     const activeLevels = SCHEMA_LEVELS.filter((lv) =>
-      !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+      !schemaLevels || schemaLevels.length === 0 || schemaLevels.includes(lv.id)
     );
 
-    const handleTimelineClick = (e) => {
+    const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
-      seekTo(((e.clientX - rect.left) / rect.width) * exercise.duration);
+      seekTo(((e.clientX - rect.left) / rect.width) * dur);
     };
 
-    const SchemaStrip = ({ title: stripTitle, bks, paletteId = studentPalette }) => (
+    const SchemaStrip = ({ title: stripTitle, bks, paletteId = studentPalette }: { title: string; bks: SchemaBlock[]; paletteId?: string }) => (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{stripTitle}</div>
         {activeLevels.map((lv) => {
@@ -82,8 +128,8 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                   onClick={hasAudio ? handleTimelineClick : undefined}
                   style={{ flex: 1, position: "relative", height: 40, background: C.paper2, borderRadius: 6, overflow: "hidden", cursor: hasAudio ? "pointer" : "default" }}>
                   {lvBlocks.map((b, i) => {
-                    const lPct = (b.start / exercise.duration) * 100;
-                    const wPct = Math.max(((b.end - b.start) / exercise.duration) * 100, 0.5);
+                    const lPct = (b.start / dur) * 100;
+                    const wPct = Math.max(((b.end - b.start) / dur) * 100, 0.5);
                     const { bg, textColor } = schemaBlockColor(b, bks, paletteId);
                     if (lv.id === 3) {
                       return (
@@ -108,7 +154,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                       </div>
                     );
                   })}
-                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={exercise.duration} />}
+                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={dur} />}
                 </div>
               </div>
               {lv.id === 4 && lvBlocks.some(b => b.bodyText) && (
@@ -145,9 +191,9 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
           <div
             onClick={handleTimelineClick}
             style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
-            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / exercise.duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
+            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / dur) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
           </div>
-          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(exercise.duration)}</span>
+          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(dur)}</span>
         </div>
       </div>
     ) : null;
@@ -252,7 +298,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     }
 
     // ── Vista del alumno ──────────────────────────────────────────────────────
-    const showRefSchema = exercise.immediateSchemaFeedback && hasKey;
+    const showRefSchema = Boolean(exercise.immediateSchemaFeedback) && hasKey;
     return (
       <div style={S.app}>
         <div style={S.page}>
@@ -299,7 +345,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
               {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
                 <div key={lv.id} style={{ marginBottom: 10, padding: "10px 12px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: lv.color, marginBottom: 4 }}>{lv.sub}</div>
-                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.levelComments[lv.id]}</div>
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.levelComments?.[lv.id]}</div>
                 </div>
               ))}
               {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
@@ -347,7 +393,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
         globalComment: quizGlobal,
         totalScore: quizScore === "" ? null : Number(quizScore),
       };
-      onSaveCorrection(student.id, exercise.id, correction);
+      onSaveCorrection?.(student?.id, exercise.id, correction);
     };
 
     if (isTeacherMode) {
@@ -374,7 +420,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                   <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                     <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                     <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)}–{fmt(q.audioEnd)}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
                     {q.type === "test" && (
                       <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
                         {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
@@ -385,7 +431,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
 
                   {q.type === "test" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {q.options.map((opt) => {
+                      {(q.options ?? []).map((opt) => {
                         const isPick       = opt.id === studentAnswer;
                         const isCorrectOpt = opt.id === q.correctOptionId;
                         return (
@@ -502,7 +548,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                 <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)}–{fmt(q.audioEnd)}</span>
+                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
                   {q.type === "test" && (
                     <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
                       {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
@@ -513,7 +559,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
 
                 {q.type === "test" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {q.options.map((opt) => {
+                    {(q.options ?? []).map((opt) => {
                       const isPick       = opt.id === studentAnswer;
                       const isCorrectOpt = opt.id === q.correctOptionId;
                       return (
@@ -569,12 +615,12 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   // Modelo interactivo
   const exCategories     = categoriesOf(exercise);
   const resultCategoryId = result.categoryId ?? result.modeId;
-  const exCategory       = exCategories.find((m) => m.id === resultCategoryId) || exCategories[0];
-  const teacherAns       = answerFor(exercise, exCategory.id);
+  const exCategory       = (exCategories.find((m) => m.id === resultCategoryId) || exCategories[0]) as { id: string; name?: string; buttons: import("../lib/types.js").Button[] };
+  const teacherAns       = answerFor(exercise, exCategory.id) as CorrectionIv[];
   const studentAns       = result.intervals;
   const sc               = result.score;
   const col              = scoreColor(sc);
-  const pct = (t) => `${(t / dur) * 100}%`;
+  const pct = (t: number) => `${(t / dur) * 100}%`;
 
   return (
     <div style={S.app}>
@@ -634,7 +680,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
               <div key={label} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{label}</div>
                 <div style={{ background: C.paper2, borderRadius: 6, height: 36, position: "relative" }}>
-                  {ivs.map((iv, i) => {
+                  {(ivs ?? []).map((iv, i) => {
                     const b = btnOf(exCategory, iv.fn);
                     return (
                       <div key={i} style={{ position: "absolute", top: "10%", height: "80%", left: pct(iv.start), width: pct(iv.end - iv.start), background: b.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
