@@ -11,11 +11,32 @@ import { figureOf } from "../lib/figures.js";
 import { SCHEMA_HND_VISUAL_W } from "../lib/schema.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 
+// ── Tipos locales de la infraestructura de sesión ────────────────────────────
+// Intervalo dibujable (clave/marcado/bloque). `id` opcional: "live"/"tmp-commit".
+interface Iv { id?: string; fn: string; start: number; end: number; fig?: string | null; _anim?: number; [k: string]: unknown; }
+// Pulsación en curso leída de forma síncrona desde un ref.
+interface Pressing { fn: string; start: number; end?: number | null; }
+type ColorMap = Record<string, string>;
+interface FnBtn { id: string; name?: string; color?: string; key?: string; }
+interface QuestionRegion { start: number; end: number; color?: string; }
+// Glifo de cifrado (subconjunto consumido por el canvas).
+interface Glyph { d: string; pre?: string; strike?: boolean; }
+
+interface FragmentRangeSelectorProps {
+  totalDuration: number;
+  start: number | null;
+  end: number | null;
+  onChange: (range: { start: number; end: number }) => void;
+  onClear: () => void;
+  onDefine: () => void;
+  audioUrl?: string | null;
+}
+
 // Selector visual de fragmento (barra de rango con handles arrastrables)
-export function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }) {
-  const barRef    = useRef(null);
-  const audioRef  = useRef(null);
-  const rafRef    = useRef(null);
+export function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }: FragmentRangeSelectorProps) {
+  const barRef    = useRef<HTMLDivElement | null>(null);
+  const audioRef  = useRef<HTMLAudioElement | null>(null);
+  const rafRef    = useRef<number>(0);
   const [playing,      setPlaying]      = useState(false);
   const [currentTime,  setCurrentTime]  = useState(start ?? 0);
   // fragPlayMode: si true, la reproducción se limita al fragmento; si false, reproduce libre
@@ -71,14 +92,14 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, end]);
 
-  const getT = (clientX) => {
+  const getT = (clientX: number) => {
     const r = barRef.current?.getBoundingClientRect();
     if (!r || r.width === 0) return 0;
     return Math.max(0, Math.min(totalDuration, ((clientX - r.left) / r.width) * totalDuration));
   };
 
   // Clic/arrastre en la barra para seek (ratón + touch, con limpieza garantizada)
-  const beginSeek = (e) => {
+  const beginSeek = (e: any) => {
     startPointerDrag(e, {
       onStart: (ev, getX) => {
         const t = getT(getX(ev));
@@ -94,13 +115,14 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   };
 
   // Arrastre de handles de fragmento (ratón + touch, con limpieza garantizada)
-  const beginDrag = (e, which) => {
+  const beginDrag = (e: any, which: "start" | "end") => {
     e.stopPropagation();
+    const s = start ?? 0, en = end ?? totalDuration;
     startPointerDrag(e, {
       onMove: (ev, getX) => {
         const raw = Math.round(getT(getX(ev)) * 10) / 10;
-        if (which === "start") onChange({ start: Math.max(0, Math.min(raw, end - 0.5)), end });
-        else                   onChange({ start, end: Math.max(start + 0.5, Math.min(raw, totalDuration)) });
+        if (which === "start") onChange({ start: Math.max(0, Math.min(raw, en - 0.5)), end: en });
+        else                   onChange({ start: s, end: Math.max(s + 0.5, Math.min(raw, totalDuration)) });
       },
     });
   };
@@ -148,7 +170,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   const playheadPct = Math.min(100, (currentTime / totalDuration) * 100);
 
   const HANDLE_W = 12;
-  const handleStyle = (pct) => ({
+  const handleStyle = (pct: number): React.CSSProperties => ({
     position: "absolute", top: 0, bottom: 0,
     left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
     background: C.quiz, borderRadius: 3, cursor: "ew-resize",
@@ -156,7 +178,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   });
 
   // Formato M:SS.d para mayor precisión en el contador
-  const fmtP = (s) => {
+  const fmtP = (s: number) => {
     const m  = Math.floor(s / 60);
     const ss = (s % 60).toFixed(1).padStart(4, "0");
     return `${m}:${ss}`;
@@ -273,7 +295,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
       </div>
 
       {/* Inputs numéricos (solo cuando hay fragmento) */}
-      {start != null && (
+      {start != null && end != null && (
         <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
@@ -320,7 +342,29 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
 // un cambio de tiempo (hasta ~10 fps de React durante la reproducción) no
 // necesita re-render. Memoizar evita que el árbol se repinte 10 veces/seg y
 // elimina los tirones de la onda y de la banda de respuestas en vivo.
-function waveformPropsEqual(a, b) {
+interface WaveformDisplayProps {
+  time: number;
+  timeRef?: { current: number } | null;
+  duration: number;
+  waveformDuration?: number;
+  allIntervals: Iv[];
+  exerciseId: string | number;
+  waveformData: number[] | null;
+  colorByFn: ColorMap;
+  questionRegion?: QuestionRegion | null;
+  answerBand?: boolean;
+  selectedIvId?: string | null;
+  onBandPointerDown?: ((e: any, clientX: number, rect: DOMRect) => void) | null;
+  pressingRef?: { current: Pressing | null } | null;
+  hintIntervals?: Iv[];
+  paintFn?: string | null;
+  onPaintCommit?: ((start: number, end: number) => void) | null;
+  onScrubBegin: () => void;
+  onScrubTo: (t: number) => void;
+  onScrubEnd: () => void;
+}
+
+function waveformPropsEqual(a: WaveformDisplayProps, b: WaveformDisplayProps) {
   return a.allIntervals === b.allIntervals
     && a.duration === b.duration
     && a.waveformDuration === b.waveformDuration
@@ -346,17 +390,17 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
   hintIntervals = [],
   paintFn = null, onPaintCommit = null,
   onScrubBegin, onScrubTo, onScrubEnd,
-}) {
-  const canvasRef = useRef(null);
-  const paintPreviewRef = useRef(null);   // { fn, start, end } mientras se pinta
+}: WaveformDisplayProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const paintPreviewRef = useRef<{ fn: string; start: number; end: number } | null>(null);   // mientras se pinta
   const waveData  = useMemo(
     // Si `duration` es undefined/NaN (p. ej. ejercicio sin audio aún), Math.ceil
     // da NaN y `new Array(NaN)` lanzaría "Invalid array length". El `|| 0` lo
     // neutraliza y Math.max garantiza el mínimo de 400 muestras.
-    () => waveformData || generateWaveform(exerciseId * 13 + 997, Math.max(400, Math.ceil(duration * 30) || 0)),
+    () => waveformData || generateWaveform((exerciseId as number) * 13 + 997, Math.max(400, Math.ceil(duration * 30) || 0)),
     [waveformData, exerciseId, duration]
   );
-  const stateRef = useRef({});
+  const stateRef = useRef<any>({});
   Object.assign(stateRef.current, {
     time, timeRef: timeRefProp, allIntervals, waveData, duration, waveformDuration,
     colorByFn, questionRegion, answerBand, selectedIvId, onBandPointerDown,
@@ -378,7 +422,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
       const rect = canvas.getBoundingClientRect();
       canvas.width  = Math.max(1, Math.floor(rect.width  * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-      canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvas.getContext("2d")!.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
 
@@ -386,11 +430,11 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     if (ro) ro.observe(canvas);
     window.addEventListener("resize", resize);
 
-    let rafId;
+    let rafId: number;
     const FRAME_MS = 1000 / 75;          // cap a 75 fps
     let lastFrameTime = -FRAME_MS;       // garantiza que el primer frame siempre dibuja
-    const ctx = canvas.getContext("2d");
-    const drawPill = (x, y, w, h) => {
+    const ctx = canvas.getContext("2d")!;
+    const drawPill = (x: number, y: number, w: number, h: number) => {
       if (typeof ctx.roundRect === "function") {
         const r = Math.min(w, h) / 2;
         ctx.beginPath();
@@ -403,7 +447,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
 
     // Dibuja un glifo de cifrado { d, pre, strike } centrado verticalmente en cy,
     // con su borde izquierdo en x. Devuelve el ancho dibujado. fs = font size.
-    const drawGlyph = (glyph, x, cy, fs) => {
+    const drawGlyph = (glyph: Glyph | null, x: number, cy: number, fs: number) => {
       if (!glyph) return 0;
       ctx.font = `700 ${fs}px ${FONT_MONO}`;
       ctx.textAlign = "left"; ctx.textBaseline = "middle";
@@ -421,7 +465,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
       return (gx - x) + dw;
     };
 
-    const draw = (ts = 0) => {
+    const draw = (ts: number = 0) => {
       if (ts - lastFrameTime < FRAME_MS) { rafId = requestAnimationFrame(draw); return; }
       lastFrameTime = ts;
       const { time: tState, timeRef: tRef, allIntervals: ivsBase, waveData: wd, duration: dur, waveformDuration: wDur, colorByFn: cmap, questionRegion: qr, answerBand: ab, selectedIvId: selId, pressingRef: pRef, hintIntervals: hints } = stateRef.current;
@@ -436,7 +480,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
       let ivsForDraw = ivsBase;
       if (pr && pr.end != null) {
         // Estado congelado: comprobamos si React ya puso el intervalo en ivsBase
-        if (ivsBase.some(iv => iv.fn === pr.fn && iv.start === pr.start)) {
+        if (ivsBase.some((iv: any) => iv.fn === pr.fn && iv.start === pr.start)) {
           pRef.current = null;          // React al día → limpiamos
         } else {
           ivsForDraw = [...ivsBase, { id: "tmp-commit", fn: pr.fn, start: pr.start, end: pr.end }];
@@ -589,7 +633,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
         // esquema (barra blanca redondeada con sombra). Solo visibles si hay
         // selección; ocupan toda la altura de la banda.
         if (selId) {
-          const selIv = ivs.find((iv) => iv.id === selId);
+          const selIv = ivs.find((iv: any) => iv.id === selId);
           if (selIv && selIv.id !== "live") {
             const sx = (selIv.start - t) * pxPerSec + W / 2;
             const ex = (Math.min(selIv.end, dur) - t) * pxPerSec + W / 2;
@@ -636,7 +680,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     return () => { cancelAnimationFrame(rafId); if (ro) ro.disconnect(); window.removeEventListener("resize", resize); };
   }, []);
 
-  const handlePointerDown = (e) => {
+  const handlePointerDown = (e: any) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -646,7 +690,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     if (st.paintFn) {
       e.stopPropagation();
       const W = rect.width;
-      const tAt = (clientX) => {
+      const tAt = (clientX: number) => {
         const t0 = (st.timeRef?.current ?? st.time);
         return Math.max(0, Math.min(st.duration, t0 + ((clientX - rect.left) - W / 2) * VISIBLE_SECS / W));
       };
@@ -706,19 +750,28 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
 // directamente (60 fps), no la `time` de React (throttled ~10 fps): así el
 // reproductor se mueve fluido y sin saltitos durante el marcado.
 // pressingRef: el mismo ref síncrono de ExerciseView (nunca stale, sin delay de React).
-export function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, onSeek }) {
-  const barRef   = useRef(null);
-  const fillRef  = useRef(null);
-  const thumbRef = useRef(null);
-  const liveRef  = useRef(null);
-  const colorRef = useRef(colorByFn); colorRef.current = colorByFn;
-  const pct = (t) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
+interface AudioScrubberProps {
+  timeRef?: { current: number } | null;
+  duration: number;
+  intervals: Iv[];
+  pressingRef: { current: Pressing | null };
+  colorByFn: ColorMap;
+  onSeek: (t: number) => void;
+}
 
-  const handlePointerDown = (e) => {
+export function AudioScrubber({ timeRef, duration, intervals, pressingRef, colorByFn, onSeek }: AudioScrubberProps) {
+  const barRef   = useRef<HTMLDivElement | null>(null);
+  const fillRef  = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+  const liveRef  = useRef<HTMLDivElement | null>(null);
+  const colorRef = useRef(colorByFn); colorRef.current = colorByFn;
+  const pct = (t: number) => `${Math.max(0, Math.min(100, (t / duration) * 100))}`;
+
+  const handlePointerDown = (e: any) => {
     const bar = barRef.current;
     if (!bar) return;
     const rect = bar.getBoundingClientRect();
-    const getT = (ev) => {
+    const getT = (ev: any) => {
       const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
       return Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration));
     };
@@ -730,8 +783,8 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
 
   // Bucle rAF: actualiza thumb/fill/live directamente sobre el DOM
   useEffect(() => {
-    let raf;
-    const clamp = (t) => Math.max(0, Math.min(100, (t / duration) * 100));
+    let raf: number;
+    const clamp = (t: number) => Math.max(0, Math.min(100, (t / duration) * 100));
     const tick = () => {
       const t = timeRef?.current || 0;
       const p = clamp(t);
@@ -811,16 +864,27 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
 // handlers se recrean en cada render pero su comportamiento solo depende de la
 // categoría activa, cuyos `buttons` cambian de referencia al cambiar de tab).
 // Así la botonera no se repinta con cada tick de tiempo (~10 fps).
-function fnButtonsEqual(a, b) {
+interface FunctionButtonsProps {
+  buttons: FnBtn[];
+  pressing: Pressing | null;
+  onDown: (id: string) => void;
+  onUp: (id: string) => void;
+  twoRows?: boolean;
+  hideNames?: boolean;
+  paintFn?: string | null;
+}
+
+function fnButtonsEqual(a: FunctionButtonsProps, b: FunctionButtonsProps) {
   return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows
     && a.hideNames === b.hideNames && a.paintFn === b.paintFn;
 }
 
 // Renderiza un cifrado (item de FIG_GROUPS) como glifos apilados, con soporte
 // de prefijo (+/♭) y dígito tachado. Para botones del banner de edición.
-export function FigureLabel({ item, color = "currentColor", size = 13 }) {
+interface FigureLabelProps { item?: { top?: Glyph | null; bot?: Glyph | null } | null; color?: string; size?: number; }
+export function FigureLabel({ item, color = "currentColor", size = 13 }: FigureLabelProps) {
   if (!item || (!item.top && !item.bot)) return <span style={{ color, fontSize: size }}>—</span>;
-  const Glyph = ({ glyph }) => {
+  const Glyph = ({ glyph }: { glyph?: Glyph | null }) => {
     if (!glyph) return null;
     return (
       <span style={{ display: "inline-flex", alignItems: "center", lineHeight: 1 }}>
@@ -845,10 +909,10 @@ export function FigureLabel({ item, color = "currentColor", size = 13 }) {
 // paintFn: id del botón activo como pincel (modo colorear) → se resalta.
 // twoRows: reparte los botones en exactamente 2 filas que ocupan todo el ancho
 //   (cada fila con flex:1), aunque los botones no queden alineados verticalmente.
-export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false, hideNames = false, paintFn = null }) {
+export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false, hideNames = false, paintFn = null }: FunctionButtonsProps) {
   const isMobile = useIsMobile();
 
-  const renderBtn = (b) => {
+  const renderBtn = (b: FnBtn) => {
     const isActive = pressing?.fn === b.id || paintFn === b.id;
     return (
       <button key={b.id}
@@ -871,7 +935,7 @@ export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pr
         }}>
         <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
         {!hideNames && <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
-        {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {b.key.toUpperCase()}</span>}
+        {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {(b.key ?? "").toUpperCase()}</span>}
       </button>
     );
   };
