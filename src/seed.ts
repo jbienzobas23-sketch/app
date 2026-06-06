@@ -2,8 +2,10 @@
 // Categoría por defecto, paletas de categoría, secuencia de teclas y datos de
 // demostración (ejercicios y biblioteca de audios). Sostienen el fallback en
 // memoria cuando no hay backend Supabase. Extraídos de App.jsx (Fase 0).
+// Migrado a TypeScript (Fase 3).
+import type { Category, Exercise } from "./lib/types.js";
 
-export const DEFAULT_CATEGORY = {
+export const DEFAULT_CATEGORY: Category = {
   id: "default", name: "Funciones armónicas (T/S/D)", builtIn: true,
   buttons: [
     { id: "T", name: "Tónica",       color: "#3F9B5B", key: "a" },
@@ -11,10 +13,10 @@ export const DEFAULT_CATEGORY = {
     { id: "D", name: "Dominante",    color: "#C77A1A", key: "d" },
   ],
 };
-export const CATEGORY_COLORS = ["#3F9B5B","#2F6FB8","#C77A1A","#B84A3A","#9A4FB8","#C75A8E","#3A8CA8","#C9A33A"];
-export const KEY_SEQUENCE    = ["a","s","d","f","j","k","l","g"];
+export const CATEGORY_COLORS: string[] = ["#3F9B5B","#2F6FB8","#C77A1A","#B84A3A","#9A4FB8","#C75A8E","#3A8CA8","#C9A33A"];
+export const KEY_SEQUENCE: string[]    = ["a","s","d","f","j","k","l","g"];
 
-export const INIT_EXERCISES = [
+export const INIT_EXERCISES: Exercise[] = [
   {
     id: 2, title: "Minueto – Mozart", duration: 24,
     audioUrl: null, audioName: null, showHint: false, model: "interactivo",

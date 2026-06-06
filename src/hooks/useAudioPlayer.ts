@@ -3,9 +3,16 @@
 // waveform del fragmento. Extraído de App.jsx (Fase 2).
 import { useState, useRef, useEffect } from "react";
 import { fetchAudioBuffer, buildFragmentWaveform } from "../lib/audio.js";
+import type { Exercise } from "../lib/types.js";
 
-export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = null } = {}) {
-  const dur           = exercise.duration;
+interface LoopRegion { audioStart: number; audioEnd: number; }
+interface AudioPlayerOpts {
+  onWaveform?: ((wf: number[]) => void) | null;
+  loopRegionRef?: { current: LoopRegion | null } | null;
+}
+
+export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegionRef = null }: AudioPlayerOpts = {}) {
+  const dur           = exercise.duration as number;
   const audioUrl      = exercise.audioUrl;
   const hasAudio      = !!audioUrl;
   const fragmentStart = exercise.audioFragmentStart ?? 0;
@@ -14,12 +21,12 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
   const [time,          setTime]          = useState(0);
   const [playing,       setPlaying]       = useState(false);
   const [audioReady,    setAudioReady]    = useState(false);
-  const [audioError,    setAudioError]    = useState(null);
+  const [audioError,    setAudioError]    = useState<string | null>(null);
   const [audioDuration, setAudioDuration] = useState(exercise.duration);
 
-  const ctxRef           = useRef(null);
-  const bufferRef        = useRef(null);
-  const sourceRef        = useRef(null);
+  const ctxRef           = useRef<AudioContext | null>(null);
+  const bufferRef        = useRef<AudioBuffer | null>(null);
+  const sourceRef        = useRef<AudioBufferSourceNode | null>(null);
   const startCtxTimeRef  = useRef(0);
   const playOffsetRef    = useRef(0);
   const playingRef       = useRef(false);
@@ -49,7 +56,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
     }
   };
 
-  const startSource = (offset) => {
+  const startSource = (offset: number) => {
     const ctx = ctxRef.current;
     if (!ctx || !bufferRef.current) return;
     const myId = ++sourceIdRef.current;    // captura el ID de ESTA fuente
@@ -82,14 +89,14 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
     if (!hasAudio) return;
 
     let cancelled = false;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const AudioCtx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) { setAudioError("Tu navegador no soporta Web Audio API"); return; }
     const ctx = new AudioCtx();
     ctxRef.current = ctx;
 
     (async () => {
       try {
-        const buf     = await fetchAudioBuffer(audioUrl);
+        const buf     = await fetchAudioBuffer(audioUrl!);
         const decoded = await ctx.decodeAudioData(buf);
         if (cancelled) return;
         bufferRef.current = decoded;
@@ -111,7 +118,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
   // React reejecutaba ese updater desde un estado base anterior y dejaba en
   // timeRef un valor menor durante 1 frame → la onda saltaba a la derecha y
   // volvía. Ahora timeRef se actualiza una sola vez por tick, fuera de React.
-  const timerRef = useRef(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (!playing || hasAudio) return;
     let last = performance.now();
@@ -135,7 +142,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
       timeRef.current = next;     // fuente de verdad (canvas) — una sola escritura
       setTime(next);              // espejo para React (texto de tiempo, etc.)
     }, 50);
-    return () => clearInterval(timerRef.current);
+    return () => clearInterval(timerRef.current!);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, dur, hasAudio]);
 
@@ -143,7 +150,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
   // throttlea a ~10 fps para no saturar el árbol de componentes con re-renders.
   useEffect(() => {
     if (!playing || !hasAudio) return;
-    let raf;
+    let raf: number;
     const tick = () => {
       const ctx = ctxRef.current;
       if (ctx && !scrubbingRef.current) {
@@ -191,7 +198,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
   const togglePlay = () => {
     if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
     if (pendingToggleRef.current) return;
-    const ctx = ctxRef.current;
+    const ctx = ctxRef.current!;
     const wasPlaying = playingRef.current;
     pendingToggleRef.current = true;
     ctx.resume().then(() => {
@@ -212,14 +219,14 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
     });
   };
 
-  const seekTo = (t) => {
+  const seekTo = (t: number) => {
     const c = Math.max(0, Math.min(dur, t));
     playOffsetRef.current = c; setTime(c);
     if (playingRef.current && bufferRef.current && ctxRef.current) { stopSource(); startSource(c); }
   };
 
   // Saltar e iniciar reproducción (usado por QuestionnaireView)
-  const playFrom = (t) => {
+  const playFrom = (t: number) => {
     const c = Math.max(0, Math.min(dur, t));
     playOffsetRef.current = c; setTime(c);
     if (hasAudio && bufferRef.current && ctxRef.current) {
@@ -231,7 +238,7 @@ export function useAudioPlayer(exercise, { onWaveform = null, loopRegionRef = nu
   };
 
   const scrubBegin = () => { scrubbingRef.current = true; stopSource(); };
-  const scrubTo    = (t) => { const c = Math.max(0, Math.min(dur, t)); playOffsetRef.current = c; setTime(c); };
+  const scrubTo    = (t: number) => { const c = Math.max(0, Math.min(dur, t)); playOffsetRef.current = c; setTime(c); };
   const scrubEnd   = () => {
     if (!scrubbingRef.current) return;
     scrubbingRef.current = false;

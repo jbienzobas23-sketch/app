@@ -23,12 +23,12 @@ export interface Category {
 export interface Question {
   id: string;
   type?: string;
-  correctOptionId?: string;
+  correctOptionId?: string | null;
   [k: string]: unknown;
 }
 
 export interface Exercise {
-  id?: string;
+  id?: string | number; // Las semillas usan number; los datos reales usan string
   title?: string;
   hidden?: boolean;
   model?: string;
@@ -41,5 +41,9 @@ export interface Exercise {
   questions?: Question[];
   schemaPalette?: string;
   duration?: number;
+  audioUrl?: string | null;
+  audioFragmentStart?: number;
+  audioFragmentEnd?: number | null;
+  waveformData?: number[] | null;
   [k: string]: unknown;
 }
