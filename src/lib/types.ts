@@ -72,6 +72,7 @@ export interface ExerciseResult {
 export interface Unit {
   id: string;
   name?: string;
+  description?: string;
   exerciseIds?: string[];
   hidden?: boolean;
   [k: string]: unknown;
@@ -85,7 +86,7 @@ export interface Course {
   hidden?: boolean;
   ownerId?: string;
   visibility?: string;
-  visibilityGroupId?: string;
+  visibilityGroupId?: string | null;
   [k: string]: unknown;
 }
 

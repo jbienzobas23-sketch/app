@@ -9,11 +9,10 @@ import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
 import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
-import { QuestionEditorModal as _QuestionEditorModal } from "./modals.jsx";
+import { QuestionEditorModal } from "./modals.js";
 
-// session.jsx / modals.jsx aún sin tipar; el cast permite consumirlos desde TSX.
-const WaveformDisplay     = _WaveformDisplay     as ComponentType<any>;
-const QuestionEditorModal = _QuestionEditorModal as ComponentType<any>;
+// session.jsx aún sin tipar; el cast permite consumirlo desde TSX.
+const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
 
 // En el gestor de preguntas cada pregunta tiene fragmento (start/end) definido.
 type QuizQuestion = Question & { audioStart: number; audioEnd: number };
@@ -246,18 +245,22 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
         </button>
       </div>
 
-      {editingQ && (
-        <QuestionEditorModal
-          initial={editingQ._new ? null : editingQ}
-          defaultStart={editingQ._new ? editingQ.defaultStart : undefined}
-          audioDuration={dur}
-          onSave={(q: QuizQuestion) => {
-            if ("_new" in editingQ && editingQ._new) setQuestions((prev) => [...prev, q]);
-            else                                     setQuestions((prev) => prev.map((x) => x.id === q.id ? q : x));
-            setEditingQ(null);
-          }}
-          onClose={() => setEditingQ(null)} />
-      )}
+      {editingQ && (() => {
+        const isNewQ = "_new" in editingQ;
+        return (
+          <QuestionEditorModal
+            initial={isNewQ ? null : (editingQ as QuizQuestion)}
+            defaultStart={isNewQ ? (editingQ as { defaultStart: number }).defaultStart : undefined}
+            audioDuration={dur}
+            onSave={(q: Question) => {
+              const qq = q as QuizQuestion;
+              if (isNewQ) setQuestions((prev) => [...prev, qq]);
+              else        setQuestions((prev) => prev.map((x) => x.id === qq.id ? qq : x));
+              setEditingQ(null);
+            }}
+            onClose={() => setEditingQ(null)} />
+        );
+      })()}
       {confirmDel && (
         <ConfirmModal
           message={`¿Eliminar la pregunta "${confirmDel.text.slice(0, 60)}${confirmDel.text.length > 60 ? "…" : ""}"?`}
