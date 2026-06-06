@@ -20,10 +20,20 @@ export interface Category {
   [k: string]: unknown;
 }
 
+export interface QuestionOption {
+  id: string;
+  text?: string;
+  [k: string]: unknown;
+}
+
 export interface Question {
   id: string;
   type?: string;
+  text?: string;
+  options?: QuestionOption[];
   correctOptionId?: string | null;
+  audioStart?: number;
+  audioEnd?: number;
   [k: string]: unknown;
 }
 
@@ -57,3 +67,38 @@ export interface ExerciseResult {
   teacherCorrection?: { corrected?: boolean; [k: string]: unknown };
   [k: string]: unknown;
 }
+
+// ── Organización: cursos, unidades didácticas y grupos de alumnos ─────────────
+export interface Unit {
+  id: string;
+  name?: string;
+  description?: string;
+  exerciseIds?: string[];
+  hidden?: boolean;
+  [k: string]: unknown;
+}
+
+export interface Course {
+  id: string;
+  name?: string;
+  description?: string;
+  unitIds?: string[];
+  hidden?: boolean;
+  ownerId?: string;
+  visibility?: string;
+  visibilityGroupId?: string | null;
+  [k: string]: unknown;
+}
+
+export interface Group {
+  id: string;
+  name?: string;
+  studentIds?: string[];
+  [k: string]: unknown;
+}
+
+// Mapa de resultados de un alumno indexado por id de ejercicio
+export type ResultsMap = Record<string, ExerciseResult>;
+
+// Rol del consumidor de las vistas de cursos
+export type Role = "teacher" | "student";

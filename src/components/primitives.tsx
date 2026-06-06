@@ -16,7 +16,7 @@ interface TabBarProps { tabs: Tab[]; value: string; onChange: (id: string) => vo
 interface ScoreBadgeProps { score?: number | null; suffix?: string; emptyLabel?: string; }
 interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; }
 interface CircleButtonProps { onClick?: () => void; disabled?: boolean; title?: string; children: ReactNode; size?: number; primary?: boolean; fontSize?: number; }
-interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: string; cancelLabel?: string; }
+interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: ReactNode; cancelLabel?: string; }
 interface SessionHeaderProps { exercise: { title?: string; composerName?: string; showComposer?: boolean; [k: string]: unknown }; onBack: () => void; modelId: string; rightSlot?: ReactNode; }
 interface SessionHintProps { modelId: string; extra?: ReactNode; }
 interface StickyActionBarProps { children: ReactNode; secondary?: ReactNode; info?: ReactNode; }

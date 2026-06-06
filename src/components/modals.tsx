@@ -1,7 +1,8 @@
 // ═══ MODALES ═════════════════════════════════════════════════════════════════
 // Editores y formularios modales (categorías, grupos, cursos, unidades, usuarios,
 // audios, preguntas). Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
-import { useState, useRef } from "react";
+import { useState, useRef, type ReactNode } from "react";
+import type { Category, Button, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
 import { fmt, uid, toggleInSet } from "../lib/ids.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
@@ -10,18 +11,30 @@ import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
 
+// ── Tipos locales compartidos por los modales ────────────────────────────────
+// Usuario (perfil) — campos consumidos por los formularios de cuenta.
+interface UserLike { id: string; displayName?: string; username?: string; credType?: string; [k: string]: unknown; }
+// Audio del almacén compartido.
+export interface AudioItem { id: string; title?: string; composer?: string; description?: string; tags?: string[]; url?: string; duration?: number | null; createdAt?: number; [k: string]: unknown; }
+// Botón editable dentro del editor de categoría.
+interface EditButton { id: string; name: string; color: string; key: string; }
+
+declare global {
+  interface Window { webkitAudioContext?: typeof AudioContext; }
+}
+
 // Editor de categoría (nuevo o existente)
-export function CategoryEditorModal({ initialCategory, onSave, onClose }) {
+export function CategoryEditorModal({ initialCategory, onSave, onClose }: { initialCategory?: Category | null; onSave: (category: Category) => void; onClose: () => void }) {
   const isNew = !initialCategory;
   const [name,    setName]    = useState(initialCategory?.name || "");
   const [hasFigures, setHasFigures] = useState(initialCategory?.hasFigures ?? false);
-  const [buttons, setButtons] = useState(initialCategory?.buttons || [
+  const [buttons, setButtons] = useState<EditButton[]>((initialCategory?.buttons as EditButton[] | undefined) || [
     { id: "A", name: "Botón A", color: CATEGORY_COLORS[0], key: KEY_SEQUENCE[0] },
     { id: "B", name: "Botón B", color: CATEGORY_COLORS[1], key: KEY_SEQUENCE[1] },
   ]);
   const maxBtns = hasFigures ? 8 : 6;
 
-  const updateBtn = (i, patch) => setButtons((prev) => prev.map((b, idx) => idx === i ? { ...b, ...patch } : b));
+  const updateBtn = (i: number, patch: Partial<EditButton>) => setButtons((prev) => prev.map((b, idx) => idx === i ? { ...b, ...patch } : b));
   const addBtn = () => {
     if (buttons.length >= maxBtns) return;
     const i = buttons.length;
@@ -32,9 +45,9 @@ export function CategoryEditorModal({ initialCategory, onSave, onClose }) {
       key:   KEY_SEQUENCE[i % KEY_SEQUENCE.length],
     }]);
   };
-  const removeBtn = (i) => { if (buttons.length > 2) setButtons((prev) => prev.filter((_, idx) => idx !== i)); };
+  const removeBtn = (i: number) => { if (buttons.length > 2) setButtons((prev) => prev.filter((_, idx) => idx !== i)); };
 
-  const canSave = name.trim() && buttons.length >= 2 && buttons.every((b) => b.id.trim() && b.name.trim() && b.key.trim().length === 1);
+  const canSave = Boolean(name.trim() && buttons.length >= 2 && buttons.every((b) => b.id.trim() && b.name.trim() && b.key.trim().length === 1));
 
   const handleSave = () => {
     if (!canSave) return;
@@ -99,11 +112,11 @@ export function CategoryEditorModal({ initialCategory, onSave, onClose }) {
 }
 
 // Formulario de curso
-export function GroupEditorModal({ initial, students, currentUserId, onSave, onClose }) {
+export function GroupEditorModal({ initial, students, currentUserId, onSave, onClose }: { initial?: Group | null; students: UserLike[]; currentUserId: string; onSave: (group: Group) => void; onClose: () => void }) {
   const [name,       setName]       = useState(initial?.name || "");
-  const [studentIds, setStudentIds] = useState(() => new Set(initial?.studentIds || []));
+  const [studentIds, setStudentIds] = useState<Set<string>>(() => new Set(initial?.studentIds || []));
 
-  const toggleStudent = (id) => setStudentIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleStudent = (id: string) => setStudentIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const canSave = name.trim().length > 0;
 
   const handleSave = () => {
@@ -148,7 +161,7 @@ export function GroupEditorModal({ initial, students, currentUserId, onSave, onC
   );
 }
 
-export function CourseFormModal({ initial, groups = [], onSave, onClose }) {
+export function CourseFormModal({ initial, groups = [], onSave, onClose }: { initial?: Course | null; groups?: Group[]; onSave: (course: Course) => void; onClose: () => void }) {
   const [name,              setName]              = useState(initial?.name || "");
   const [desc,              setDesc]              = useState(initial?.description || "");
   const [visibility,        setVisibility]        = useState(initial?.visibility || "teacher");
@@ -220,7 +233,7 @@ export function CourseFormModal({ initial, groups = [], onSave, onClose }) {
 }
 
 // Formulario de unidad
-export function UnitFormModal({ initial, onSave, onClose }) {
+export function UnitFormModal({ initial, onSave, onClose }: { initial?: Unit | null; onSave: (unit: Unit) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name || "");
   const [desc, setDesc] = useState(initial?.description || "");
   const canSave = name.trim().length > 0;
@@ -251,11 +264,11 @@ export function UnitFormModal({ initial, onSave, onClose }) {
 }
 
 // Picker de ejercicios del banco (para asignar a una unidad)
-export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }) {
-  const [selected, setSelected] = useState(new Set());
+export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }: { exercises: Exercise[]; alreadyInUnit: string[]; onAdd: (ids: string[]) => void; onClose: () => void }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const inUnit    = new Set(alreadyInUnit);
-  const available = exercises.filter((e) => !inUnit.has(e.id));
-  const toggle    = (id) => setSelected((s) => toggleInSet(s, id));
+  const available = exercises.filter((e) => !inUnit.has(String(e.id)));
+  const toggle    = (id: string) => setSelected((s) => toggleInSet(s, id) as Set<string>);
 
   return (
     <ModalShell width={520} align="top" onClose={onClose} label="Añadir ejercicios">
@@ -270,15 +283,16 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
       ) : (
         <div style={{ maxHeight: 380, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: 6, marginBottom: 16 }}>
           {available.map((ex) => {
-            const isSel = selected.has(ex.id);
+            const exId = String(ex.id);
+            const isSel = selected.has(exId);
             return (
-              <label key={ex.id}
+              <label key={exId}
                 style={{ ...S.row, gap: 10, padding: "10px 12px", borderRadius: 6, cursor: "pointer", background: isSel ? "rgba(26,25,21,0.04)" : "transparent" }}>
-                <input type="checkbox" checked={isSel} onChange={() => toggle(ex.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
+                <input type="checkbox" checked={isSel} onChange={() => toggle(exId)} style={{ cursor: "pointer", flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 4 }}>{ex.title}</div>
                   <div style={{ ...S.row, gap: 6 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(ex.duration ?? 0)}</span>
                     {(() => {
                       const isQuiz = modelOf(ex) === "cuestionario";
                       return <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : C.fnT }}>{isQuiz ? "Cuestionario" : "Interactivo"}</span>;
@@ -298,7 +312,7 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
 }
 
 // Crear un alumno o profesor con credencial PIN o contraseña
-export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave, onClose }) {
+export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave, onClose }: { forRole: string; currentUserId: string; existingUsernames: string[]; onSave: (profile: unknown) => void; onClose: () => void }) {
   const [displayName, setDisplayName] = useState("");
   const [username,    setUsername]    = useState("");
   const [credType,    setCredType]    = useState(forRole === "student" ? "pin" : "password");
@@ -309,7 +323,7 @@ export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave
   const isPin   = credType === "pin";
   const minLen  = isPin ? 4 : 6;
   const taken   = username.trim() && existingUsernames.includes(username.trim().toLowerCase());
-  const canSave = displayName.trim() && username.trim() && credValue.length >= minLen && !taken && !loading;
+  const canSave = Boolean(displayName.trim() && username.trim() && credValue.length >= minLen && !taken && !loading);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -327,7 +341,7 @@ export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave
         ...(forRole === "student" ? { teacherId: currentUserId } : {}),
       });
       onSave(profile);
-    } catch (e) { setError(e.message || "Error al crear la cuenta."); }
+    } catch (e) { setError((e as Error).message || "Error al crear la cuenta."); }
     finally  { setLoading(false); }
   };
 
@@ -380,7 +394,7 @@ export function AddUserModal({ forRole, currentUserId, existingUsernames, onSave
 }
 
 // Resetear PIN/contraseña de un usuario existente
-export function ResetCredentialModal({ targetUser, onSave, onClose }) {
+export function ResetCredentialModal({ targetUser, onSave, onClose }: { targetUser: UserLike; onSave: (profile: unknown) => void; onClose: () => void }) {
   const [credType,  setCredType]  = useState(targetUser.credType || "pin");
   const [credValue, setCredValue] = useState("");
   const [loading,   setLoading]   = useState(false);
@@ -397,7 +411,7 @@ export function ResetCredentialModal({ targetUser, onSave, onClose }) {
       // fa_user_secrets); el cliente no escribe secretos.
       const profile = await resetCredential({ userId: targetUser.id, credential: credValue, credType });
       onSave(profile);
-    } catch (e) { setError(e.message || "Error al actualizar la credencial."); }
+    } catch (e) { setError((e as Error).message || "Error al actualizar la credencial."); }
     finally  { setLoading(false); }
   };
 
@@ -441,7 +455,7 @@ export function ResetCredentialModal({ targetUser, onSave, onClose }) {
 }
 
 // Modal para configurar el correo de recuperación en el primer login
-export function RecoveryEmailModal({ onSave, onSkip }) {
+export function RecoveryEmailModal({ onSave, onSkip }: { onSave: (email: string) => Promise<void> | void; onSkip: () => void }) {
   const [email,   setEmail]   = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
@@ -491,8 +505,8 @@ export function RecoveryEmailModal({ onSave, onSkip }) {
 }
 
 // Picker para elegir un audio del almacén
-export function AudioLibraryPickerModal({ library, onPick, onClose }) {
-  const [previewId, setPreviewId] = useState(null);
+export function AudioLibraryPickerModal({ library, onPick, onClose }: { library: AudioItem[]; onPick: (audio: AudioItem) => void; onClose: () => void }) {
+  const [previewId, setPreviewId] = useState<string | null>(null);
   return (
     <ModalShell width={560} align="top" onClose={onClose} label="Elegir audio">
       <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: C.ink }}>Elegir audio del almacén</h3>
@@ -514,7 +528,7 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }) {
                     <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
                     {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration ?? 0)}</span>
                   </div>
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
                     <button onClick={() => setPreviewId(isPrev ? null : audio.id)} style={{ ...S.btn, padding: "5px 9px", fontSize: 11 }}>
@@ -540,19 +554,19 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }) {
 }
 
 // Crear/editar un audio en el almacén
-export function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSave, onClose }) {
+export function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSave, onClose }: { initial?: AudioItem | null; allTags?: string[]; allComposers?: string[]; onSave: (audio: AudioItem) => void; onClose: () => void }) {
   const [title,       setTitle]       = useState(initial?.title || "");
   const [composer,    setComposer]    = useState(initial?.composer || "");
   const [description, setDescription] = useState(initial?.description || "");
-  const [tags,        setTags]        = useState(initial?.tags || []);
+  const [tags,        setTags]        = useState<string[]>(initial?.tags || []);
   const [url,         setUrl]         = useState(initial?.url || "");
-  const [duration,    setDuration]    = useState(initial?.duration || null);
+  const [duration,    setDuration]    = useState<number | null>(initial?.duration || null);
   const [detecting,   setDetecting]   = useState(false);
   const [error,       setError]       = useState("");
 
   // BUG FIX: cancelación de detecciones obsoletas también aquí
   const urlReqRef = useRef(0);
-  const handleUrlChange = (newUrl) => {
+  const handleUrlChange = (newUrl: string) => {
     const trimmed = newUrl.trim();
     setUrl(trimmed);
     setError("");
@@ -579,7 +593,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       });
   };
 
-  const canSave = title.trim() && url.trim() && duration && !detecting;
+  const canSave = Boolean(title.trim() && url.trim() && duration && !detecting);
 
   const handleSave = () => {
     if (!canSave) return;
@@ -626,7 +640,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       <input type="url" style={{ ...S.input, marginBottom: 6 }}
         value={url} onChange={(e) => handleUrlChange(e.target.value)} placeholder="https://res.cloudinary.com/…" />
       {detecting && <p style={{ fontSize: 12, color: C.muted, margin: "0 0 14px" }}>Verificando audio…</p>}
-      {duration && !detecting && <p style={{ fontSize: 12, color: C.fnT, margin: "0 0 14px" }}>✓ Duración detectada: {fmt(duration)}</p>}
+      {duration && !detecting && <p style={{ fontSize: 12, color: C.fnT, margin: "0 0 14px" }}>✓ Duración detectada: {fmt(duration ?? 0)}</p>}
       <ErrorMsg>{error}</ErrorMsg>
       <div style={{ marginBottom: 8 }} />
 
@@ -636,22 +650,22 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
 }
 
 // Editor de pregunta (test o desarrollo)
-export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onClose }) {
+export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; onSave: (q: Question) => void; onClose: () => void }) {
   const [text,            setText]            = useState(initial?.text || "");
   const [type,            setType]            = useState(initial?.type || "test");
-  const [audioStart,      setAudioStart]      = useState(initial?.audioStart ?? defaultStart ?? 0);
-  const [audioEnd,        setAudioEnd]        = useState(initial?.audioEnd   ?? Math.min(audioDuration, (defaultStart ?? 0) + 10));
-  const [options,         setOptions]         = useState(initial?.options || [
+  const [audioStart,      setAudioStart]      = useState<number>(initial?.audioStart ?? defaultStart ?? 0);
+  const [audioEnd,        setAudioEnd]        = useState<number>(initial?.audioEnd   ?? Math.min(audioDuration, (defaultStart ?? 0) + 10));
+  const [options,         setOptions]         = useState<QuestionOption[]>(initial?.options || [
     { id: "A", text: "" }, { id: "B", text: "" }, { id: "C", text: "" },
   ]);
   const [correctOptionId, setCorrectOptionId] = useState(initial?.correctOptionId || "A");
 
-  const updateOpt = (i, txt) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, text: txt } : o));
+  const updateOpt = (i: number, txt: string) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, text: txt } : o));
   const addOpt = () => {
     if (options.length >= 6) return;
     setOptions((prev) => [...prev, { id: String.fromCharCode(65 + prev.length), text: "" }]);
   };
-  const removeOpt = (i) => {
+  const removeOpt = (i: number) => {
     if (options.length <= 2) return;
     setOptions((prev) => {
       const next = prev.filter((_, idx) => idx !== i).map((o, idx) => ({ ...o, id: String.fromCharCode(65 + idx) }));
@@ -660,10 +674,10 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
     });
   };
 
-  const canSave =
+  const canSave = Boolean(
     text.trim() &&
     audioEnd > audioStart &&
-    (type !== "test" || (options.every((o) => o.text.trim()) && correctOptionId));
+    (type !== "test" || (options.every((o) => (o.text ?? "").trim()) && correctOptionId)));
 
   const handleSave = () => {
     if (!canSave) return;
@@ -671,9 +685,9 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
       id:         initial?.id || uid("q"),
       text:       text.trim(),
       type,
-      audioStart: parseFloat(audioStart),
-      audioEnd:   parseFloat(audioEnd),
-      options:    type === "test" ? options.map((o) => ({ ...o, text: o.text.trim() })) : [],
+      audioStart,
+      audioEnd,
+      options:    type === "test" ? options.map((o) => ({ ...o, text: (o.text ?? "").trim() })) : [],
       correctOptionId: type === "test" ? correctOptionId : null,
     });
   };

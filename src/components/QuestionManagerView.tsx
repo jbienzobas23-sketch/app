@@ -1,23 +1,38 @@
 // ═══ QUESTIONMANAGERVIEW (EDICIÓN DE PREGUNTAS) ══════════════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentType } from "react";
+import type { Exercise, Question } from "../lib/types.js";
 import { C, S, FONT_MONO } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { questionsOf } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
-import { WaveformDisplay } from "./session.jsx";
-import { QuestionEditorModal } from "./modals.jsx";
+import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
+import { QuestionEditorModal } from "./modals.js";
+
+// session.jsx aún sin tipar; el cast permite consumirlo desde TSX.
+const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
+
+// En el gestor de preguntas cada pregunta tiene fragmento (start/end) definido.
+type QuizQuestion = Question & { audioStart: number; audioEnd: number };
+// Estado de edición: una pregunta existente o un marcador de "nueva".
+type EditingQ = QuizQuestion | { _new: true; defaultStart: number } | null;
+
+interface QuestionManagerViewProps {
+  exercise: Exercise;
+  onSave: (questions: QuizQuestion[]) => void;
+  onBack: () => void;
+}
 
 // ═══ 13. QUESTION MANAGER VIEW (profesor edita preguntas) ═══════════════════
-export function QuestionManagerView({ exercise, onSave, onBack }) {
-  const dur = exercise.duration;
-  const [questions,   setQuestions]   = useState(questionsOf(exercise));
-  const [editingQ,    setEditingQ]    = useState(null);
-  const [confirmDel,  setConfirmDel]  = useState(null);
-  const [selectedQId, setSelectedQId] = useState(null);
-  const minimapRef = useRef(null);
+export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManagerViewProps) {
+  const dur = exercise.duration as number;
+  const [questions,   setQuestions]   = useState<QuizQuestion[]>(questionsOf(exercise) as QuizQuestion[]);
+  const [editingQ,    setEditingQ]    = useState<EditingQ>(null);
+  const [confirmDel,  setConfirmDel]  = useState<{ id: string; text: string } | null>(null);
+  const [selectedQId, setSelectedQId] = useState<string | null>(null);
+  const minimapRef = useRef<HTMLDivElement | null>(null);
 
   // QMV usa exercise.waveformData directamente — sin callback de onWaveform
   const {
@@ -29,8 +44,8 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
   const togglePlayRef = useRef(togglePlay);
   useEffect(() => { togglePlayRef.current = togglePlay; });
   useEffect(() => {
-    const down = (e) => {
-      if (e.key === " " && !["INPUT", "TEXTAREA", "BUTTON"].includes(e.target.tagName)) {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === " " && !["INPUT", "TEXTAREA", "BUTTON"].includes((e.target as HTMLElement).tagName)) {
         e.preventDefault();
         togglePlayRef.current();
       }
@@ -40,7 +55,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
   }, []);
 
   // Drag del cuerpo de una pregunta en el minimapa
-  const beginDragQBody = (e, qId) => {
+  const beginDragQBody = (e: any, qId: string) => {
     e.stopPropagation();
     const el = minimapRef.current;
     if (!el) return;
@@ -64,12 +79,12 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
   };
 
   // Drag de los bordes de una pregunta (resize)
-  const beginDragQEdge = (e, qId, which) => {
+  const beginDragQEdge = (e: any, qId: string, which: "start" | "end") => {
     e.stopPropagation();
     const el = minimapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const xToTime = (x) => Math.max(0, Math.min(dur, ((x - rect.left) / rect.width) * dur));
+    const xToTime = (x: number) => Math.max(0, Math.min(dur, ((x - rect.left) / rect.width) * dur));
     const origQ = questions.find((q) => q.id === qId);
     if (!origQ) return;
     setSelectedQId(qId);
@@ -203,7 +218,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
                 <div style={{ fontSize: 14, color: C.ink, marginBottom: q.type === "test" ? 6 : 0 }}>{q.text}</div>
                 {q.type === "test" && (
                   <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                    {q.options.map((opt) => (
+                    {(q.options ?? []).map((opt) => (
                       <span key={opt.id} style={{
                         ...S.badge, fontSize: 11,
                         background: opt.id === q.correctOptionId ? "rgba(63,155,91,0.14)" : C.paper2,
@@ -219,7 +234,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
               <div style={{ ...S.row, gap: 6 }}>
                 <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmt(q.audioStart)}`}>▶ {fmt(q.audioStart)}</button>
                 <button onClick={() => setEditingQ(q)} style={S.btn}>Editar</button>
-                <button onClick={() => setConfirmDel({ id: q.id, text: q.text })} style={S.btnDanger}>Eliminar</button>
+                <button onClick={() => setConfirmDel({ id: q.id, text: q.text ?? "" })} style={S.btnDanger}>Eliminar</button>
               </div>
             </div>
           </div>
@@ -230,18 +245,22 @@ export function QuestionManagerView({ exercise, onSave, onBack }) {
         </button>
       </div>
 
-      {editingQ && (
-        <QuestionEditorModal
-          initial={editingQ._new ? null : editingQ}
-          defaultStart={editingQ._new ? editingQ.defaultStart : undefined}
-          audioDuration={dur}
-          onSave={(q) => {
-            if (editingQ._new) setQuestions((prev) => [...prev, q]);
-            else               setQuestions((prev) => prev.map((x) => x.id === q.id ? q : x));
-            setEditingQ(null);
-          }}
-          onClose={() => setEditingQ(null)} />
-      )}
+      {editingQ && (() => {
+        const isNewQ = "_new" in editingQ;
+        return (
+          <QuestionEditorModal
+            initial={isNewQ ? null : (editingQ as QuizQuestion)}
+            defaultStart={isNewQ ? (editingQ as { defaultStart: number }).defaultStart : undefined}
+            audioDuration={dur}
+            onSave={(q: Question) => {
+              const qq = q as QuizQuestion;
+              if (isNewQ) setQuestions((prev) => [...prev, qq]);
+              else        setQuestions((prev) => prev.map((x) => x.id === qq.id ? qq : x));
+              setEditingQ(null);
+            }}
+            onClose={() => setEditingQ(null)} />
+        );
+      })()}
       {confirmDel && (
         <ConfirmModal
           message={`¿Eliminar la pregunta "${confirmDel.text.slice(0, 60)}${confirmDel.text.length > 60 ? "…" : ""}"?`}
