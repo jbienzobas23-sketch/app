@@ -1,22 +1,42 @@
 // ═══ SEGMENTOS DE REPETICIÓN (modelo Esquema / interactivo) ══════════════════
 // Helpers puros para dividir la grabación en segmentos visuales con repeticiones
 // y sincronizar la 2ª vez. Compartidos por ExerciseView y SchemaExerciseView.
-// Extraídos de App.jsx (Fase 2).
+// Extraídos de App.jsx (Fase 2). Migrado a TypeScript (Fase 3).
 import { uid } from "./ids.js";
+
+interface Span { start: number; end: number; }
+export interface Rep { id?: string; first: Span; second: Span; }
+export interface Segment {
+  type: string;
+  recStart?: number; recEnd?: number;
+  canonDur: number;
+  vStart?: number; vEnd?: number; index?: number;
+  rep?: Rep;
+}
+// Bloque del esquema/interactivo. Forma flexible (muchos campos opcionales y
+// extras), por eso el índice abierto.
+export interface Block {
+  id: string; start: number; end: number;
+  repeatId?: string; pass?: string; isPreview?: boolean;
+  mirrorId?: string; overridden?: boolean;
+  label?: string; level?: number; customColor?: string;
+  _lockedStart?: boolean; _lockedEnd?: boolean;
+  [k: string]: unknown;
+}
 
 /**
  * Divide la grabación en segmentos visuales. Cada repetición ocupa un slot cuyo
  * ancho de referencia es la duración de la 1ª vez; la 2ª vez comparte ese mismo
  * ancho horizontal pero se muestra en la fila inferior.
  */
-export function buildRepeatSegments(duration, repetitions) {
+export function buildRepeatSegments(duration: number, repetitions?: Rep[] | null): Segment[] {
   if (!repetitions?.length) {
     return [{ type: "normal", recStart: 0, recEnd: duration, canonDur: duration, vStart: 0, vEnd: 1, index: 0 }];
   }
   const reps = [...repetitions]
     .filter(r => r?.first?.start != null && r?.second?.end != null)
     .sort((a, b) => a.first.start - b.first.start);
-  const raw = [];
+  const raw: Segment[] = [];
   let cur = 0;
   for (const rep of reps) {
     if (cur < rep.first.start - 0.01)
@@ -33,13 +53,13 @@ export function buildRepeatSegments(duration, repetitions) {
 }
 
 /** Devuelve { min, max } en segundos de grabación para un segmento + fila. */
-export function getSegBounds(seg, pass) {
-  if (seg.type === "normal")         return { min: seg.recStart, max: seg.recEnd };
-  if (seg.type === "repeat-first")   return { min: seg.recStart, max: seg.recEnd };
-  if (seg.type === "repeat-second")  return { min: seg.recStart, max: seg.recEnd };
+export function getSegBounds(seg: Segment, pass?: string): { min: number; max: number } {
+  if (seg.type === "normal")         return { min: seg.recStart!, max: seg.recEnd! };
+  if (seg.type === "repeat-first")   return { min: seg.recStart!, max: seg.recEnd! };
+  if (seg.type === "repeat-second")  return { min: seg.recStart!, max: seg.recEnd! };
   return pass === "second"
-    ? { min: seg.rep.second.start, max: seg.rep.second.end }
-    : { min: seg.rep.first.start,  max: seg.rep.first.end  };
+    ? { min: seg.rep!.second.start, max: seg.rep!.second.end }
+    : { min: seg.rep!.first.start,  max: seg.rep!.first.end  };
 }
 
 /**
@@ -47,14 +67,14 @@ export function getSegBounds(seg, pass) {
  * (sin doble altura). Cada repetición produce dos segmentos consecutivos:
  * { type:"repeat-first"|"repeat-second", rep, recStart, recEnd, canonDur }
  */
-export function buildCompleteViewSegments(duration, repetitions) {
+export function buildCompleteViewSegments(duration: number, repetitions?: Rep[] | null): Segment[] {
   if (!repetitions?.length) {
     return [{ type: "normal", recStart: 0, recEnd: duration, canonDur: duration, vStart: 0, vEnd: 1, index: 0 }];
   }
   const reps = [...repetitions]
     .filter(r => r?.first?.start != null && r?.second?.end != null)
     .sort((a, b) => a.first.start - b.first.start);
-  const raw = [];
+  const raw: Segment[] = [];
   let cur = 0;
   for (const rep of reps) {
     if (cur < rep.first.start - 0.01)
@@ -82,7 +102,7 @@ export function buildCompleteViewSegments(duration, repetitions) {
  *  - Bloques anclados a bordes de zona (_lockedStart/_lockedEnd): el asa
  *    correspondiente no se muestra para impedir separarlo del borde.
  */
-export function syncSecondPassBlocks(blocks, reps) {
+export function syncSecondPassBlocks(blocks: Block[], reps: Rep[]): Block[] {
   let result = [...blocks];
   for (const rep of reps) {
     const fd    = (rep.first.end  - rep.first.start)  || 1;
@@ -90,7 +110,7 @@ export function syncSecondPassBlocks(blocks, reps) {
     const ratio = sd / fd;
     const firstBlocks  = blocks.filter(b => b.repeatId === rep.id && b.pass === "first"  && !b.isPreview);
     const secondBlocks = blocks.filter(b => b.repeatId === rep.id && b.pass === "second" && !b.isPreview);
-    const newSecond = [];
+    const newSecond: Block[] = [];
 
     for (const fb of firstBlocks) {
       const isAtZoneStart = Math.abs(fb.start - rep.first.start) < 0.08;
@@ -103,7 +123,7 @@ export function syncSecondPassBlocks(blocks, reps) {
       const mirror = secondBlocks.find(b => b.mirrorId === fb.id);
       if (mirror?.overridden) {
         // Preservar start manual pero actualizar end con la duración proporcional
-        let newStart, newEnd;
+        let newStart: number, newEnd: number;
         if (isAtZoneStart) {
           newStart = rep.second.start;
           newEnd   = rep.second.start + derivedDur;
@@ -134,12 +154,12 @@ export function syncSecondPassBlocks(blocks, reps) {
 }
 
 /** Genera marcas de tiempo internas para la regla de un segmento. */
-export function rulerTicksForSeg(start, end, widthPx) {
+export function rulerTicksForSeg(start: number, end: number, widthPx?: number): { t: number; frac: number }[] {
   const d = end - start; if (d <= 0) return [];
   const STEPS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300];
   const target = d / Math.max(2, Math.floor((widthPx || 200) / 55));
   const step = STEPS.find(s => s >= target) || STEPS[STEPS.length - 1];
-  const ticks = [];
+  const ticks: { t: number; frac: number }[] = [];
   const first_t = Math.ceil(start / step) * step;
   for (let t = first_t; t < end - step * 0.1; t += step) ticks.push({ t, frac: (t - start) / d });
   return ticks;

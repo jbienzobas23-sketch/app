@@ -69,6 +69,9 @@ export default tseslint.config(
       ...reactRules,
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', unusedVarsOpts],
+      // Migración gradual: el `any` puntual (p. ej. pegamento de eventos
+      // ratón+touch en pointer.ts) se permite pero se señala como aviso.
+      '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
 );

@@ -1,10 +1,10 @@
 // ═══ AUDIO: DECODING Y WAVEFORM ══════════════════════════════════════════════
 // Suavizado, construcción de waveform desde PCM, waveform sintética determinista
-// y decodificación de data: URLs. Extraídas de App.jsx (Fase 0) sin cambios.
+// y decodificación de data: URLs. Extraídas de App.jsx (Fase 0). Migrado a TS (Fase 3).
 
-export function smoothArray(raw, W) {
+export function smoothArray(raw: number[], W: number): number[] {
   const n = raw.length;
-  const out = new Array(n);
+  const out: number[] = new Array(n);
   let sum = 0, size = 0;
   for (let j = 0; j <= Math.min(W, n - 1); j++) { sum += raw[j]; size++; }
   for (let i = 0; i < n; i++) {
@@ -16,10 +16,10 @@ export function smoothArray(raw, W) {
   return out;
 }
 
-export function buildWaveformFromPCM(channelData, duration) {
+export function buildWaveformFromPCM(channelData: Float32Array, duration: number): number[] {
   const N = Math.max(400, Math.ceil(duration * 30));
   const blockSize = Math.max(1, Math.floor(channelData.length / N));
-  const raw = new Array(N);
+  const raw: number[] = new Array(N);
   for (let i = 0; i < N; i++) {
     let s = 0;
     for (let j = 0; j < blockSize; j++) s += Math.abs(channelData[i * blockSize + j] || 0);
@@ -31,7 +31,7 @@ export function buildWaveformFromPCM(channelData, duration) {
   return sm.map((v) => 0.08 + (v / mx) * 0.92);
 }
 
-export function buildFragmentWaveform(channelData, totalDuration, fragStart, fragEnd) {
+export function buildFragmentWaveform(channelData: Float32Array, totalDuration: number, fragStart?: number | null, fragEnd?: number | null): number[] {
   const s = fragStart ?? 0;
   const e = fragEnd   ?? totalDuration;
   if (s <= 0 && e >= totalDuration) return buildWaveformFromPCM(channelData, totalDuration);
@@ -40,9 +40,9 @@ export function buildFragmentWaveform(channelData, totalDuration, fragStart, fra
   return buildWaveformFromPCM(channelData.slice(startIdx, endIdx), e - s);
 }
 
-export function generateWaveform(seed, numSamples) {
+export function generateWaveform(seed: number, numSamples: number): number[] {
   let s = (seed * 1664525 + 1013904223) >>> 0;
-  const raw = new Array(numSamples);
+  const raw: number[] = new Array(numSamples);
   for (let i = 0; i < numSamples; i++) {
     s = (s * 1664525 + 1013904223) >>> 0;
     raw[i] = s / 0xffffffff;
@@ -53,7 +53,7 @@ export function generateWaveform(seed, numSamples) {
   return sm.map((v) => 0.08 + ((v - mn) / (mx - mn)) * 0.92);
 }
 
-export function dataUrlToBuffer(url) {
+export function dataUrlToBuffer(url: string): ArrayBuffer {
   const b64 = url.includes(",") ? url.split(",")[1] : url;
   const str = atob(b64);
   const buf = new Uint8Array(str.length);
@@ -62,7 +62,7 @@ export function dataUrlToBuffer(url) {
 }
 
 // Acepta data: URLs (heredadas) y URLs externas (Cloudinary, etc.)
-export async function fetchAudioBuffer(url) {
+export async function fetchAudioBuffer(url: string): Promise<ArrayBuffer> {
   if (url.startsWith("data:")) return dataUrlToBuffer(url);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

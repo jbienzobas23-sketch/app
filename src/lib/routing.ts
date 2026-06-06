@@ -3,7 +3,7 @@
 // configuración extra: todo lo que va detrás de "#" lo gestiona el navegador en
 // el cliente, así que recargar o pegar un enlace profundo nunca da 404. La URL es
 // la fuente de verdad de la navegación de alto nivel; el contexto de ejercicio se
-// reconstruye a partir del id de la URL. Extraído de App.jsx (Fase 0).
+// reconstruye a partir del id de la URL. Extraído de App.jsx (Fase 0). Migrado a TS (Fase 3).
 //
 // Mapa de rutas:
 //   /                                  → inicio (elegir rol)
@@ -24,7 +24,9 @@
 //   /profesor/ejercicio/:id/correccion → corrección (previsualización)
 import { useState, useEffect, useMemo } from "react";
 
-export function parseHash() {
+export interface Route { name: string; params: Record<string, string>; }
+
+export function parseHash(): string[] {
   let h = (typeof window !== "undefined" && window.location.hash) || "";
   if (h.startsWith("#")) h = h.slice(1);
   const q = h.indexOf("?");
@@ -35,7 +37,7 @@ export function parseHash() {
 }
 
 // Segmentos de URL → ruta lógica { name, params }
-export function routeFromSegments(segs) {
+export function routeFromSegments(segs: string[]): Route {
   const [a, b, c, d] = segs;
   if (!a) return { name: "home", params: {} };
   if (a === "configuracion") return { name: "setup", params: {} };
@@ -63,7 +65,7 @@ export function routeFromSegments(segs) {
       if (d === "correccion")    return { name: "correction", params: { exId: c, from: "teacher" } };
       return { name: "teacher-detail", params: { exId: c } };
     }
-    const TAB = {
+    const TAB: Record<string, string> = {
       cursos: "courses", alumnos: "students", categorias: "categories",
       audios: "audios", ajustes: "settings", usuarios: "users",
     };
@@ -74,7 +76,7 @@ export function routeFromSegments(segs) {
 }
 
 // Pestaña interna del profesor → ruta
-export const TEACHER_TAB_PATH = {
+export const TEACHER_TAB_PATH: Record<string, string> = {
   exercises: "/profesor", courses: "/profesor/cursos", students: "/profesor/alumnos",
   categories: "/profesor/categorias", audios: "/profesor/audios",
   settings: "/profesor/ajustes", users: "/profesor/usuarios",
@@ -82,7 +84,7 @@ export const TEACHER_TAB_PATH = {
 
 // Hook de enrutado: devuelve la ruta actual y un navegador.
 export function useHashRoute() {
-  const [segs, setSegs] = useState(() => parseHash());
+  const [segs, setSegs] = useState<string[]>(() => parseHash());
 
   useEffect(() => {
     const onChange = () => setSegs(parseHash());
@@ -91,7 +93,7 @@ export function useHashRoute() {
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
 
-  const navigate = (path, opts = {}) => {
+  const navigate = (path: string, opts: { replace?: boolean } = {}) => {
     const next = path.startsWith("/") ? path : "/" + path;
     const current = window.location.hash.replace(/^#/, "") || "/";
     if (current === next) return;

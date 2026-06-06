@@ -1,15 +1,17 @@
 // ═══ CONSTANTES DEL MODELO ESQUEMA ═══════════════════════════════════════════
 // Niveles, etiquetas por defecto y umbrales de interacción del editor de esquema.
-// Extraídas de App.jsx (Fase 0) sin cambiar sus valores.
+// Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3) sin cambiar valores.
 
-export const SCHEMA_LEVELS = [
+export interface SchemaLevel { id: number; sub: string; color: string; bg: string; }
+
+export const SCHEMA_LEVELS: SchemaLevel[] = [
   { id: 1, sub: "Partes",  color: "#B87850", bg: "rgba(184,120,80,0.10)" },
   { id: 2, sub: "Frases",  color: "#5282AA", bg: "rgba(82,130,170,0.08)" },
   { id: 3, sub: "Armonía", color: "#4A9068", bg: "rgba(74,144,104,0.08)" },
   { id: 4, sub: "Texto",   color: "#8A8478", bg: "rgba(138,132,120,0.09)" },
 ];
 
-export const SCHEMA_DEFAULT_LABELS = {
+export const SCHEMA_DEFAULT_LABELS: Record<number, string[]> = {
   1: ["A", "B", "C", "D", "E", "A'", "B'"],
   2: ["a", "b", "c", "d", "e", "a'", "b'"],
   3: ["Do M", "Re m", "Sol M", "Fa M", "La m", "Mi m", "Si♭ M", "Re M"],
