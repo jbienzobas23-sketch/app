@@ -1,6 +1,6 @@
 // ═══ QUESTIONMANAGERVIEW (EDICIÓN DE PREGUNTAS) ══════════════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
-import { useState, useEffect, useRef, type ComponentType } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, S, FONT_MONO } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
@@ -8,11 +8,8 @@ import { questionsOf } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
-import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
+import { WaveformDisplay } from "./session.js";
 import { QuestionEditorModal } from "./modals.js";
-
-// session.jsx aún sin tipar; el cast permite consumirlo desde TSX.
-const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
 
 // En el gestor de preguntas cada pregunta tiene fragmento (start/end) definido.
 type QuizQuestion = Question & { audioStart: number; audioEnd: number };

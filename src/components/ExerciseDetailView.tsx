@@ -1,6 +1,6 @@
 // ═══ EXERCISEDETAILVIEW (CREACIÓN/EDICIÓN DE EJERCICIO) ══════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
-import { useState, useRef, useMemo, type ComponentType } from "react";
+import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Button } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
@@ -11,11 +11,8 @@ import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, models
 import { MODEL_META } from "../lib/modelMeta.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { ConfirmModal, AudioWaveIcon, CtaButton } from "./primitives.jsx";
-import { FragmentRangeSelector as _FragmentRangeSelector } from "./session.jsx";
+import { FragmentRangeSelector } from "./session.js";
 import { AudioLibraryPickerModal, type AudioItem } from "./modals.js";
-
-// session.jsx aún sin tipar; el cast permite consumirlo desde TSX.
-const FragmentRangeSelector = _FragmentRangeSelector as ComponentType<any>;
 
 // Categoría con botones garantizados (las que llegan por props siempre los tienen).
 type CatWithButtons = Category & { buttons: Button[] };

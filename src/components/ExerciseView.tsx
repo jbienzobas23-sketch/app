@@ -1,7 +1,7 @@
 // ═══ EXERCISEVIEW (SESIÓN INTERACTIVA) ═══════════════════════════════════════
 // Vista de sesión del modelo interactivo + RepeatManagerModal. Extraídas de
 // App.jsx (Fase 2) sin cambiar su lógica.
-import { useState, useEffect, useRef, useMemo, type ReactNode, type ComponentType } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
@@ -15,13 +15,7 @@ import { VISIBLE_SECS, EMPTY_IVS } from "../lib/sessionConstants.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ModalShell, CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton } from "./primitives.jsx";
-import { WaveformDisplay as _WaveformDisplay, AudioScrubber as _AudioScrubber, FigureLabel as _FigureLabel, FunctionButtons as _FunctionButtons } from "./session.jsx";
-
-// session.jsx aún sin tipar; los casts permiten consumirlo desde TSX.
-const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
-const AudioScrubber   = _AudioScrubber   as ComponentType<any>;
-const FigureLabel     = _FigureLabel     as ComponentType<any>;
-const FunctionButtons = _FunctionButtons as ComponentType<any>;
+import { WaveformDisplay, AudioScrubber, FigureLabel, FunctionButtons } from "./session.js";
 
 // ── Tipos locales de la sesión interactiva ───────────────────────────────────
 // Intervalo marcado por el alumno/profesor sobre la onda.
