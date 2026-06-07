@@ -19,7 +19,10 @@ interface LoginViewProps {
   onGuest?: () => void; onForgotPin?: () => void;
 }
 interface HomeViewProps { onTeacher: () => void; onStudent: () => void; }
-interface SimpleBackProps { onBack: () => void; }
+// ForgotPin/ResetPin reciben props heredadas de una API anterior que ya no
+// usan internamente; se aceptan como opcionales para no romper a los llamadores.
+interface ForgotPinViewProps { onBack: () => void; users?: unknown[]; supabaseRef?: { current: unknown }; }
+interface ResetPinViewProps { onBack: () => void; users?: unknown[]; supabaseSession?: unknown; onReset?: (u: unknown) => void | Promise<void>; }
 interface TeacherPickerViewProps {
   teachers: Teacher[]; currentTeacherId?: string | null;
   onPick: (teacher: Teacher) => void; onLogout: () => void;
@@ -207,7 +210,7 @@ export function HomeView({ onTeacher, onStudent }: HomeViewProps) {
 }
 
 // Vista para solicitar enlace de recuperación de PIN por correo
-export function ForgotPinView({ onBack }: SimpleBackProps) {
+export function ForgotPinView({ onBack }: ForgotPinViewProps) {
   const [username, setUsername] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [sent,     setSent]     = useState(false);
@@ -274,7 +277,7 @@ export function ForgotPinView({ onBack }: SimpleBackProps) {
 }
 
 // Vista para configurar nuevo PIN tras llegar desde el enlace de correo
-export function ResetPinView({ onBack }: SimpleBackProps) {
+export function ResetPinView({ onBack }: ResetPinViewProps) {
   const [pin,     setPin]     = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");

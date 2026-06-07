@@ -3,6 +3,7 @@
 // audios, ajustes, usuarios), vista de cursos, ExerciseDetailView y
 // QuestionManagerView. Extraídas de App.jsx (Fase 2). TODO: subdividir en teacher/ y courses/.
 import { useState, useRef, useMemo } from "react";
+import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
@@ -12,10 +13,37 @@ import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, StatusCircle, CategoryDots, EyeButton, EditIconButton, DeleteIconButton, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
-import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal } from "./modals.jsx";
+import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
+import { CoursesTab } from "./courses.js";
+import { ExerciseDetailView } from "./ExerciseDetailView.js";
+
+// ── Tipos compartidos de las vistas del profesor ─────────────────────────────
+// El id de ejercicio es opcional en el modelo (semillas/datos), así que lo
+// reflejamos aquí para no esparcir aserciones por todas las vistas.
+type ExId = string | number | undefined;
+type AskConfirm = (message: string, onConfirm: () => void, confirmLabel?: string) => void;
+// Perfil de usuario (profesor/alumno/admin) tal como lo consumen estas vistas.
+interface User {
+  id: string;
+  displayName?: string;
+  username?: string;
+  role?: string;
+  credType?: string;
+  teacherId?: string;
+  createdBy?: string;
+  defaultPalette?: string;
+  [k: string]: unknown;
+}
 
 // ── Pestaña: Ejercicios ────────────────────────────────────────────────────
-export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }) {
+interface TeacherExerciseRowProps {
+  ex: Exercise;
+  onSelect: (id: ExId) => void;
+  onDelete: (ex: Exercise) => void;
+  onToggleVisibility: (ex: Exercise) => void;
+  composerName?: string | null;
+}
+export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
   const exModels= modelsOf(ex);
@@ -57,7 +85,7 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
           <div className="fa-expand-inner">
             <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
               <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-              <MetaItem label="Duración">{fmt(ex.duration)}</MetaItem>
+              <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
               {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
                 : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
               <MetaItem label="Clave de corrección">
@@ -78,17 +106,26 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   );
 }
 
-export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }) {
+interface ExercisesTabProps {
+  exercises: Exercise[];
+  audioLibrary?: AudioItem[];
+  onNew: () => void;
+  onSelect: (id: ExId) => void;
+  onToggleVisibility: (ex: Exercise) => void;
+  askConfirm: AskConfirm;
+  onDelete: (id: ExId) => void;
+}
+export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }: ExercisesTabProps) {
   const [filterModel,     setFilterModel]     = useState("all");
-  const [filterComposers, setFilterComposers] = useState([]);
-  const [filterTags,      setFilterTags]      = useState([]);
+  const [filterComposers, setFilterComposers] = useState<string[]>([]);
+  const [filterTags,      setFilterTags]      = useState<string[]>([]);
 
   // Derivar compositores y etiquetas únicas de la biblioteca de audios
   const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
   const allTags      = useMemo(() => audioTags(audioLibrary),      [audioLibrary]);
   // Mapa rápido URL → audio
   const audioByUrl = useMemo(() => {
-    const m = {};
+    const m: Record<string, AudioItem> = {};
     audioLibrary.forEach((a) => { if (a.url) m[a.url] = a; });
     return m;
   }, [audioLibrary]);
@@ -97,11 +134,11 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
     return exercises.filter((ex) => {
       if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterComposers.length > 0 || filterTags.length > 0) {
-        const audio = ex.audioUrl ? audioByUrl[ex.audioUrl] : null;
-        if (filterComposers.length > 0 && (!audio || !filterComposers.includes(audio.composer))) return false;
+        const audio = ex.audioUrl ? audioByUrl[ex.audioUrl as string] : null;
+        if (filterComposers.length > 0 && (!audio || !filterComposers.includes(audio.composer ?? ""))) return false;
         if (filterTags.length > 0) {
-          const audioTags = audio?.tags || [];
-          if (!filterTags.every((t) => audioTags.includes(t))) return false;
+          const aTags = audio?.tags || [];
+          if (!filterTags.every((t) => aTags.includes(t))) return false;
         }
       }
       return true;
@@ -138,31 +175,42 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
             </p>
           : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               {filtered.map((ex) => (
-                <TeacherExerciseRow key={ex.id} ex={ex} onSelect={onSelect}
-                  composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl]?.composer || null) : null}
+                <TeacherExerciseRow key={String(ex.id)} ex={ex} onSelect={onSelect}
+                  composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
                   onToggleVisibility={onToggleVisibility}
-                  onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id))} />
+                  onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
               ))}
             </div>}
     </>
   );
 }
 
-import { CoursesTab } from "./courses.jsx";
-
 // ── Pestaña: Alumnos ──────────────────────────────────────────────────────
-export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }) {
-  const [expandedStudents, setExpandedStudents] = useState(new Set());
-  const [expandedGroups,   setExpandedGroups]   = useState(() => new Set(groups.map((g) => g.id)));
-  const toggleExpand = (id) =>
-    setExpandedStudents((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleGroup = (id) =>
-    setExpandedGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+interface StudentsTabProps {
+  students: User[];
+  exercises: Exercise[];
+  results: Record<string, Record<string, ExerciseResult>>;
+  groups: Group[];
+  onAddStudent: () => void;
+  onResetCred: (s: User) => void;
+  onRemove: (id: string) => void;
+  askConfirm: AskConfirm;
+  onViewAnswer: (student: User, exercise: Exercise, result: ExerciseResult) => void;
+  onEditGroup: (g: Group | null) => void;
+  onDeleteGroup: (id: string) => void;
+}
+export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }: StudentsTabProps) {
+  const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
+  const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(() => new Set(groups.map((g) => g.id)));
+  const toggleExpand = (id: string) =>
+    setExpandedStudents((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleGroup = (id: string) =>
+    setExpandedGroups((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  const renderStudentCard = (s) => {
+  const renderStudentCard = (s: User) => {
     const sRes    = results[s.id] || {};
     const isOpen  = expandedStudents.has(s.id);
-    const doneExs = exercises.filter((ex) => sRes[ex.id]);
+    const doneExs = exercises.filter((ex) => sRes[String(ex.id)]);
     return (
       <div
         key={s.id}
@@ -201,7 +249,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
               {doneExs.length === 0
                 ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
                 : doneExs.map((ex) => {
-                    const r = sRes[ex.id];
+                    const r = sRes[String(ex.id)];
                     const needsCorrection = r && !r.teacherCorrection?.corrected && (
                       r.type === "esquema" ||
                       (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
@@ -292,7 +340,16 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
 }
 
 // ── Pestaña: Categorías ───────────────────────────────────────────────────
-export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }) {
+interface CategoriesTabProps {
+  categories: Category[];
+  isAdmin: boolean;
+  onAdd: () => void;
+  onEdit: (m: Category) => void;
+  onDelete: (id: string) => void;
+  onToggleGlobal: (id: string) => void;
+  askConfirm: AskConfirm;
+}
+export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }: CategoriesTabProps) {
   return (
     <>
       <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Crear categoría</button>
@@ -301,7 +358,7 @@ export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, on
       </p>
 
       {categories.map((m) => {
-        const isGlobal = m.builtIn || m.global;
+        const isGlobal = Boolean(m.builtIn || m.global);
         const canEdit  = isAdmin || !isGlobal;
         const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
         return (
@@ -317,9 +374,9 @@ export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, on
                   )}
                 </div>
                 <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                  {m.buttons.map((b) => (
+                  {(m.buttons || []).map((b) => (
                     <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
-                      {b.id} · {b.name} [{b.key.toUpperCase()}]
+                      {b.id} · {b.name} [{(b.key ?? "").toUpperCase()}]
                     </span>
                   ))}
                 </div>
@@ -356,11 +413,19 @@ export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, on
 }
 
 // ── Pestaña: Audios (almacén) ─────────────────────────────────────────────
-export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }) {
-  const [openId,          setOpenId]          = useState(null);
-  const [previewId,       setPreviewId]       = useState(null);
-  const [filterComposers, setFilterComposers] = useState([]);
-  const [filterTags,      setFilterTags]      = useState([]);
+interface AudiosTabProps {
+  audioLibrary: AudioItem[];
+  isAdmin: boolean;
+  onAdd: () => void;
+  onEdit: (a: AudioItem) => void;
+  onDelete: (id: string) => void;
+  askConfirm: AskConfirm;
+}
+export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }: AudiosTabProps) {
+  const [openId,          setOpenId]          = useState<string | null>(null);
+  const [previewId,       setPreviewId]       = useState<string | null>(null);
+  const [filterComposers, setFilterComposers] = useState<string[]>([]);
+  const [filterTags,      setFilterTags]      = useState<string[]>([]);
 
   // Opciones únicas para los dropdowns
   const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
@@ -370,7 +435,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
   const filtered = useMemo(() => {
     if (filterComposers.length === 0 && filterTags.length === 0) return audioLibrary;
     return audioLibrary.filter((a) => {
-      if (filterComposers.length > 0 && !filterComposers.includes(a.composer)) return false;
+      if (filterComposers.length > 0 && !filterComposers.includes(a.composer ?? "")) return false;
       if (filterTags.length > 0) {
         const aTags = a.tags || [];
         if (!filterTags.every((t) => aTags.includes(t))) return false;
@@ -381,8 +446,8 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
 
   const hasFilters = filterComposers.length > 0 || filterTags.length > 0;
 
-  const toggleComposer = (val) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
-  const toggleTag      = (val) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleComposer = (val: string) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
+  const toggleTag      = (val: string) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
 
   return (
     <>
@@ -478,7 +543,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
                     <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
                   )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration ?? 0)}</span>
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
                     {(audio.tags || []).map((tag) => (
                       <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
@@ -498,9 +563,15 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
 }
 
 // ── Pestaña: Ajustes ──────────────────────────────────────────────────────
-export function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }) {
+interface SettingsTabProps {
+  margin: number;
+  onMargin: (v: number) => void;
+  currentUser: User | null;
+  onUpdateUser: (u: User) => void;
+}
+export function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }: SettingsTabProps) {
   const current = currentUser?.defaultPalette || SCHEMA_PALETTE_DEFAULT;
-  const setPalette = (id) => { if (currentUser) onUpdateUser({ ...currentUser, defaultPalette: id }); };
+  const setPalette = (id: string) => { if (currentUser) onUpdateUser({ ...currentUser, defaultPalette: id }); };
   return (
     <>
       <div style={S.card}>
@@ -518,7 +589,7 @@ export function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }) {
 }
 
 // Tarjeta reutilizable de selección de paleta por defecto (profesor y alumno).
-export function PalettePreferenceCard({ current, onSelect }) {
+export function PalettePreferenceCard({ current, onSelect }: { current?: string; onSelect: (id: string) => void }) {
   return (
     <div style={{ ...S.card, marginTop: 14 }}>
       <label style={S.label}>Paleta de color por defecto</label>
@@ -549,7 +620,15 @@ export function PalettePreferenceCard({ current, onSelect }) {
 // StudentDash lo use sin arrastrar este módulo de profesor al bundle del alumno.
 
 // ── Pestaña: Usuarios (admin) ─────────────────────────────────────────────
-export function UsersTab({ currentUser, teachers, onAddTeacher, onResetCred, onRemove, askConfirm }) {
+interface UsersTabProps {
+  currentUser: User;
+  teachers: User[];
+  onAddTeacher: () => void;
+  onResetCred: (t: User) => void;
+  onRemove: (id: string) => void;
+  askConfirm: AskConfirm;
+}
+export function UsersTab({ currentUser, teachers, onAddTeacher, onResetCred, onRemove, askConfirm }: UsersTabProps) {
   return (
     <>
       <div style={{ ...S.row, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -596,6 +675,53 @@ export function UsersTab({ currentUser, teachers, onAddTeacher, onResetCred, onR
   );
 }
 
+interface TeacherDashProps {
+  currentUser: User;
+  users: User[];
+  onAddUser: (u: unknown) => void;
+  onRemoveUser: (id: string) => void;
+  onUpdateUser: (u: User) => void;
+  exercises: Exercise[];
+  onUpdateExercise: (id: ExId, patch: Record<string, unknown>) => void;
+  onDeleteExercise: (id: ExId) => void;
+  results: Record<string, Record<string, ExerciseResult>>;
+  margin: number;
+  onMargin: (v: number) => void;
+  onRecord: (ex: Exercise) => void;
+  onPreview: (ex: Exercise) => void;
+  onManageQuestions: (ex: Exercise) => void;
+  onAdd: (ex: Record<string, unknown>) => void;
+  onLogout: () => void;
+  categories: Category[];
+  onAddCategory: (c: Category) => void;
+  onUpdateCategory: (c: Category) => void;
+  onDeleteCategory: (id: string) => void;
+  onToggleGlobalCategory: (id: string) => void;
+  courses: Course[];
+  units: Unit[];
+  onAddCourse: (c: Course) => void;
+  onUpdateCourse: (c: Course) => void;
+  onDeleteCourse: (id: string) => void;
+  onAddUnit: (u: Unit, courseId: string | null) => void;
+  onUpdateUnit: (u: Unit) => void;
+  onDeleteUnit: (unitId: string, courseId: string) => void;
+  onAddExercisesToUnit: (unitId: string, ids: ExId[]) => void;
+  onRemoveExerciseFromUnit: (unitId: string, exId: string) => void;
+  groups?: Group[];
+  onAddGroup: (g: Group) => void;
+  onUpdateGroup: (g: Group) => void;
+  onDeleteGroup: (id: string) => void;
+  onSaveCorrection: (studentId: string | undefined, exerciseId: ExId, correction: Record<string, unknown>) => void;
+  audioLibrary?: AudioItem[];
+  onAddAudio: (a: AudioItem) => void;
+  onUpdateAudio: (a: AudioItem) => void;
+  onDeleteAudio: (id: string) => void;
+  tab?: string;
+  onTab?: (t: string) => void;
+  detailExId?: ExId | "new" | null;
+  onSelectExercise?: (id: ExId | "new" | null) => void;
+}
+
 export function TeacherDash({
   currentUser,
   users, onAddUser, onRemoveUser, onUpdateUser,
@@ -611,7 +737,7 @@ export function TeacherDash({
   onSaveCorrection,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
   tab = "exercises", onTab, detailExId = null, onSelectExercise,
-}) {
+}: TeacherDashProps) {
   const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
   const isMobile = useIsMobile();
 
@@ -630,36 +756,35 @@ export function TeacherDash({
   const selectedExerciseId = detailExId;
   const setSelectedExerciseId = onSelectExercise || (() => {});
   // Para que el profesor vea la respuesta detallada de un alumno en un ejercicio
-  const [viewingAnswer, setViewingAnswer] = useState(null); // null | { student, exercise, result }
+  const [viewingAnswer, setViewingAnswer] = useState<{ student: User; exercise: Exercise; result: ExerciseResult } | null>(null);
 
   // Modal state
-  const [editingCategory, setEditingCategory] = useState(null);    // null | "new" | category
-  const [confirmState,    setConfirmState]    = useState(null);
-  const [editingAudio,    setEditingAudio]    = useState(null);    // null | "new" | audio
+  const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
+  const [confirmState,    setConfirmState]    = useState<{ message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
+  const [editingAudio,    setEditingAudio]    = useState<AudioItem | "new" | null>(null);
   const [showAddUser,     setShowAddUser]     = useState(false);
   const [addingUserRole,  setAddingUserRole]  = useState("student");
   const [showResetCred,   setShowResetCred]   = useState(false);
-  const [resetCredTarget, setResetCredTarget] = useState(null);
-  const [editingGroup,    setEditingGroup]    = useState(undefined); // undefined=closed, null=new, group=edit
+  const [resetCredTarget, setResetCredTarget] = useState<User | null>(null);
+  const [editingGroup,    setEditingGroup]    = useState<Group | null | undefined>(undefined); // undefined=closed, null=new, group=edit
 
   // Course/unit modal state
-  const [openUnitIds,      setOpenUnitIds]      = useState(new Set());
-  const [editingCourse,    setEditingCourse]    = useState(null);  // null | "new" | course
-  const [editingUnit,      setEditingUnit]      = useState(null);  // null | unit
-  const [unitFormCourseId, setUnitFormCourseId] = useState(null);
-  const [exPickerUnitId,   setExPickerUnitId]   = useState(null);
-  const [newExInUnit,      setNewExInUnit]      = useState(null);
+  const [editingCourse,    setEditingCourse]    = useState<Course | "new" | null>(null);
+  const [editingUnit,      setEditingUnit]      = useState<Unit | null>(null);
+  const [unitFormCourseId, setUnitFormCourseId] = useState<string | null>(null);
+  const [exPickerUnitId,   setExPickerUnitId]   = useState<string | null>(null);
+  const [newExInUnit,      setNewExInUnit]      = useState<string | null>(null);
 
-  const askConfirm = (message, onConfirm, confirmLabel = "Eliminar") =>
+  const askConfirm: AskConfirm = (message, onConfirm, confirmLabel = "Eliminar") =>
     setConfirmState({ message, confirmLabel, onConfirm: () => { onConfirm(); setConfirmState(null); } });
 
   // Tras crear un ejercicio dentro de una unidad, lo añadimos automáticamente
-  const lastCreatedExRef = useRef(null);
-  const handleExerciseCreated = (newEx, unitId) => {
-    lastCreatedExRef.current = newEx;
+  const lastCreatedExRef = useRef<Exercise | null>(null);
+  const handleExerciseCreated = (newEx: Record<string, unknown>, unitId: string | null) => {
+    lastCreatedExRef.current = newEx as Exercise;
     onAdd(newEx);
-    if (unitId) onAddExercisesToUnit(unitId, [newEx.id]);
-    setSelectedExerciseId(newEx.id);
+    if (unitId) onAddExercisesToUnit(unitId, [newEx.id as ExId]);
+    setSelectedExerciseId(newEx.id as ExId);
     setNewExInUnit(null);
   };
 
@@ -667,10 +792,10 @@ export function TeacherDash({
   if (viewingAnswer) {
     const { student, exercise: va_ex, result: va_result } = viewingAnswer;
     const freshVa      = exercises.find((e) => e.id === va_ex.id) || va_ex;
-    const freshResult  = (results[student.id] || {})[va_ex.id] || va_result;
+    const freshResult  = (results[student.id] || {})[String(va_ex.id ?? "")] || va_result;
     // El profesor ve los colores con la paleta que usó el alumno al entregar.
-    const vaPalette    = effectivePaletteId({ schemaPalette: freshResult?.schemaPalette }, null);
-    const freshVaPal   = applyPaletteToExercise(freshVa, vaPalette);
+    const vaPalette    = effectivePaletteId({ schemaPalette: freshResult?.schemaPalette as string | undefined }, null);
+    const freshVaPal   = applyPaletteToExercise(freshVa, vaPalette) || freshVa;
     return (
       <div style={S.app}>
         <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -787,7 +912,7 @@ export function TeacherDash({
         {tab === "courses" && (
           <CoursesTab
             courses={courses} units={units} exercises={exercises} groups={teacherGroups}
-            openUnitIds={openUnitIds} setOpenUnitIds={setOpenUnitIds}
+            results={{}}
             onCreateCourse={() => setEditingCourse("new")}
             onEditCourse={(c) => setEditingCourse(c)}
             onDeleteCourse={onDeleteCourse}
@@ -882,14 +1007,14 @@ export function TeacherDash({
 
         {showAddUser && (
           <AddUserModal forRole={addingUserRole} currentUserId={currentUser.id}
-            existingUsernames={(users || []).map((u) => u.username)}
+            existingUsernames={(users || []).map((u) => u.username ?? "")}
             onSave={(newUser) => { onAddUser(newUser); setShowAddUser(false); }}
             onClose={() => setShowAddUser(false)} />
         )}
 
         {showResetCred && resetCredTarget && (
           <ResetCredentialModal targetUser={resetCredTarget}
-            onSave={(updated) => { onUpdateUser(updated); setShowResetCred(false); setResetCredTarget(null); }}
+            onSave={(updated) => { onUpdateUser(updated as User); setShowResetCred(false); setResetCredTarget(null); }}
             onClose={() => { setShowResetCred(false); setResetCredTarget(null); }} />
         )}
 
@@ -922,5 +1047,3 @@ export function TeacherDash({
     </div>
   );
 }
-
-import { ExerciseDetailView } from "./ExerciseDetailView.jsx";
