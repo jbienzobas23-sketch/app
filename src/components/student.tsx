@@ -8,6 +8,7 @@ import { modelOf, modelsOf, questionsOf, categoriesOf } from "../lib/domain.js";
 import { fmt } from "../lib/ids.js";
 import { scoreBg, scoreColor } from "../lib/color.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
+import { rowButtonProps } from "../lib/a11y.js";
 import { StatusCircle, Chevron, MetaItem, CategoryDots } from "./primitives.jsx";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection }: ExerciseRo
         <div style={{ width: 10, flexShrink: 0, background: meta.color }} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div onClick={() => setOpen((o) => !o)}
+        <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <span style={{ fontFamily: F.sans, fontSize: isMobile ? 15.5 : 16, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>

@@ -56,7 +56,11 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
 
   const [currentCategoryId, setCurrentCategoryId] = useState(initialCategoryId);
   // Categoría activa con `buttons` garantizado (la sesión siempre opera sobre una).
-  const exCategory = ((exCategories.find((m) => m.id === currentCategoryId) || exCategories[0]) ?? { id: "", buttons: [] }) as ExCategory;
+  // Memoizada para que `colorByFn` (que la usa como dependencia) no se recree en cada render.
+  const exCategory = useMemo(
+    () => ((exCategories.find((m) => m.id === currentCategoryId) || exCategories[0]) ?? { id: "", buttons: [] }) as ExCategory,
+    [exCategories, currentCategoryId],
+  );
   const colorByFn  = useMemo(() => {
     const m: Record<string, string> = {};
     exCategory.buttons.forEach((b) => { m[b.id] = b.color ?? C.ink; });

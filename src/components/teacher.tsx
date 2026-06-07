@@ -11,6 +11,7 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPalet
 import { categoriesOf, modelOf, modelsOf, answerStats, questionsOf, audioComposers, audioTags } from "../lib/domain.js";
 import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
+import { rowButtonProps } from "../lib/a11y.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, StatusCircle, CategoryDots, EyeButton, EditIconButton, DeleteIconButton, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
@@ -66,7 +67,7 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
         <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div onClick={() => setOpen((o) => !o)}
+        <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: isHidden ? C.muted : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
@@ -215,6 +216,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
       <div
         key={s.id}
         onClick={() => exercises.length > 0 && toggleExpand(s.id)}
+        {...(exercises.length > 0 ? { ...rowButtonProps(() => toggleExpand(s.id)), "aria-expanded": isOpen } : {})}
         style={{ ...S.card, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
         {/* Cabecera siempre visible */}
         <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
@@ -303,7 +305,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
             <div
-              onClick={() => toggleGroup(group.id)}
+              onClick={() => toggleGroup(group.id)} {...rowButtonProps(() => toggleGroup(group.id))} aria-expanded={isGroupOpen}
               style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
               <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
@@ -507,7 +509,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
             <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
               {/* ── Cabecera siempre visible ── */}
               <div
-                onClick={() => setOpenId(isOpen ? null : audio.id)}
+                onClick={() => setOpenId(isOpen ? null : audio.id)} {...rowButtonProps(() => setOpenId(isOpen ? null : audio.id))} aria-expanded={isOpen}
                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>

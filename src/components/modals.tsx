@@ -1,8 +1,8 @@
 // ═══ MODALES ═════════════════════════════════════════════════════════════════
 // Editores y formularios modales (categorías, grupos, cursos, unidades, usuarios,
 // audios, preguntas). Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
-import { useState, useRef, type ReactNode } from "react";
-import type { Category, Button, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
+import { useState, useRef } from "react";
+import type { Category, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
 import { fmt, uid, toggleInSet } from "../lib/ids.js";
 import { fetchAudioBuffer } from "../lib/audio.js";

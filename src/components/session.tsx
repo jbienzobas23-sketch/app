@@ -12,8 +12,6 @@ import { SCHEMA_HND_VISUAL_W } from "../lib/schema.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 
 // ── Tipos locales de la infraestructura de sesión ────────────────────────────
-// Intervalo dibujable (clave/marcado/bloque). `id` opcional: "live"/"tmp-commit".
-interface Iv { id?: string; fn: string; start: number; end: number; fig?: string | null; _anim?: number; [k: string]: unknown; }
 // Pulsación en curso leída de forma síncrona desde un ref.
 interface Pressing { fn: string; start: number; end?: number | null; }
 type ColorMap = Record<string, string>;
@@ -809,6 +807,8 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
     };
     tick();
     return () => cancelAnimationFrame(raf);
+  // pressingRef es un ref estable de ExerciseView; no debe disparar el efecto.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration, timeRef]);
 
   const TRACK_H = 8;   // altura del track (px)
