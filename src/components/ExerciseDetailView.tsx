@@ -31,12 +31,14 @@ interface ExerciseDetailViewProps {
   onUpdate: (patch: Record<string, unknown>) => void;
   onCreate: (ex: Record<string, unknown>) => void;
   onDelete: () => void;
-  categories: CatWithButtons[];
+  categories: Category[];
   audioLibrary?: AudioItem[];
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories, audioLibrary = [] }: ExerciseDetailViewProps) {
+export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories: categoriesProp, audioLibrary = [] }: ExerciseDetailViewProps) {
+  // Las categorías reales siempre traen `buttons`; lo garantizamos para el formulario.
+  const categories = categoriesProp as CatWithButtons[];
   const isCreating = exerciseProp == null;
   // En modo creación no se accede a los campos de `exercise` (todo va guardado
   // por `isCreating`); el cast evita propagar `| null` por todo el componente.
