@@ -1,6 +1,6 @@
 // ═══ QUESTIONNAIREVIEW (CUESTIONARIO) ════════════════════════════════════════
 // Vista del alumno para ejercicios tipo cuestionario. Extraída de App.jsx (Fase 2).
-import { useState, useRef, type ReactNode, type ComponentType } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
@@ -8,10 +8,7 @@ import { calcQuestionnaireScore } from "../lib/scoring.js";
 import { questionsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
-import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
-
-// session.jsx aún no está tipado; el cast permite consumirlo desde TSX.
-const WaveformDisplay = _WaveformDisplay as ComponentType<any>;
+import { WaveformDisplay } from "./session.js";
 
 // El player compartido (MultiModelSessionView) es el valor de useAudioPlayer
 // ampliado con la waveform decodificada una sola vez.

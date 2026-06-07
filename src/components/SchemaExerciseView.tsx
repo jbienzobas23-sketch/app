@@ -1,7 +1,7 @@
 // ═══ SCHEMAEXERCISEVIEW (MODELO ESQUEMA) ═════════════════════════════════════
 // Vista de sesión del modelo Esquema (timeline de bloques, repeticiones, paletas).
 // Extraída de App.jsx (Fase 2). TODO: subdividir en sub-componentes + useSchemaEditor.
-import React, { useState, useEffect, useRef, useMemo, type ReactNode, type ComponentType } from "react";
+import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
@@ -12,12 +12,8 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFro
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
-import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
-import { RepeatManagerModal as _RepeatManagerModal } from "./ExerciseView.js";
-
-// session.jsx (WaveformDisplay) y ExerciseView usan props amplias; cast a any.
-const WaveformDisplay     = _WaveformDisplay     as ComponentType<any>;
-const RepeatManagerModal  = _RepeatManagerModal  as ComponentType<any>;
+import { WaveformDisplay } from "./session.js";
+import { RepeatManagerModal } from "./ExerciseView.js";
 
 // ── Tipos locales del editor de esquema ──────────────────────────────────────
 // Block y Rep se reutilizan de repeats.ts (forma compartida con los helpers).

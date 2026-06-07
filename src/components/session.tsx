@@ -347,8 +347,10 @@ interface WaveformDisplayProps {
   timeRef?: { current: number } | null;
   duration: number;
   waveformDuration?: number;
-  allIntervals: Iv[];
-  exerciseId: string | number;
+  // Los intervalos varían según el consumidor (clave, marcado en vivo, vacío);
+  // el canvas los lee de forma laxa, así que se aceptan con forma abierta.
+  allIntervals: any[];
+  exerciseId?: string | number;
   waveformData: number[] | null;
   colorByFn: ColorMap;
   questionRegion?: QuestionRegion | null;
@@ -356,7 +358,7 @@ interface WaveformDisplayProps {
   selectedIvId?: string | null;
   onBandPointerDown?: ((e: any, clientX: number, rect: DOMRect) => void) | null;
   pressingRef?: { current: Pressing | null } | null;
-  hintIntervals?: Iv[];
+  hintIntervals?: any[];
   paintFn?: string | null;
   onPaintCommit?: ((start: number, end: number) => void) | null;
   onScrubBegin: () => void;
@@ -753,7 +755,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
 interface AudioScrubberProps {
   timeRef?: { current: number } | null;
   duration: number;
-  intervals: Iv[];
+  intervals: any[];
   pressingRef: { current: Pressing | null };
   colorByFn: ColorMap;
   onSeek: (t: number) => void;
