@@ -5,7 +5,7 @@
 import { uid } from "./ids.js";
 
 interface Span { start: number; end: number; }
-export interface Rep { id?: string; first: Span; second: Span; }
+export interface Rep { id?: string; label?: string; first: Span; second: Span; }
 export interface Segment {
   type: string;
   recStart?: number; recEnd?: number;
@@ -17,9 +17,9 @@ export interface Segment {
 // extras), por eso el índice abierto.
 export interface Block {
   id: string; start: number; end: number;
-  repeatId?: string; pass?: string; isPreview?: boolean;
+  repeatId?: string | null; pass?: string | null; isPreview?: boolean;
   mirrorId?: string; overridden?: boolean;
-  label?: string; level?: number; customColor?: string;
+  label?: string; level?: number; customColor?: string; bodyText?: string;
   _lockedStart?: boolean; _lockedEnd?: boolean;
   [k: string]: unknown;
 }

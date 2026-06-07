@@ -1,7 +1,9 @@
 // ═══ SCHEMAEXERCISEVIEW (MODELO ESQUEMA) ═════════════════════════════════════
 // Vista de sesión del modelo Esquema (timeline de bloques, repeticiones, paletas).
 // Extraída de App.jsx (Fase 2). TODO: subdividir en sub-componentes + useSchemaEditor.
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, type ReactNode, type ComponentType } from "react";
+import type { Exercise } from "../lib/types.js";
+import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { harmonyBlockColors } from "../lib/harmony.js";
@@ -10,15 +12,35 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFro
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
-import { WaveformDisplay } from "./session.jsx";
-import { RepeatManagerModal } from "./ExerciseView.jsx";
+import { WaveformDisplay as _WaveformDisplay } from "./session.jsx";
+import { RepeatManagerModal as _RepeatManagerModal } from "./ExerciseView.js";
 
-export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }) {
-  const duration = exercise.duration;
-  const [localWaveformData, setLocalWaveformData] = useState(exercise.waveformData || null);
+// session.jsx (WaveformDisplay) y ExerciseView usan props amplias; cast a any.
+const WaveformDisplay     = _WaveformDisplay     as ComponentType<any>;
+const RepeatManagerModal  = _RepeatManagerModal  as ComponentType<any>;
+
+// ── Tipos locales del editor de esquema ──────────────────────────────────────
+// Block y Rep se reutilizan de repeats.ts (forma compartida con los helpers).
+type Repetition = Rep;
+type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: number[] | null };
+
+interface SchemaSubmit { type: "esquema"; blocks: Block[]; schemaPalette: string; placementScore?: number | null; [k: string]: unknown; }
+
+interface SchemaExerciseViewProps {
+  exercise: Exercise;
+  mode: string;
+  onSubmit: (result: SchemaSubmit) => void;
+  onBack: () => void;
+  modelToggleNode?: ReactNode;
+  sharedAudioPlayer?: SharedAudioPlayer | null;
+}
+
+export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }: SchemaExerciseViewProps) {
+  const duration = exercise.duration as number;
+  const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
 
-  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? wd => setLocalWaveformData(wd) : null;
+  const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd: number[]) => setLocalWaveformData(wd) : null;
   const localPlayer = useAudioPlayer(
     sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
     { onWaveform: localOnWaveform }
@@ -32,33 +54,33 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const timeRef = useRef(0);
   timeRef.current = time;
 
-  const [blocks,       setBlocks]       = useState(exercise.blocks || []);
-  const [history,      setHistory]      = useState([]);
-  const [selected,     setSelected]     = useState(null);
-  const [selectedRepId, setSelectedRepId] = useState(null); // rep seleccionada en la banda
-  const [editId,       setEditId]       = useState(null);
+  const [blocks,       setBlocks]       = useState<Block[]>((exercise.blocks as Block[] | undefined) || []);
+  const [history,      setHistory]      = useState<Block[][]>([]);
+  const [selected,     setSelected]     = useState<string | null>(null);
+  const [selectedRepId, setSelectedRepId] = useState<string | null>(null); // rep seleccionada en la banda
+  const [editId,       setEditId]       = useState<string | null>(null);
   const [editVal,      setEditVal]      = useState("");
-  const [guides,       setGuides]       = useState([]);
-  const [localReps,    setLocalReps]    = useState(exercise.repetitions || []);
+  const [guides,       setGuides]       = useState<number[]>([]);
+  const [localReps,    setLocalReps]    = useState<Repetition[]>((exercise.repetitions as Repetition[] | undefined) || []);
   const [showRepModal, setShowRepModal] = useState(false);
   // selectedPass: { [repId]: "first"|"second" } — qué vez mostrar cuando no está sonando
-  const [selectedPass]    = useState({});
-  const repResizeRef    = useRef(null);   // drag de resize de zona de repetición
-  const [repResizeGuide, setRepResizeGuide] = useState(null); // null | { xFrac, color }
+  const [selectedPass]    = useState<Record<string, "first" | "second">>({});
+  const repResizeRef    = useRef<any>(null);   // drag de resize de zona de repetición
+  const [repResizeGuide, setRepResizeGuide] = useState<{ xFrac: number; color: string } | null>(null);
   const localRepsRef = useRef(localReps);
   localRepsRef.current = localReps;
 
   const listenOnly = !!exercise.listenOnly;
   const [playCount,   setPlayCount]   = useState(0);
-  const [schemaMarks, setSchemaMarks] = useState([]);
-  const schemaMarksRef = useRef([]);
+  const [schemaMarks, setSchemaMarks] = useState<number[]>([]);
+  const schemaMarksRef = useRef<number[]>([]);
   schemaMarksRef.current = schemaMarks;
 
   // ── Zoom y desplazamiento horizontal del esquema ─────────────────────────
   const [schemaZoom,       setSchemaZoom]       = useState(1);
   const [schemaScrollFrac, setSchemaScrollFrac] = useState(0);
-  const schemaOuterRef = useRef(null);
-  const pinchRef       = useRef(null);
+  const schemaOuterRef = useRef<HTMLDivElement | null>(null);
+  const pinchRef       = useRef<any>(null);
 
   // ── Modo de vista: "completa" (edición secuencial, sin doble altura)
   //               | "resumida" (doble altura, solo lectura)
@@ -70,10 +92,10 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // "p1".."p5" = paletas de Adobe.
   const [schemaPalette, setSchemaPalette] = useState(exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const paletteRef = useRef(null);
+  const paletteRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!paletteOpen) return;
-    const onDown = (e) => { if (paletteRef.current && !paletteRef.current.contains(e.target)) setPaletteOpen(false); };
+    const onDown = (e: Event) => { if (paletteRef.current && !paletteRef.current.contains(e.target as Node)) setPaletteOpen(false); };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
@@ -83,10 +105,10 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // bandDrag = null
   //   | { type:"create", startT, curT }          — arrastrando para crear
   //   | { type:"handle", handle, origRep }        — arrastrando asa de borde
-  const [bandDrag, setBandDrag] = useState(null);
-  const bandRef    = useRef(null);
+  const [bandDrag, setBandDrag] = useState<any>(null);
+  const bandRef    = useRef<HTMLDivElement | null>(null);
 
-  const segments    = useMemo(() =>
+  const segments: any[] = useMemo(() =>
     viewMode === "resumida"
       ? buildRepeatSegments(duration, localReps)
       : buildCompleteViewSegments(duration, localReps),
@@ -113,7 +135,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   }, [viewMode, localReps.length]);
 
   // ── History helpers ──────────────────────────────────────────────────────
-  const setBlocksSnap = updater => {
+  const setBlocksSnap = (updater: Block[] | ((prev: Block[]) => Block[])) => {
     setHistory(p => [...p, blocksRef.current]);
     setBlocks(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -135,15 +157,15 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // ── Refs ─────────────────────────────────────────────────────────────────
   // trackSegRefs: key = `${lvId}_${segIndex}_${pass}`  ("pass" = "normal"|"first"|"second")
   // ruler refs:   key = `ruler_${segIndex}_${pass}`
-  const trackSegRefs  = useRef({});
-  const dragRef       = useRef(null);
+  const trackSegRefs  = useRef<Record<string, HTMLElement | null>>({});
+  const dragRef       = useRef<any>(null);
   const blocksRef     = useRef(blocks);
-  const colorInputRef = useRef(null);
+  const colorInputRef = useRef<HTMLInputElement | null>(null);
   blocksRef.current   = blocks;
 
   // Ruler container width (para calcular densidad de marcas)
   const [rulerW, setRulerW] = useState(600);
-  const rulerContainerRef   = useRef(null);
+  const rulerContainerRef   = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = rulerContainerRef.current; if (!el) return;
     setRulerW(el.getBoundingClientRect().width);
@@ -154,7 +176,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // ── Rueda del ratón → zoom (listener no-pasivo para poder preventDefault) ──
   useEffect(() => {
     const outer = schemaOuterRef.current; if (!outer) return;
-    const handler = e => {
+    const handler = (e: WheelEvent) => {
       e.preventDefault();
       const rect    = outer.getBoundingClientRect();
       const curFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -177,7 +199,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   }, []);
 
   // ── Guardar repeticiones desde el modal ─────────────────────────────────
-  const handleSaveRepetitions = newReps => {
+  const handleSaveRepetitions = (newReps: Repetition[]) => {
     setShowRepModal(false);
     const oldIds = new Set(localRepsRef.current.map(r => r.id));
     const newIds = new Set(newReps.map(r => r.id));
@@ -185,8 +207,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       let upd = [...prev];
       // Eliminar etiquetas de repeticiones borradas
       const removed = [...oldIds].filter(id => !newIds.has(id));
-      upd = upd.map(b => removed.includes(b.repeatId) ? { ...b, repeatId: null, pass: null } : b);
-      upd = upd.filter(b => !(removed.includes(b.repeatId) && b.pass === "second"));
+      upd = upd.map(b => removed.includes(b.repeatId as string) ? { ...b, repeatId: null, pass: null } : b);
+      upd = upd.filter(b => !(removed.includes(b.repeatId as string) && b.pass === "second"));
       // Procesar repeticiones nuevas
       for (const rep of newReps.filter(r => !oldIds.has(r.id))) {
         // Etiquetar bloques existentes que caen dentro de la 1ª vez
@@ -239,7 +261,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Mapeo tiempo→posición visual (para bandas del overlay de dibujo) ─────
-  const recToVisX = t => {
+  const recToVisX = (t: number) => {
     for (const seg of segmentsRef.current) {
       if (seg.type === "normal" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
         return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
@@ -260,7 +282,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // la 2ª vez TAMBIÉN de forma proporcional dentro del mismo segmento visual.
   // Esto permite que bloques sin repeatId cuyo end cae en la 2ª ocurrencia
   // calculen su anchura visual correctamente (en vez de devolver siempre 1.0).
-  const recToVisXResumed = t => {
+  const recToVisXResumed = (t: number) => {
     for (const seg of segmentsRef.current) {
       if (seg.type === "normal" && t >= seg.recStart - 0.01 && t <= seg.recEnd + 0.01)
         return seg.vStart + Math.max(0, Math.min(1, (t - seg.recStart) / (seg.canonDur || 1))) * (seg.vEnd - seg.vStart);
@@ -284,29 +306,29 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Eliminar una repetición por id ───────────────────────────────────────
-  const deleteRepeat = repId => handleSaveRepetitions(localRepsRef.current.filter(r => r.id !== repId));
+  const deleteRepeat = (repId: string) => handleSaveRepetitions(localRepsRef.current.filter(r => r.id !== repId));
 
   // ── Banda de repetición: helpers y handlers ──────────────────────────────
   // En vista completa la fracción es lineal: frac = t / duration
-  const timeToFrac = t  => Math.max(0, Math.min(1, t / duration));
-  const fracToTime = f  => f * duration;   // sin redondeo para movimiento suave
+  const timeToFrac = (t: number)  => Math.max(0, Math.min(1, t / duration));
+  const fracToTime = (f: number)  => f * duration;   // sin redondeo para movimiento suave
 
-  const getBandClientX = ev =>
+  const getBandClientX = (ev: any) =>
     ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
 
-  const getBandFrac = ev => {
+  const getBandFrac = (ev: any) => {
     const el = bandRef.current; if (!el) return 0;
     const r  = el.getBoundingClientRect();
     return Math.max(0, Math.min(1, (getBandClientX(ev) - r.left) / r.width));
   };
 
   // Iniciar drag de creación — funciona aunque ya haya repeticiones
-  const handleBandCreateDown = e => {
+  const handleBandCreateDown = (e: any) => {
     if (e.target.closest("button") || e.target.closest("[data-band-handle]")) return;
     e.preventDefault();
     const BAND_SNAP  = Math.max(0.3, duration * 0.02);
     const AUTOSNAP_S = 5;
-    const snapT = raw => {
+    const snapT = (raw: number) => {
       const pts = [0, duration,
         ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end]),
         ...localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.end]),
@@ -317,12 +339,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     };
     const startT = snapT(fracToTime(getBandFrac(e)));
     setBandDrag({ type: "create", startT, curT: startT });
-    const mv = ev => {
+    const mv = (ev: any) => {
       if (ev.cancelable) ev.preventDefault();
-      setBandDrag(p => p ? { ...p, curT: snapT(fracToTime(getBandFrac(ev))) } : null);
+      setBandDrag((p: any) => p ? { ...p, curT: snapT(fracToTime(getBandFrac(ev))) } : null);
     };
     const up = () => {
-      setBandDrag(prev => {
+      setBandDrag((prev: any) => {
         if (!prev) return null;
         const s  = Math.min(prev.startT, prev.curT);
         const e2 = Math.max(prev.startT, prev.curT);
@@ -351,18 +373,18 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   // Iniciar drag de asa de borde
   // handle: "first.start" | "junction" (first.end = second.start) | "second.end"
-  const handleBandHandleDown = (e, rep, handle) => {
+  const handleBandHandleDown = (e: any, rep: any, handle: string) => {
     e.preventDefault(); e.stopPropagation();
 
     const BAND_SNAP = Math.max(0.3, duration * 0.02);
-    const snapT = raw => {
+    const snapT = (raw: number) => {
       const candidates = [0, duration, ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end])];
       let best = raw, bestDist = BAND_SNAP;
       for (const c of candidates) { const dd = Math.abs(raw - c); if (dd < bestDist) { bestDist = dd; best = c; } }
       return best;
     };
 
-    const calcNewRep = raw => {
+    const calcNewRep = (raw: number) => {
       const t = snapT(raw);
       const r = { ...rep, first: { ...rep.first }, second: { ...rep.second } };
       if (handle === "first.start") {
@@ -383,12 +405,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       return r;
     };
 
-    const mv = ev => {
+    const mv = (ev: any) => {
       if (ev.cancelable) ev.preventDefault();
       const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
       setLocalReps(prev => prev.map(r => r.id === rep.id ? newRep : r));
     };
-    const up = ev => {
+    const up = (ev: any) => {
       const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
       handleSaveRepetitions(localRepsRef.current.map(r => r.id === rep.id ? newRep : r));
       setBandDrag(null);
@@ -403,9 +425,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   // Delete / Backspace — borrar bloque o repetición seleccionada
   useEffect(() => {
-    const onKey = e => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
-      const tag = e.target?.tagName;
+      const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (selected) {
         setHistory(prev => [...prev, blocksRef.current]);
@@ -427,7 +449,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // ── Resize de barras de repetición arrastrando en la regla ─────────────
   const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
 
-  const handleRepZoneRulerDown = (e, seg, pass) => {
+  const handleRepZoneRulerDown = (e: any, seg: any, pass: string) => {
     if (listenOnly) return;
     const rowKey = `ruler_${seg.index}_${pass}`;
     const rowEl  = trackSegRefs.current[rowKey]; if (!rowEl) return;
@@ -451,20 +473,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       : (isLeft ? "junction"    : "second.end");
     repResizeRef.current = { repId: rep.id, field, rulerRect, seg, rep: { ...rep, first: { ...rep.first }, second: { ...rep.second } } };
 
-    const toXFrac = ev => Math.max(0, Math.min(1, (getClientX(ev) - rulerRect.left) / rulerRect.width));
+    const toXFrac = (ev: any) => Math.max(0, Math.min(1, (getClientX(ev) - rulerRect.left) / rulerRect.width));
     setRepResizeGuide({ xFrac: toXFrac(e), color: "black" });
 
-    const mv = ev => {
+    const mv = (ev: any) => {
       if (ev.cancelable) ev.preventDefault();
       setRepResizeGuide({ xFrac: toXFrac(ev), color: "black" });
     };
-    const up = ev => {
+    const up = (ev: any) => {
       const d = repResizeRef.current; if (!d) return;
       const xFrac      = toXFrac(ev);
       const xInSeg     = (xFrac - d.seg.vStart) / Math.max(0.001, d.seg.vEnd - d.seg.vStart);
       const cf         = Math.max(0, Math.min(1, xInSeg));
       const { rep: origRep } = d;
-      let f = { ...origRep.first }, s = { ...origRep.second };
+      const f = { ...origRep.first }, s = { ...origRep.second };
       const fd = f.end - f.start || 1, sd = s.end - s.start || 1;
       if (d.field === "first.start") {
         f.start = Math.min(f.end - 1, origRep.first.start + cf * fd);
@@ -497,7 +519,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // Cursor ew-resize al pasar por los bordes (sin asa visible)
-  const handleRepRowMouseMove = (e, rowEl) => {
+  const handleRepRowMouseMove = (e: any, rowEl: any) => {
     if (!rowEl) return;
     const rect  = rowEl.getBoundingClientRect();
     const distL = getClientX(e) - rect.left;
@@ -507,12 +529,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Navegador de la regla ────────────────────────────────────────────────
-  const getClientX = e => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+  const getClientX = (e: any) => e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
 
   // Igual que containerXToRec pero, para segmentos "repeat" (vista resumida),
   // puede mapear a la 1ª O la 2ª vez según el parámetro `pass`.
   // Esto permite arrastrar de forma continua a través de todos los segmentos.
-  const containerXToRecForPass = (xFrac, pass) => {
+  const containerXToRecForPass = (xFrac: number, pass: string) => {
     const segs = segmentsRef.current;
     for (const sg of segs) {
       if (xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
@@ -533,23 +555,23 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // Drag continuo que abarca AMBAS FILAS del segmento de repetición en vista resumida.
   // Determina la vez (1ª o 2ª) según la posición vertical del puntero en cada momento,
   // permitiendo pasar de una fila a la otra sin soltar el botón del ratón.
-  const handleDoubleRowRulerDown = (e, seg, outerEl) => {
+  const handleDoubleRowRulerDown = (e: any, seg: any, outerEl: any) => {
     if (listenOnly) return;
     e.preventDefault();
     const containerEl = rulerContainerRef.current; if (!containerEl) return;
-    const getFrac = ev => {
+    const getFrac = (ev: any) => {
       const r = containerEl.getBoundingClientRect();
       return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
     };
-    const getPass = ev => {
+    const getPass = (ev: any) => {
       if (!outerEl) return "first";
       const r   = outerEl.getBoundingClientRect();
       const y   = ev.touches?.[0]?.clientY ?? ev.changedTouches?.[0]?.clientY ?? ev.clientY;
       return (y - r.top) > r.height / 2 ? "second" : "first";
     };
-    const seek = ev => seekTo(containerXToRecForPass(getFrac(ev), getPass(ev)));
+    const seek = (ev: any) => seekTo(containerXToRecForPass(getFrac(ev), getPass(ev)));
     seek(e);
-    const mv = ev => { if (ev.cancelable) ev.preventDefault(); seek(ev); };
+    const mv = (ev: any) => { if (ev.cancelable) ev.preventDefault(); seek(ev); };
     const up = () => {
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
@@ -561,18 +583,18 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // Drag del navegador: usa el contenedor COMPLETO de la regla para que la bola
   // se pueda mover de forma continua a través de todos los segmentos sin pararse
   // en los bordes de cada uno.
-  const handleSegRulerDown = (e, seg, pass) => {
+  const handleSegRulerDown = (e: any, seg: any, pass: string) => {
     if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (listenOnly) return;
     e.preventDefault();
     const containerEl = rulerContainerRef.current; if (!containerEl) return;
-    const getFrac = ev => {
+    const getFrac = (ev: any) => {
       const r = containerEl.getBoundingClientRect();
       return Math.max(0, Math.min(1, (getClientX(ev) - r.left) / r.width));
     };
     // Al entrar en la zona de repetición (vista resumida), determinar la fila
     // por la posición vertical del puntero, no por el pass inicial.
-    const resolvePass = (xFrac, ev) => {
+    const resolvePass = (xFrac: number, ev: any) => {
       for (const sg of segmentsRef.current) {
         if (sg.type === "repeat" && xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
           const r = containerEl.getBoundingClientRect();
@@ -583,7 +605,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       return pass;
     };
     seekTo(containerXToRecForPass(getFrac(e), resolvePass(getFrac(e), e)));
-    const mv = ev => {
+    const mv = (ev: any) => {
       if (ev.cancelable) ev.preventDefault();
       const f = getFrac(ev);
       seekTo(containerXToRecForPass(f, resolvePass(f, ev)));
@@ -597,7 +619,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Marcas (listen-only): mapeo visual → tiempo grabación ───────────────
-  const containerXToRec = xFrac => {
+  const containerXToRec = (xFrac: number) => {
     const segs = segmentsRef.current;
     for (const sg of segs) {
       if (xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
@@ -611,7 +633,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     }
     return 0;
   };
-  const handleMarksContainerDown = e => {
+  const handleMarksContainerDown = (e: any) => {
     if (e.target.closest("[data-mark]")) return;
     const el = rulerContainerRef.current; if (!el) return;
     e.preventDefault();
@@ -619,13 +641,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     const t = containerXToRec(Math.max(0, Math.min(1, (getClientX(e) - rect.left) / rect.width)));
     setSchemaMarks(prev => [...prev, t].sort((a, b) => a - b));
   };
-  const handleMarkDown = (e, idx) => {
+  const handleMarkDown = (e: any, idx: number) => {
     e.stopPropagation(); e.preventDefault();
     const el = rulerContainerRef.current; if (!el) return;
     const rect = el.getBoundingClientRect();
     const startX = getClientX(e);
     let moved = false;
-    const mv = ev => {
+    const mv = (ev: any) => {
       if (ev.cancelable) ev.preventDefault();
       const x = getClientX(ev);
       if (!moved && Math.abs(x - startX) > 3) moved = true;
@@ -646,7 +668,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // ── Drag principal (crear / mover / redimensionar bloques) ───────────────
   useEffect(() => {
     // pixToTime vive dentro del efecto para acceder a los refs sin clausura vieja
-    const pixToTime = e => {
+    const pixToTime = (e: any) => {
       const d = dragRef.current; if (!d) return 0;
       const el = trackSegRefs.current[d.segKey]; if (!el) return d.anchor;
       const r = el.getBoundingClientRect();
@@ -654,7 +676,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       return d.segMin + Math.max(0, Math.min(1, (x - r.left) / r.width)) * (d.segMax - d.segMin);
     };
 
-    const onMove = e => {
+    const onMove = (e: any) => {
       // Si el usuario junta un segundo dedo (pinch) durante el drag, abortar
       if (e.touches && e.touches.length > 1) {
         const d = dragRef.current;
@@ -675,7 +697,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       const ctx = all.filter(b => b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview);
       // Puntos de snap: límites del segmento + bordes de zona de repetición + marcas + bordes de bloques del contexto
       const repBounds = localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.start, r.second.end]);
-      const snap = v => {
+      const snap = (v: number) => {
         const pts = [d.segMin, d.segMax,
           ...repBounds.filter(p => p >= d.segMin - 0.1 && p <= d.segMax + 0.1),
           ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
@@ -686,8 +708,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       };
       // Para resize y shared-edge: snap a puntos estructurales + otros niveles fijos (imantación vertical)
       // Se excluyen: mismo nivel (evita cuadrícula) y bloques en cascada (se mueven junto al drag)
-      const snapBounds = v => {
-        const cascadedIds = new Set((d.cascadeIds ?? []).map(c => c.id));
+      const snapBounds = (v: number) => {
+        const cascadedIds = new Set((d.cascadeIds ?? []).map((c: any) => c.id));
         const pts = [d.segMin, d.segMax,
           ...repBounds.filter(p => p >= d.segMin - 0.1 && p <= d.segMax + 0.1),
           ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
@@ -698,15 +720,15 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         return snapToNearest(v, pts);
       };
       // Cascada vertical: aplica los bloques pre-identificados al inicio del drag
-      const cascadeBoundary = (arr, newT) => {
+      const cascadeBoundary = (arr: Block[], newT: number) => {
         if (!d.cascadeIds?.length) return arr;
-        return arr.map(b => {
-          const ci = d.cascadeIds.find(c => c.id === b.id);
+        return arr.map((b: Block) => {
+          const ci = d.cascadeIds.find((c: any) => c.id === b.id);
           if (!ci) return b;
           return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
         });
       };
-      const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
       if (d.type === "create") {
         let s  = cl(Math.min(d.anchor, t), d.segMin, d.segMax);
@@ -775,7 +797,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       }
     };
 
-    const onUp = upEvt => {
+    const onUp = (upEvt: any) => {
       const d = dragRef.current; if (!d) return;
       if (d.type === "create") {
         const dur2    = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
@@ -859,7 +881,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
-  const handleTrackSegDown = (e, lvId, seg, pass) => {
+  const handleTrackSegDown = (e: any, lvId: number, seg: any, pass: string) => {
     if (e.touches && e.touches.length > 1) return; // pinch-to-zoom → ignorar
     if (editId) commitEdit();
     if (e.target.closest("[data-block]")) return;
@@ -888,7 +910,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Inicio de drag en bloque existente (mover / redimensionar) ───────────
-  const handleBlockDown = (e, block, type = "move") => {
+  const handleBlockDown = (e: any, block: Block, type = "move") => {
     if (editId) commitEdit();
     if (type === "move" && editId === block.id) return;
     setHistory(prev => [...prev, blocksRef.current]);
@@ -921,16 +943,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       extra = { leftId: ln?.id, leftStart: ln?.start };
     }
     const cascadeLvs = block.level === 1 ? [2, 3] : block.level === 2 ? [3] : [];
-    let cascadeIds = [];
+    let cascadeIds: { id: string; side: string }[] = [];
     if (cascadeLvs.length > 0 && (type === "resize-r" || type === "resize-l")) {
       const boundaryT = type === "resize-r" ? block.end : block.start;
       const EPS = 0.05;
       cascadeIds = blocksRef.current
-        .filter(b => cascadeLvs.includes(b.level) && !b.isPreview &&
+        .filter(b => cascadeLvs.includes(b.level ?? -1) && !b.isPreview &&
           (b.repeatId ?? null) === (block.repeatId ?? null) &&
           (b.pass    ?? null) === (block.pass    ?? null))
         .flatMap(b => {
-          const hits = [];
+          const hits: { id: string; side: string }[] = [];
           if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
           if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
           return hits;
@@ -945,7 +967,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Asa de borde compartido ──────────────────────────────────────────────
-  const handleSharedHandleDown = (e, leftBlock, rightBlock) => {
+  const handleSharedHandleDown = (e: any, leftBlock: Block, rightBlock: Block) => {
     if (editId) commitEdit();
     setHistory(prev => [...prev, blocksRef.current]);
     e.stopPropagation();
@@ -963,16 +985,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     const bounds = getSegBounds(seg, pass);
     const t = bounds.min + Math.max(0, Math.min(1, (getClientX(e) - r.left) / r.width)) * (bounds.max - bounds.min);
     const cascadeLvs2 = leftBlock.level === 1 ? [2, 3] : leftBlock.level === 2 ? [3] : [];
-    let cascadeIds2 = [];
+    let cascadeIds2: { id: string; side: string }[] = [];
     if (cascadeLvs2.length > 0) {
       const boundaryT = leftBlock.end;
       const EPS = 0.05;
       cascadeIds2 = blocksRef.current
-        .filter(b => cascadeLvs2.includes(b.level) && !b.isPreview &&
+        .filter(b => cascadeLvs2.includes(b.level ?? -1) && !b.isPreview &&
           (b.repeatId ?? null) === (leftBlock.repeatId ?? null) &&
           (b.pass    ?? null) === (leftBlock.pass    ?? null))
         .flatMap(b => {
-          const hits = [];
+          const hits: { id: string; side: string }[] = [];
           if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
           if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
           return hits;
@@ -992,24 +1014,25 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   const SCHEMA_HND_W   = 18;
 
+  const exSchemaLevels = exercise.schemaLevels as number[] | undefined;
   const activeLevels = SCHEMA_LEVELS.filter(lv =>
-    !exercise.schemaLevels || exercise.schemaLevels.length === 0 || exercise.schemaLevels.includes(lv.id)
+    !exSchemaLevels || exSchemaLevels.length === 0 || exSchemaLevels.includes(lv.id)
   );
 
   // Lookup de bloques activos (según el cursor de reproducción + contexto de repetición)
-  const activeAt = {};
+  const activeAt: Record<number, string> = {};
   for (const b of blocks) {
     if (b.isPreview || time < b.start || time >= b.end) continue;
-    if (!b.repeatId) { activeAt[b.level] = b.id; continue; }
+    if (!b.repeatId) { activeAt[b.level as number] = b.id; continue; }
     if (activeRepeatPass && b.repeatId === activeRepeatPass.repId && b.pass === activeRepeatPass.pass)
-      activeAt[b.level] = b.id;
+      activeAt[b.level as number] = b.id;
   }
   const selBlock = selected ? blocks.find(b => b.id === selected) : null;
   const selLv    = selBlock ? SCHEMA_LEVELS.find(l => l.id === selBlock.level) : null;
 
   // ── Renderizado de bloques dentro de un segmento+fila ───────────────────
-  const renderSegBlocks = (seg, pass, lvId) => {
-    const lv = SCHEMA_LEVELS.find(l => l.id === lvId);
+  const renderSegBlocks = (seg: any, pass: string, lvId: number) => {
+    const lv = SCHEMA_LEVELS.find(l => l.id === lvId)!;
     const bounds = getSegBounds(seg, pass);
     const segDur = (bounds.max - bounds.min) || 1;
 
@@ -1046,8 +1069,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     const _blockH    = lvId >= 3 ? 32 : _trackH - 12;
     const _hndH      = Math.round(_blockH * 2 / 3);
     const _hndTop    = 6 + Math.round((_blockH - _hndH) / 2);
-    const hStyle = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
-    const vis    = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
+    const hStyle: React.CSSProperties = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
+    const vis: React.CSSProperties = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
 
     return (<>
       {/* Cuadrícula de fondo — paso fijo global para que la densidad
@@ -1082,7 +1105,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         // En vista resumida los bloques sin repeatId pueden cruzar la zona de
         // repetición (la parte abarca tanto la 1ª como la 2ª vez). Usamos
         // recToVisXResumed para que su anchura visual sea correcta.
-        let lPct, wPct;
+        let lPct: number, wPct: number;
         if (viewMode === "resumida" && seg.type === "normal" && !block.repeatId) {
           const segVW = (seg.vEnd - seg.vStart) || 1;
           const visS  = recToVisX(block.start);
@@ -1124,7 +1147,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             }}
               onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
               onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
-              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label ?? ""); } }}>
               {/* Píldora izquierda */}
               {editId === block.id ? (
                 <div style={{ alignSelf: "center", background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", padding: "5px 8px", flexShrink: 0 }}>
@@ -1164,7 +1187,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             }}
               onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
               onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
-              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+              onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label ?? ""); } }}>
               {editId === block.id ? (
                 <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 11px", overflow: "hidden" }}>
                   <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
@@ -1196,7 +1219,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           }}
             onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
             onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
-            onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label); } }}>
+            onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label ?? ""); } }}>
             {editId === block.id ? (
               <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                 onBlur={commitEdit} onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }}
@@ -1214,7 +1237,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       {viewMode !== "resumida" && real.flatMap(block => {
         const lPct = ((block.start - bounds.min) / segDur) * 100;
         const rPct = ((block.end   - bounds.min) / segDur) * 100;
-        const out = [];
+        const out: ReactNode[] = [];
         // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
         if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
           <div key={`hl-${block.id}`} data-block="true"
@@ -1251,13 +1274,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   };
 
   // ── Pinch-to-zoom (móvil) ─────────────────────────────────────────────────
-  const handleSchemaPinchStart = e => {
+  const handleSchemaPinchStart = (e: any) => {
     if (e.touches.length !== 2) return;
     const dx = e.touches[0].clientX - e.touches[1].clientX;
     const dy = e.touches[0].clientY - e.touches[1].clientY;
     pinchRef.current = { dist: Math.hypot(dx, dy), zoom: schemaZoom, sf: schemaScrollFrac };
   };
-  const handleSchemaPinchMove = e => {
+  const handleSchemaPinchMove = (e: any) => {
     if (e.touches.length !== 2 || !pinchRef.current) return;
     const dx  = e.touches[0].clientX - e.touches[1].clientX;
     const dy  = e.touches[0].clientY - e.touches[1].clientY;
@@ -1270,12 +1293,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // ── Drag de la barra de scroll personalizada ──────────────────────────────
   // El drag es RELATIVO: el desplazamiento es proporcional al movimiento del ratón/dedo,
   // sin saltar a la posición absoluta del clic.
-  const handleScrollbarTrackDown = e => {
+  const handleScrollbarTrackDown = (e: any) => {
     e.preventDefault();
     const track   = e.currentTarget;
     const startX  = e.touches?.[0]?.clientX ?? e.clientX;
     const startSf = schemaScrollFrac;
-    const move = ev => {
+    const move = (ev: any) => {
       const rect     = track.getBoundingClientRect();
       const x        = ev.touches?.[0]?.clientX ?? ev.clientX;
       const deltaX   = x - startX;
@@ -1309,8 +1332,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       )}
 
       <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}
-        onMouseDown={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
-        onTouchStart={e => { if (!e.target.closest("[data-block]") && !e.target.closest("button") && !e.target.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
+        onMouseDown={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
+        onTouchStart={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
 
         {modelToggleNode}
 
@@ -1457,15 +1480,15 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     <React.Fragment key={rep.id}>
                       {/* Zona "original" — clicable para seleccionar la repetición */}
                       <div
-                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
-                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
                         style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: selectedRepId === rep.id ? `${C.fnS}45` : `${C.fnS}28`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnS}` : `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>original</span>
                       </div>
                       {/* Zona "repetición" — clicable para seleccionar la repetición */}
                       <div
-                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
-                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : rep.id); setSelected(null); }}
+                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
+                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
                         style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: selectedRepId === rep.id ? `${C.fnT}38` : `${C.fnT}22`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnT}` : `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>repetición</span>
                       </div>
@@ -1489,7 +1512,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                       </div>
                       {/* Botón eliminar */}
                       <button onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-                        onClick={() => deleteRepeat(rep.id)} title="Eliminar repetición"
+                        onClick={() => deleteRepeat(rep.id ?? "")} title="Eliminar repetición"
                         style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.85)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 5px", fontSize: 9, cursor: "pointer", color: C.muted, lineHeight: 1.6 }}>
                         ✕
                       </button>
@@ -1572,7 +1595,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 const segDur  = (bounds.max - bounds.min) || 1;
                 return (
                   <div key={si}
-                    ref={el => trackSegRefs.current[`ruler_${si}_normal`] = el}
+                    ref={el => { trackSegRefs.current[`ruler_${si}_normal`] = el; }}
                     style={{ flex: seg.canonDur, position: "relative", height: viewMode === "resumida" && hasRepeats ? 57 : 28, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? { onMouseDown: e => handleSegRulerDown(e, seg, "normal"), onTouchStart: e => handleSegRulerDown(e, seg, "normal") } : {})}>
                     {/* Pista horizontal — en resumida alineada con el centro de la 2ª vez */}
@@ -1610,7 +1633,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 const zoneBg  = C.paper2;
                 return (
                   <div key={si}
-                    ref={el => trackSegRefs.current[`ruler_${si}_${pass}`] = el}
+                    ref={el => { trackSegRefs.current[`ruler_${si}_${pass}`] = el; }}
                     style={{ flex: seg.canonDur, position: "relative", height: 28, background: isActive ? `${isFirst ? C.fnS : C.fnT}12` : zoneBg, cursor: listenOnly ? "default" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? {
                       onMouseDown:  e => handleSegRulerDown(e, seg, pass),
@@ -1639,7 +1662,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   )}
 
                   {/* ── Fila 1ª vez ── */}
-                  <div ref={el => trackSegRefs.current[`ruler_${si}_first`] = el}
+                  <div ref={el => { trackSegRefs.current[`ruler_${si}_first`] = el; }}
                     style={{ flexShrink: 0, height: 28, position: "relative", background: isFA ? `${C.fnS}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "first")) : undefined}
@@ -1672,7 +1695,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   <div style={{ flexShrink: 0, height: 1, background: C.line, marginLeft: 8, pointerEvents: "none", zIndex: 6 }} />
 
                   {/* ── Fila 2ª vez ── */}
-                  <div ref={el => trackSegRefs.current[`ruler_${si}_second`] = el}
+                  <div ref={el => { trackSegRefs.current[`ruler_${si}_second`] = el; }}
                     style={{ flexShrink: 0, height: 28, position: "relative", background: isSA ? `${C.fnT}10` : C.paper2, cursor: listenOnly ? "default" : "pointer", overflow: "hidden", transition: "background .15s" }}
                     onMouseDown={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
                     onTouchStart={!listenOnly && viewMode !== "resumida" ? (e => handleRepZoneRulerDown(e, seg, "second")) : undefined}
@@ -1725,7 +1748,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 if (seg.type === "normal") {
                   return (
                     <div key={si}
-                      ref={el => trackSegRefs.current[`${lv.id}_${si}_normal`] = el}
+                      ref={el => { trackSegRefs.current[`${lv.id}_${si}_normal`] = el; }}
                       style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}
                       onMouseDown={e => handleTrackSegDown(e, lv.id, seg, "normal")}
                       onTouchStart={e => handleTrackSegDown(e, lv.id, seg, "normal")}>
@@ -1747,7 +1770,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   return (
                     <div key={si} style={{ flex: seg.canonDur, position: "relative", height: lv.id === 1 ? 62 : lv.id === 2 ? 52 : 44, background: C.paper, cursor: "crosshair", userSelect: "none", touchAction: "none" }}>
                       <div
-                        ref={el => trackSegRefs.current[`${lv.id}_${si}_${pass}`] = el}
+                        ref={el => { trackSegRefs.current[`${lv.id}_${si}_${pass}`] = el; }}
                         style={{ position: "absolute", inset: 0 }}
                         onMouseDown={e => handleTrackSegDown(e, lv.id, seg, pass)}
                         onTouchStart={e => handleTrackSegDown(e, lv.id, seg, pass)}>
@@ -1811,14 +1834,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             const BW_S = THICK + GAP + THIN + SPACE + DW + 1;
             const BW_C = DW + SPACE + THIN + GAP + THICK + GAP + THIN + SPACE + DW;
             const dt1=`calc(50% - ${DOT_GAP+DOT_R}px)`, dt2=`calc(50% + ${DOT_GAP-DOT_R}px)`;
-            const D=(extra)=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
-            const V=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.72)",...extra});
-            const Vt=(extra)=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.28)",...extra});
+            const D=(extra: React.CSSProperties): React.CSSProperties=>({position:"absolute",width:DW,height:DW,borderRadius:"50%",background:"rgba(0,0,0,0.70)",...extra});
+            const V=(extra: React.CSSProperties): React.CSSProperties=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.72)",...extra});
+            const Vt=(extra: React.CSSProperties): React.CSSProperties=>({position:"absolute",top:0,bottom:0,background:"rgba(0,0,0,0.28)",...extra});
 
             // Todas las repeticiones cubren todos los niveles activos.
             // top=0, bottom=0 → span completo del contenedor PISTAS.
             const ev = new Map();
-            const kv = v => v.toFixed(5);
+            const kv = (v: number) => v.toFixed(5);
             segments.filter(s => s.type === "repeat").forEach(seg => {
               const ks = kv(seg.vStart);
               if (!ev.has(ks)) ev.set(ks, { v: seg.vStart, isStart: false, isEnd: false });
@@ -1934,7 +1957,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 9px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
               )}
               {selBlock.pass !== "second" && (
-                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label); }} className="fa-pressable"
+                <button onClick={() => { setEditId(selected); setEditVal(selBlock.label ?? ""); }} className="fa-pressable"
                   style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 12px", fontSize: 11.5, fontWeight: 500, cursor: "pointer", color: C.ink2 }}>Renombrar</button>
               )}
               {selBlock.pass === "second" && (
