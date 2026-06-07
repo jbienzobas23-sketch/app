@@ -69,9 +69,32 @@ export default tseslint.config(
       ...reactRules,
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', unusedVarsOpts],
-      // Migración gradual: el `any` puntual (p. ej. pegamento de eventos
-      // ratón+touch en pointer.ts) se permite pero se señala como aviso.
+      // En el código de negocio el `any` se señala para no colarse sin querer.
       '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+
+  // ── Capa de "glue": el `any` aquí es una decisión de diseño, no deuda ─────────
+  // Tres fronteras donde tipar estrictamente aporta fricción sin valor:
+  //   · Puntero unificado ratón+touch (los eventos no comparten una forma común
+  //     y se acceden .touches/.clientX a discreción) → pointer.ts y los handlers
+  //     de arrastre de las vistas de sesión.
+  //   · Canvas: estado mutable de dibujo leído a 60 fps fuera del árbol de React.
+  //   · Backend Supabase cargado dinámicamente (cliente y filas sin tipos
+  //     generados) en la raíz.
+  // Se apaga la regla SOLO en estos ficheros; el resto del código la mantiene.
+  {
+    files: [
+      'src/lib/pointer.ts',
+      'src/components/session.tsx',
+      'src/components/SchemaExerciseView.tsx',
+      'src/components/ExerciseView.tsx',
+      'src/components/QuestionManagerView.tsx',
+      'src/components/MultiModelSessionView.tsx',
+      'src/App.tsx',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 );

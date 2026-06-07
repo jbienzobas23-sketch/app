@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "./lib/types.js";
 import type { AudioItem } from "./components/modals.js";
 
