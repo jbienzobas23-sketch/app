@@ -13,7 +13,7 @@ import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
 interface StudentUser { id: string; teacherId?: string; displayName: string; isGuest?: boolean; defaultPalette?: string; [k: string]: unknown; }
-interface CourseItem { id: string; hidden?: boolean; visibility?: string; visibilityGroupId?: string; ownerId?: string; [k: string]: unknown; }
+interface CourseItem { id: string; hidden?: boolean; visibility?: string; visibilityGroupId?: string | null; ownerId?: string; [k: string]: unknown; }
 interface GroupItem { id: string; studentIds?: string[]; [k: string]: unknown; }
 interface StudentDashProps {
   user: StudentUser;

@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "./lib/types.js";
+import type { AudioItem } from "./components/modals.js";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FUNCIONES ARMÓNICAS · APP ROOT
@@ -53,38 +55,38 @@ export default function App() {
   useInjectFonts();
 
   // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
-  const supabaseRef = useRef(null);
+  const supabaseRef = useRef<any>(null);
   // Contador de escrituras en vuelo hacia Supabase.
   const pendingSavesRef = useRef(0);
 
   // Estado global
-  const [exercises,    setExercises]    = useState(INIT_EXERCISES);
-  const [users,        setUsers]        = useState([]);
-  const [results,      setResults]      = useState({});   // { userId: { exerciseId: result } }
+  const [exercises,    setExercises]    = useState<Exercise[]>(INIT_EXERCISES as Exercise[]);
+  const [users,        setUsers]        = useState<any[]>([]);
+  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [margin,       setMargin]       = useState(1);
-  const [categories,   setCategories]   = useState([DEFAULT_CATEGORY]);
-  const [courses,      setCourses]      = useState([]);
-  const [units,        setUnits]        = useState([]);
-  const [groups,       setGroups]       = useState([]);
-  const [audioLibrary, setAudioLibrary] = useState(INIT_AUDIO_LIBRARY);
+  const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
+  const [courses,      setCourses]      = useState<Course[]>([]);
+  const [units,        setUnits]        = useState<Unit[]>([]);
+  const [groups,       setGroups]       = useState<Group[]>([]);
+  const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
 
   const [dbReady, setDbReady] = useState(false);
-  const [user,    setUser]    = useState(null);
+  const [user,    setUser]    = useState<any | null>(null);
   // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
   // Con RLS, anon no puede leer fa_users, así que el primer arranque no se puede
   // deducir de la carga; se consulta has_admin().
-  const [serverHasAdmin, setServerHasAdmin] = useState(null);
+  const [serverHasAdmin, setServerHasAdmin] = useState<boolean | null>(null);
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
-  const [lastResult,   setLastResult]     = useState(null);
-  const [guestResults, setGuestResults]   = useState({});
+  const [lastResult,   setLastResult]     = useState<any>(null);
+  const [guestResults, setGuestResults]   = useState<Record<string, ExerciseResult>>({});
   const [pickingTeacher, setPickingTeacher] = useState(false);
-  const redirectAfterLogin = useRef(null);   // enlace profundo a recuperar tras login
+  const redirectAfterLogin = useRef<string | null>(null);   // enlace profundo a recuperar tras login
 
-  const [pendingLoginUser, setPendingLoginUser] = useState(null); // alumno esperando configurar correo de recuperación
+  const [pendingLoginUser, setPendingLoginUser] = useState<any | null>(null); // alumno esperando configurar correo de recuperación
   const [showForgotPin,    setShowForgotPin]    = useState(false);
-  const [resetSession,     setResetSession]     = useState(null);  // sesión Supabase Auth desde magic link
+  const [resetSession,     setResetSession]     = useState<any>(null);  // sesión Supabase Auth desde magic link
 
   // Ejercicio referenciado por la URL (reconstruido desde el id)
   const routeExercise = useMemo(() => {
@@ -103,7 +105,7 @@ export default function App() {
   // montar (anon — con RLS devuelve poco o nada) y de nuevo TRAS el login (con la
   // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
   // que el login decida el flujo sin esperar al re-render.
-  const loadData = async (sb) => {
+  const loadData = async (sb: any) => {
     if (!sb) return { users };
     const [exRes, userRes, catRes, courseRes, unitRes, resultRes, settingsRes, audioRes, groupRes] = await Promise.all([
       sb.from("fa_exercises").select("*"),
@@ -116,28 +118,28 @@ export default function App() {
       sb.from("fa_audio_library").select("*"),
       sb.from("fa_groups").select("*"),
     ]);
-    const loadedUsers = userRes.data?.length ? userRes.data.map((r) => r.data) : null;
-    if (exRes.data?.length)     setExercises(exRes.data.map((r) => r.data));
+    const loadedUsers = userRes.data?.length ? userRes.data.map((r: any) => r.data) : null;
+    if (exRes.data?.length)     setExercises(exRes.data.map((r: any) => r.data));
     if (loadedUsers)            setUsers(loadedUsers);
     if (catRes.data?.length) {
-      const cats = catRes.data.map((r) => r.data);
-      if (!cats.find((c) => c.id === "default")) setCategories([DEFAULT_CATEGORY, ...cats]);
+      const cats = catRes.data.map((r: any) => r.data);
+      if (!cats.find((c: any) => c.id === "default")) setCategories([DEFAULT_CATEGORY as Category, ...cats]);
       else setCategories(cats);
     }
-    if (courseRes.data?.length) setCourses(courseRes.data.map((r) => r.data));
-    if (unitRes.data?.length)   setUnits(unitRes.data.map((r) => r.data));
-    if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r) => r.data));
-    if (groupRes.data?.length)  setGroups(groupRes.data.map((r) => r.data));
+    if (courseRes.data?.length) setCourses(courseRes.data.map((r: any) => r.data));
+    if (unitRes.data?.length)   setUnits(unitRes.data.map((r: any) => r.data));
+    if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r: any) => r.data));
+    if (groupRes.data?.length)  setGroups(groupRes.data.map((r: any) => r.data));
     if (resultRes.data?.length) {
-      const byUser = {};
-      resultRes.data.forEach((row) => {
+      const byUser: Record<string, Record<string, ExerciseResult>> = {};
+      resultRes.data.forEach((row: any) => {
         if (!byUser[row.user_id]) byUser[row.user_id] = {};
         byUser[row.user_id][row.exercise_id] = row.data;
       });
       setResults(byUser);
     }
     if (settingsRes.data?.length) {
-      const m = settingsRes.data.find((s) => s.key === "margin");
+      const m = settingsRes.data.find((s: any) => s.key === "margin");
       if (m?.value != null) setMargin(Number(m.value));
     }
     return { users: loadedUsers || users };
@@ -188,7 +190,7 @@ export default function App() {
 
   // Advierte al usuario si recarga mientras hay escrituras en vuelo.
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (e: BeforeUnloadEvent) => {
       if (pendingSavesRef.current > 0) {
         e.preventDefault();
         e.returnValue = "";
@@ -218,12 +220,12 @@ export default function App() {
   } = useMemo(() => createDb({ getClient: () => supabaseRef.current, pendingSavesRef }), []);
 
   // ─── Users ───────────────────────────────────────────────────────────────
-  const addUser = (newUser) => {
+  const addUser = (newUser: any) => {
     setUsers((prev) => [...prev, newUser]);
     dbUpsertUser(newUser);
   };
 
-  const removeUser = (userId) => {
+  const removeUser = (userId: string) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
     setGroups((prev) => prev.map((g) =>
@@ -233,37 +235,39 @@ export default function App() {
     // del updater de setGroups (correría en render → array vacío al guardar).
     groups
       .filter((g) => g.studentIds?.includes(userId))
-      .forEach((g) => dbUpsertGroup({ ...g, studentIds: g.studentIds.filter((id) => id !== userId) }));
+      .forEach((g) => dbUpsertGroup({ ...g, studentIds: (g.studentIds || []).filter((id) => id !== userId) }));
     dbDeleteUser(userId);
     dbDeleteResultsForUser(userId);
   };
 
-  const updateUser = (updatedUser) => {
+  const updateUser = (updatedUser: any) => {
     setUsers((prev) => prev.map((u) => u.id === updatedUser.id ? updatedUser : u));
     if (user?.id === updatedUser.id) setUser(updatedUser);
     dbUpsertUser(updatedUser);
   };
 
   // ─── Correction save ─────────────────────────────────────────────────────
-  const saveCorrection = (studentId, exerciseId, correction) => {
+  const saveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"], correction: any) => {
     // El objeto a persistir se calcula ANTES de setState (a partir del estado
     // actual en el closure). Antes se asignaba dentro del updater de setResults
     // y se leía justo después; como React ejecuta ese updater en la fase de
     // render (no de forma síncrona), `saved` seguía siendo null al llamar a
     // dbUpsertResult → la corrección del profesor no se guardaba en Supabase.
-    const existing = (results[studentId] || {})[exerciseId] || {};
+    const sid = studentId ?? "";
+    const eid = String(exerciseId ?? "");
+    const existing = (results[sid] || {})[eid] || {};
     const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
-    setResults((prev) => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), [exerciseId]: updated } }));
-    dbUpsertResult(studentId, exerciseId, updated);
+    setResults((prev) => ({ ...prev, [sid]: { ...(prev[sid] || {}), [eid]: updated } }));
+    dbUpsertResult(sid, eid, updated);
   };
 
   // ─── Groups ──────────────────────────────────────────────────────────────
-  const addGroup    = (g) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
-  const updateGroup = (g) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
-  const deleteGroup = (id) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
+  const addGroup    = (g: Group) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
+  const updateGroup = (g: Group) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
+  const deleteGroup = (id: string) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
 
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
-  const handleSetup = (adminProfile) => {
+  const handleSetup = (adminProfile: any) => {
     // El admin ya está creado en el servidor (create-user) y con sesión iniciada
     // (login) desde SetupView. Solo reflejamos el estado y entramos.
     setUser(adminProfile);
@@ -273,21 +277,22 @@ export default function App() {
   };
 
   // ─── Exercises ───────────────────────────────────────────────────────────
-  const addExercise = (newEx) => {
+  const addExercise = (newEx: any) => {
     setExercises((prev) => [...prev, newEx]);
     dbUpsertExercise(newEx);
   };
 
-  const updateExercise = (id, patch) => {
+  const updateExercise = (id: Exercise["id"], patch: Record<string, unknown>) => {
     const current = exercises.find((e) => e.id === id);
     setExercises((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
     if (current) dbUpsertExercise({ ...current, ...patch });
   };
 
-  const deleteExercise = (id) => {
+  const deleteExercise = (id: Exercise["id"]) => {
+    const sid = String(id);
     setExercises((prev) => prev.filter((e) => e.id !== id));
     setUnits((prev) => prev.map((u) =>
-      u.exerciseIds.includes(id) ? { ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) } : u
+      (u.exerciseIds || []).includes(sid) ? { ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => eid !== sid) } : u
     ));
     // Persistir las unidades afectadas. Se calculan desde el estado actual
     // (closure `units`), NO dentro del updater de setUnits: React ejecuta ese
@@ -295,36 +300,36 @@ export default function App() {
     // vacío aquí y las unidades no se guardarían (referencias colgantes al
     // ejercicio borrado tras recargar).
     units
-      .filter((u) => u.exerciseIds.includes(id))
-      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: u.exerciseIds.filter((eid) => eid !== id) }));
+      .filter((u) => (u.exerciseIds || []).includes(sid))
+      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => eid !== sid) }));
     setResults((prev) => {
-      const next = {};
+      const next: Record<string, Record<string, ExerciseResult>> = {};
       for (const uid of Object.keys(prev)) {
         const sub = { ...prev[uid] };
-        delete sub[id];
+        delete sub[sid];
         next[uid] = sub;
       }
       return next;
     });
-    dbDeleteExercise(id);
-    dbDeleteResultsForExercise(id);
+    dbDeleteExercise(sid);
+    dbDeleteResultsForExercise(sid);
   };
 
   // ─── Categories ──────────────────────────────────────────────────────────
-  const addCategory = (newCat) => {
+  const addCategory = (newCat: Category) => {
     setCategories((prev) => [...prev, newCat]);
     dbUpsertCategory(newCat);
   };
-  const updateCategory = (updatedCat) => {
+  const updateCategory = (updatedCat: Category) => {
     setCategories((prev) => prev.map((c) => c.id === updatedCat.id ? updatedCat : c));
     dbUpsertCategory(updatedCat);
   };
-  const deleteCategory = (id) => {
+  const deleteCategory = (id: string) => {
     if (id === "default") return;
     setCategories((prev) => prev.filter((c) => c.id !== id));
     dbDeleteCategory(id);
   };
-  const toggleGlobalCategory = (id) => {
+  const toggleGlobalCategory = (id: string) => {
     // Calcular el objeto a persistir desde el estado actual (closure), no dentro
     // del updater: el updater corre en render y `cat` seguiría null al guardar.
     const cat = categories.find((c) => c.id === id);
@@ -335,79 +340,82 @@ export default function App() {
   };
 
   // ─── Courses ─────────────────────────────────────────────────────────────
-  const addCourse = (newCourse) => {
+  const addCourse = (newCourse: Course) => {
     setCourses((prev) => [...prev, newCourse]);
     dbUpsertCourse(newCourse);
   };
-  const updateCourse = (updated) => {
+  const updateCourse = (updated: Course) => {
     setCourses((prev) => prev.map((c) => c.id === updated.id ? updated : c));
     dbUpsertCourse(updated);
   };
-  const deleteCourse = (id) => {
+  const deleteCourse = (id: string) => {
     setCourses((prev) => prev.filter((c) => c.id !== id));
     dbDeleteCourse(id);
   };
 
   // ─── Units ───────────────────────────────────────────────────────────────
-  const addUnit = (newUnit, courseId) => {
+  const addUnit = (newUnit: Unit, courseId: string | null) => {
     const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => [...prev, newUnit]);
-    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: [...c.unitIds, newUnit.id] } : c));
-    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: [...existingCourse.unitIds, newUnit.id] });
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: [...(c.unitIds || []), newUnit.id] } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: [...(existingCourse.unitIds || []), newUnit.id] });
     dbUpsertUnit(newUnit);
   };
 
-  const updateUnit = (updated) => {
+  const updateUnit = (updated: Unit) => {
     setUnits((prev) => prev.map((u) => u.id === updated.id ? updated : u));
     dbUpsertUnit(updated);
   };
 
-  const deleteUnit = (unitId, courseId) => {
+  const deleteUnit = (unitId: string, courseId: string) => {
     const existingCourse = courses.find((c) => c.id === courseId);
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
-    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: c.unitIds.filter((id) => id !== unitId) } : c));
-    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: existingCourse.unitIds.filter((id) => id !== unitId) });
+    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: (c.unitIds || []).filter((id) => id !== unitId) } : c));
+    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: (existingCourse.unitIds || []).filter((id) => id !== unitId) });
     dbDeleteUnit(unitId);
   };
 
-  const addExercisesToUnit = (unitId, exIds) => {
+  const addExercisesToUnit = (unitId: string, exIds: Array<string | number | undefined>) => {
+    const ids = exIds.map((x) => String(x));
     const existingUnit = units.find((u) => u.id === unitId);
     setUnits((prev) => prev.map((u) => {
       if (u.id !== unitId) return u;
-      const merged = [...u.exerciseIds, ...exIds.filter((id) => !u.exerciseIds.includes(id))];
+      const cur = u.exerciseIds || [];
+      const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
       return { ...u, exerciseIds: merged };
     }));
     if (existingUnit) {
-      const merged = [...existingUnit.exerciseIds, ...exIds.filter((id) => !existingUnit.exerciseIds.includes(id))];
+      const cur = existingUnit.exerciseIds || [];
+      const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
       dbUpsertUnit({ ...existingUnit, exerciseIds: merged });
     }
   };
 
-  const removeExerciseFromUnit = (unitId, exId) => {
+  const removeExerciseFromUnit = (unitId: string, exId: string) => {
     const existingUnit = units.find((u) => u.id === unitId);
-    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: u.exerciseIds.filter((id) => id !== exId) } : u));
-    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: existingUnit.exerciseIds.filter((id) => id !== exId) });
+    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: (u.exerciseIds || []).filter((id) => id !== exId) } : u));
+    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: (existingUnit.exerciseIds || []).filter((id) => id !== exId) });
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
-  const addAudio = (a) => {
+  const addAudio = (a: AudioItem) => {
     setAudioLibrary((prev) => [...prev, a]);
     dbUpsertAudio(a);
   };
-  const updateAudio = (a) => {
+  const updateAudio = (a: AudioItem) => {
     setAudioLibrary((prev) => prev.map((x) => x.id === a.id ? a : x));
     dbUpsertAudio(a);
   };
-  const deleteAudio = (id) => {
+  const deleteAudio = (id: string) => {
     setAudioLibrary((prev) => prev.filter((x) => x.id !== id));
     dbDeleteAudio(id);
   };
 
   // ─── Margin (settings) ───────────────────────────────────────────────────
-  const updateMargin = (m) => { setMargin(m); dbUpsertSetting("margin", m); };
+  const updateMargin = (m: number) => { setMargin(m); dbUpsertSetting("margin", m); };
 
   // ─── Navegación helpers ──────────────────────────────────────────────────
-  const freshExercise = (ex) => exercises.find((e) => e.id === ex.id) || ex;
+  const freshExercise = (ex: Exercise) => exercises.find((e) => e.id === ex.id) || ex;
 
   // Si entras sin sesión a una ruta protegida, recuérdala para volver tras login
   useEffect(() => {
@@ -418,19 +426,20 @@ export default function App() {
     }
   }, [user, route]);
 
-  const openCorrection = (ex) => {
+  const openCorrection = (ex: Exercise) => {
     // Calcular el resultado almacenado de forma local: no depende del `const
     // userResults` declarado más abajo en el cuerpo del componente, lo que
     // evita una referencia frágil en la zona muerta temporal (TDZ).
+    const exId = String(ex.id);
     const stored = user?.isGuest
-      ? guestResults[ex.id]
-      : (results[user?.id] || {})[ex.id];
+      ? guestResults[exId]
+      : (results[user?.id] || {})[exId];
     if (!stored) return;
     setLastResult(stored);
     navigate(`/alumno/ejercicio/${ex.id}/correccion`);
   };
 
-  const openEx = (ex, mode = "student") => {
+  const openEx = (ex: Exercise, mode = "student") => {
     if (mode === "record") {
       // El cuestionario puro se "graba" desde el gestor de preguntas.
       // Los híbridos tienen su propio botón onManageQuestions; aquí se graba la clave interactiva.
@@ -443,7 +452,7 @@ export default function App() {
 
 
   // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
-  const completeLogin = async (u) => {
+  const completeLogin = async (u: any) => {
     setUser(u);
     // Con RLS, la carga anónima del montaje vino vacía: recargar ahora con la
     // sesión. loadData devuelve los usuarios para decidir el flujo del alumno.
@@ -454,7 +463,7 @@ export default function App() {
     const dest = redirectAfterLogin.current;
     redirectAfterLogin.current = null;
     if (u.role === "student") {
-      const hasTeacher = (loaded.users || []).some((x) => x.role === "teacher" && x.id === u.teacherId);
+      const hasTeacher = (loaded.users || []).some((x: any) => x.role === "teacher" && x.id === u.teacherId);
       if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
       navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
     } else {
@@ -463,9 +472,10 @@ export default function App() {
   };
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
-  const submitAnswer = (payload) => {
+  const submitAnswer = (payload: any) => {
     if (!exCtx) return;
     const ex      = freshExercise(exCtx.exercise);
+    const exId    = String(ex.id);
     const isGuest = user?.isGuest;
     const activePalette = effectivePaletteId(ex, user?.defaultPalette);
 
@@ -473,10 +483,10 @@ export default function App() {
     if (payload?.type === "cuestionario") {
       const data = { type: "cuestionario", answers: payload.answers, score: payload.score, schemaPalette: activePalette, timestamp: Date.now() };
       if (isGuest) {
-        setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+        setGuestResults((prev) => ({ ...prev, [exId]: data }));
       } else if (user) {
-        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
-        dbUpsertResult(user.id, ex.id, data);
+        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
+        dbUpsertResult(user.id, exId, data);
       }
       setLastResult(data);
       navigate(`/alumno/ejercicio/${ex.id}/correccion`);
@@ -492,15 +502,15 @@ export default function App() {
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey, payload.blocks);
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey as any, payload.blocks);
       const data = { type: "esquema", blocks: payload.blocks, placementScore, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real
         if (isGuest) {
-          setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+          setGuestResults((prev) => ({ ...prev, [exId]: data }));
         } else if (user) {
-          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
-          dbUpsertResult(user.id, ex.id, data);
+          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
+          dbUpsertResult(user.id, exId, data);
         }
       }
       setLastResult(data);
@@ -514,29 +524,29 @@ export default function App() {
     const entries          = payload.entries || [];
     const currentCategoryId = payload.currentCategoryId || entries[0]?.categoryId || "default";
 
-    const scoreFor = (categoryId, intervals) => {
-      const key = answerFor(ex, categoryId);
+    const scoreFor = (categoryId: string, intervals: any[]) => {
+      const key = answerFor(ex, categoryId) as any[];
       if (!key.length) return null;
-      return calcScore(key, intervals, ex.duration, margin);
+      return calcScore(key, intervals, ex.duration as number, margin);
     };
 
     if (exCtx.mode === "record") {
       // Guardar como clave del profesor
-      const patchAnswers = { ...(ex.answers || {}) };
-      entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
+      const patchAnswers: Record<string, any> = { ...(ex.answers || {}) };
+      entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
       updateExercise(ex.id, { answers: patchAnswers });
       navigate("/profesor");
       return;
     }
 
     // Modo alumno: el "principal" es el currentCategoryId
-    const mainEntry  = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
+    const mainEntry  = entries.find((e: any) => e.categoryId === currentCategoryId) || entries[0];
     const mainIvs    = mainEntry?.intervals || [];
     const mainScore  = scoreFor(currentCategoryId, mainIvs);
 
     const extras = entries
-      .filter((e) => e.categoryId !== currentCategoryId)
-      .map((e) => ({
+      .filter((e: any) => e.categoryId !== currentCategoryId)
+      .map((e: any) => ({
         categoryId: e.categoryId,
         intervals:  e.intervals,
         score:      scoreFor(e.categoryId, e.intervals),
@@ -552,10 +562,10 @@ export default function App() {
     };
 
     if (isGuest) {
-      setGuestResults((prev) => ({ ...prev, [ex.id]: data }));
+      setGuestResults((prev) => ({ ...prev, [exId]: data }));
     } else if (user) {
-      setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [ex.id]: data } }));
-      dbUpsertResult(user.id, ex.id, data);
+      setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
+      dbUpsertResult(user.id, exId, data);
     }
     setLastResult(data);
     navigate(`/alumno/ejercicio/${ex.id}/correccion`);
@@ -647,7 +657,7 @@ export default function App() {
       );
     }
 
-    const finishLogin = (u) => {
+    const finishLogin = (u: any) => {
       // El correo de recuperación ahora vive en fa_user_secrets (servidor), no en
       // el perfil público; el antiguo prompt de configuración se reintroducirá con
       // una función de servidor (Fase 1, pendiente). Por ahora, login directo.
@@ -655,7 +665,7 @@ export default function App() {
     };
 
     if (loginRole) {
-      const labels = { admin: "administrador", teacher: "profesor", student: "alumno" };
+      const labels: Record<string, string> = { admin: "administrador", teacher: "profesor", student: "alumno" };
       return (
         <LoginView
           roleLabel={labels[loginRole]}
@@ -663,11 +673,11 @@ export default function App() {
           users={users}
           onLogin={finishLogin}
           onBack={() => navigate("/")}
-          onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : null}
+          onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : undefined}
           onGuest={loginRole === "student" ? () => {
             const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
             setUser(guest); navigate("/alumno");
-          } : null}
+          } : undefined}
         />
       );
     }
@@ -685,7 +695,7 @@ export default function App() {
   const isStudent = user.role === "student";
 
   // Mensaje cuando el ejercicio referenciado por la URL no existe (o no cargó)
-  const NotFound = ({ to }) => (
+  const NotFound = ({ to }: { to: string }) => (
     <div style={{ ...S.app, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted, fontSize: 14, padding: 24, textAlign: "center" }}>
       <span>No se encontró este ejercicio.</span>
       <button style={S.btn} onClick={() => navigate(to)}>← Volver</button>
@@ -702,7 +712,7 @@ export default function App() {
     const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
     // Paleta efectiva = la del ejercicio, o la preferida por el usuario, o P1.
     const sessionPalette = effectivePaletteId(exCtx.exercise, user?.defaultPalette);
-    const sessionExercise = applyPaletteToExercise(exCtx.exercise, sessionPalette);
+    const sessionExercise = applyPaletteToExercise(exCtx.exercise, sessionPalette) || exCtx.exercise;
     // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
     if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
       return <MultiModelSessionView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
@@ -745,7 +755,7 @@ export default function App() {
     const corrPalette = effectivePaletteId({ schemaPalette: lastResult?.schemaPalette }, user?.defaultPalette);
     return (
       <CorrectionView
-        exercise={applyPaletteToExercise(freshExercise(exCtx.exercise), corrPalette)}
+        exercise={applyPaletteToExercise(freshExercise(exCtx.exercise), corrPalette) || freshExercise(exCtx.exercise)}
         result={lastResult} margin={margin}
         onBack={() => { setLastResult(null); navigate(wasPreview ? "/profesor" : "/alumno"); }}
       />
@@ -768,7 +778,7 @@ export default function App() {
         onExercise={(ex) => openEx(ex, "student")}
         onViewCorrection={openCorrection}
         onLogout={onLogout}
-        onChangeTeacher={user.isGuest ? null : () => navigate("/alumno/elegir-profesor")}
+        onChangeTeacher={user.isGuest ? undefined : () => navigate("/alumno/elegir-profesor")}
         onUpdatePalette={(id) => updateUser({ ...user, defaultPalette: id })}
       />
     );
