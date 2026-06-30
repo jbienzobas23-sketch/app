@@ -11,7 +11,7 @@ import { modelMeta, MODEL_META } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
-import { ExerciseRow } from "./student.jsx";
+import { ExerciseRow, ExerciseCard } from "./student.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -355,7 +355,9 @@ export function CourseExercisesPanel({
       </div>
       <div style={{ padding: "14px 18px" }}>
         {exs.length
-          ? <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
+          ? isMobile
+            ? <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
+            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, alignItems: "start" }}>{exs.map((ex) => <ExerciseCard key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
           : <EmptyExercises role={role} />}
       </div>
     </>
