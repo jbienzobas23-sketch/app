@@ -6,10 +6,11 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelOf, answerStats, questionsOf } from "../lib/domain.js";
-import { modelMeta } from "../lib/modelMeta.js";
+import { modelOf, modelsOf, answerStats, questionsOf } from "../lib/domain.js";
+import { modelMeta, MODEL_META } from "../lib/modelMeta.js";
+import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton } from "./primitives.jsx";
+import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
 import { ExerciseRow } from "./student.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
@@ -221,26 +222,51 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
 }
 
 // — Tarjeta de ejercicio (profesor, "versión B") —
-export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
+export function TeacherExCard({ ex, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
+  const [open, setOpen]   = useState(false);
   const [hover, setHover] = useState(false);
   const meta     = modelMeta(ex);
+  const exModels = modelsOf(ex);
+  const isQuiz   = modelOf(ex) === "cuestionario";
+  const exQs     = questionsOf(ex);
   const keyReady = exKeyReady(ex);
-  const show     = hover || isMobile;
+  // Cabecera de altura fija → rejilla uniforme (igual que la tarjeta de Ejercicios)
+  const HEAD_H = 106;
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ position: "relative", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderTop: `3px solid ${meta.color}`, borderRadius: 10, padding: "13px 13px 12px", boxShadow: hover ? "0 6px 18px rgba(0,0,0,0.07)" : "none", transition: "box-shadow .15s" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 9 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: `${meta.color}14`, color: meta.color, borderRadius: 999, padding: "3px 9px", fontFamily: F.sans, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />{meta.label}
-        </span>
-        <StatusCircle done={keyReady} size={16} />
+      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
+      <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}
+        style={{ display: "flex", alignItems: "center", gap: 13, height: HEAD_H, boxSizing: "border-box", padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+          {/* Subrayado de modelo: un trazo de color por modelo */}
+          <div style={{ display: "flex", gap: 3, margin: "8px 0 7px" }}>
+            {exModels.map((m, i) => (
+              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
+          <Chevron open={open} />
+        </div>
       </div>
-      <div onClick={() => onSelectExercise(String(ex.id))} style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.25, minHeight: 36, cursor: "pointer" }}>{ex.title}</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 11 }}>
-        <span style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 600, color: keyReady ? C.fnT : C.muted }}>{keyReady ? "Clave lista" : "Sin clave"}</span>
-        <div style={{ display: "flex", gap: 6, opacity: show ? 1 : 0, pointerEvents: show ? "auto" : "none", transition: "opacity .12s" }}>
-          <EditIconButton onClick={() => onSelectExercise(String(ex.id))} title={`Editar "${ex.title}"`} />
-          <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unitId, String(ex.id)))} title={`Quitar "${ex.title}" de la unidad`} />
+      <div className={`fa-expand${open ? " fa-open" : ""}`}>
+        <div className="fa-expand-inner">
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
+            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
+            {isQuiz && <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>}
+            <MetaItem label="Clave de corrección">
+              <StatusCircle done={keyReady} size={13} />
+              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+            </MetaItem>
+            {/* Acciones: editar el ejercicio o quitarlo de esta unidad */}
+            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <EditIconButton onClick={() => onSelectExercise(String(ex.id))} title={`Editar "${ex.title}"`} />
+              <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unitId, String(ex.id)))} title={`Quitar "${ex.title}" de la unidad`} />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -310,7 +336,7 @@ export function CourseExercisesPanel({
         </div>
         <div style={{ padding: 16 }}>
           {exs.length
-            ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
+            ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, alignItems: "start" }}>
                 {exs.map((ex) => <TeacherExCard key={ex.id} ex={ex} isMobile={isMobile} unitId={unit.id} onSelectExercise={onSelectExercise} onRemoveExFromUnit={onRemoveExFromUnit} askConfirm={askConfirm} />)}
               </div>
             : <EmptyExercises role={role} />}

@@ -7,7 +7,7 @@ import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 import { modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { TabBar, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
-import { ExerciseRow } from "./student.jsx";
+import { ExerciseRow, ExerciseCard } from "./student.jsx";
 import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
 
@@ -106,11 +106,17 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
                     ? "Tu profesor aún no ha publicado ejercicios."
                     : "Ningún ejercicio coincide con los filtros."}
                 </p>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {filteredExercises.map((ex) => (
-                    <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
-                  ))}
-                </div>
+              : isMobile
+                ? <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {filteredExercises.map((ex) => (
+                      <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                    ))}
+                  </div>
+                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+                    {filteredExercises.map((ex) => (
+                      <ExerciseCard key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                    ))}
+                  </div>
             }
           </>
         )}
