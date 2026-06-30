@@ -57,48 +57,116 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   const isHidden = !!ex.hidden;
 
   return (
-    <div style={{ display: "flex", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
-      {exModels.length > 1 ? (
-        <div style={{ width: 5, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ flex: 1, background: MODEL_META[exModels[0]]?.color || meta.color }} />
-          <div style={{ flex: 1, background: MODEL_META[exModels[1]]?.color || meta.color }} />
-        </div>
-      ) : (
-        <div style={{ width: 5, flexShrink: 0, background: meta.color }} />
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: isHidden ? C.muted : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
-            {composerName && (
-              <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
-            )}
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
+      <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
+          {/* Subrayado de modelo: un trazo de color por modelo (igual que la tarjeta de PC) */}
+          <div style={{ display: "flex", gap: 3, margin: "7px 0 6px" }}>
+            {exModels.map((m, i) => (
+              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
+            ))}
           </div>
-          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
+          {composerName && (
+            <div style={{ fontFamily: F.sans, fontStyle: "italic", fontSize: 12, color: C.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em" }}>OCULTO</span>}
           <Chevron open={open} />
-          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
-            <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
+        </div>
+      </div>
+      <div className={`fa-expand${open ? " fa-open" : ""}`}>
+        <div className="fa-expand-inner">
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
+            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
+            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Clave de corrección">
+              <StatusCircle done={keyReady} size={13} />
+              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+            </MetaItem>
+            <MetaItem label="Visible para alumnos">
+              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+            </MetaItem>
+            {/* Acciones (mostrar/ocultar, editar, eliminar) dentro del desplegable */}
+            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
+              <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
+              <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
+            </div>
           </div>
         </div>
-        <div className={`fa-expand${open ? " fa-open" : ""}`}>
-          <div className="fa-expand-inner">
-            <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 12px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 24px", background: C.bg }}>
-              <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-              <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
-              {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-                : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-              <MetaItem label="Clave de corrección">
-                <StatusCircle done={keyReady} size={13} />
-                <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-              </MetaItem>
-              <MetaItem label="Visible para alumnos">
-                <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
-              </MetaItem>
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
-              </div>
+      </div>
+    </div>
+  );
+}
+
+// Versión "tarjeta" de la fila de ejercicio para la vista de ordenador.
+// Mismo contenido y comportamiento que TeacherExerciseRow, pero dispuesto como
+// tarjeta (rejilla) en lugar de fila a todo el ancho. El modelo del ejercicio se
+// representa con líneas horizontales de color (una por modelo) en vez de la
+// franja vertical lateral.
+export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
+  const [open, setOpen]   = useState(false);
+  const [hover, setHover] = useState(false);
+  const meta    = modelMeta(ex);
+  const exModels= modelsOf(ex);
+  const isQuiz  = modelOf(ex) === "cuestionario";
+  const isSchema= modelOf(ex) === "esquema";
+  const exQs    = questionsOf(ex);
+  const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
+  const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
+  const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+  const isHidden = !!ex.hidden;
+
+  // Altura fija del encabezado en reposo → todas las tarjetas quedan iguales
+  // (rasgo "editorial": rejilla regular aunque varíe el contenido).
+  const HEAD_H = 106;
+
+  return (
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.6 : 1, boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s, opacity .2s" }}>
+      <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", gap: 13, height: HEAD_H, boxSizing: "border-box", padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+          {/* Subrayado de modelo: un trazo de color por modelo, separa título y compositor */}
+          <div style={{ display: "flex", gap: 3, margin: "8px 0 7px" }}>
+            {exModels.map((m, i) => (
+              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
+            ))}
+          </div>
+          {composerName && (
+            <div style={{ fontFamily: F.sans, fontStyle: "italic", fontSize: 12, color: C.ink2, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
+          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em" }}>OCULTO</span>}
+          <Chevron open={open} />
+        </div>
+      </div>
+      <div className={`fa-expand${open ? " fa-open" : ""}`}>
+        <div className="fa-expand-inner">
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
+            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
+            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
+            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Clave de corrección">
+              <StatusCircle done={keyReady} size={13} />
+              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
+            </MetaItem>
+            <MetaItem label="Visible para alumnos">
+              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
+            </MetaItem>
+            {/* Acciones (mostrar/ocultar, editar, eliminar) dentro del desplegable */}
+            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
+              <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
+              <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
             </div>
           </div>
         </div>
@@ -117,6 +185,7 @@ interface ExercisesTabProps {
   onDelete: (id: ExId) => void;
 }
 export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }: ExercisesTabProps) {
+  const isMobile = useIsMobile();
   const [filterModel,     setFilterModel]     = useState("all");
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
   const [filterTags,      setFilterTags]      = useState<string[]>([]);
@@ -174,14 +243,23 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
                 Limpiar filtros
               </button>
             </p>
-          : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {filtered.map((ex) => (
-                <TeacherExerciseRow key={String(ex.id)} ex={ex} onSelect={onSelect}
-                  composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
-                  onToggleVisibility={onToggleVisibility}
-                  onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
-              ))}
-            </div>}
+          : isMobile
+            ? <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {filtered.map((ex) => (
+                  <TeacherExerciseRow key={String(ex.id)} ex={ex} onSelect={onSelect}
+                    composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                    onToggleVisibility={onToggleVisibility}
+                    onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
+                ))}
+              </div>
+            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+                {filtered.map((ex) => (
+                  <TeacherExerciseCard key={String(ex.id)} ex={ex} onSelect={onSelect}
+                    composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                    onToggleVisibility={onToggleVisibility}
+                    onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
+                ))}
+              </div>}
     </>
   );
 }
@@ -352,6 +430,61 @@ interface CategoriesTabProps {
   askConfirm: AskConfirm;
 }
 export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, onToggleGlobal, askConfirm }: CategoriesTabProps) {
+  const isMobile = useIsMobile();
+  const renderCategory = (m: Category, asCard: boolean) => {
+    const isGlobal = Boolean(m.builtIn || m.global);
+    const canEdit  = isAdmin || !isGlobal;
+    const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
+    const cardStyle = asCard
+      ? { boxSizing: "border-box" as const, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 18px 14px", display: "flex", flexDirection: "column" as const, gap: 12 }
+      : S.card;
+    return (
+      <div key={m.id} style={cardStyle}>
+        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: asCard ? 0 : 6, gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+            <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: asCard ? F.serif : F.sans, fontSize: asCard ? 19 : 15, fontWeight: 600, letterSpacing: asCard ? "-0.01em" : undefined }}>{m.name}</span>
+              {isGlobal && (
+                <span style={{ ...S.badge, background: "#e8f0fe", color: "#1a56db", border: "1px solid #bfcfef" }}>
+                  ⭐ Predeterminada
+                </span>
+              )}
+            </div>
+            <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
+              {(m.buttons || []).map((b) => (
+                <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
+                  {b.id} · {b.name} [{(b.key ?? "").toUpperCase()}]
+                </span>
+              ))}
+            </div>
+          </div>
+          <div style={{ ...S.row, gap: 6, flexWrap: "wrap", justifyContent: asCard ? "flex-start" : "flex-end", marginTop: asCard ? 4 : 0 }}>
+            {isAdmin && !m.builtIn && (
+              <button
+                onClick={() => onToggleGlobal(m.id)}
+                title={m.global ? "Quitar de predeterminadas" : "Establecer como predeterminada para todos los profesores"}
+                style={{ ...S.btn, fontSize: 12, color: m.global ? "#1a56db" : C.muted }}
+              >
+                {m.global ? "⭐ Predeterminada" : "☆ Predeterminar"}
+              </button>
+            )}
+            {canEdit && (
+              <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
+            )}
+            {canDel && (
+              <button
+                onClick={() => askConfirm(
+                  `¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`,
+                  () => onDelete(m.id)
+                )}
+                style={S.btnDanger}
+              >Eliminar</button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
   return (
     <>
       <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Crear categoría</button>
@@ -359,57 +492,11 @@ export function CategoriesTab({ categories, isAdmin, onAdd, onEdit, onDelete, on
         Las categorías definen los botones del modelo Interactivo. Editar o eliminar una categoría no afecta a los ejercicios ya creados.
       </p>
 
-      {categories.map((m) => {
-        const isGlobal = Boolean(m.builtIn || m.global);
-        const canEdit  = isAdmin || !isGlobal;
-        const canDel   = isAdmin ? m.id !== "default" : !isGlobal;
-        return (
-          <div key={m.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600 }}>{m.name}</span>
-                  {isGlobal && (
-                    <span style={{ ...S.badge, background: "#e8f0fe", color: "#1a56db", border: "1px solid #bfcfef" }}>
-                      ⭐ Predeterminada
-                    </span>
-                  )}
-                </div>
-                <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                  {(m.buttons || []).map((b) => (
-                    <span key={b.id} style={{ ...S.badge, background: b.color, color: textOn(b.color), fontSize: 10 }}>
-                      {b.id} · {b.name} [{(b.key ?? "").toUpperCase()}]
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                {isAdmin && !m.builtIn && (
-                  <button
-                    onClick={() => onToggleGlobal(m.id)}
-                    title={m.global ? "Quitar de predeterminadas" : "Establecer como predeterminada para todos los profesores"}
-                    style={{ ...S.btn, fontSize: 12, color: m.global ? "#1a56db" : C.muted }}
-                  >
-                    {m.global ? "⭐ Predeterminada" : "☆ Predeterminar"}
-                  </button>
-                )}
-                {canEdit && (
-                  <button onClick={() => onEdit(m)} style={S.btn}>Editar</button>
-                )}
-                {canDel && (
-                  <button
-                    onClick={() => askConfirm(
-                      `¿Eliminar la categoría "${m.name}"?\n\nLos ejercicios que ya la usan conservarán su copia.`,
-                      () => onDelete(m.id)
-                    )}
-                    style={S.btnDanger}
-                  >Eliminar</button>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {isMobile
+        ? categories.map((m) => renderCategory(m, false))
+        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+            {categories.map((m) => renderCategory(m, true))}
+          </div>}
     </>
   );
 }
@@ -423,7 +510,69 @@ interface AudiosTabProps {
   onDelete: (id: string) => void;
   askConfirm: AskConfirm;
 }
+// Tarjeta de audio para la vista de ordenador (rejilla). Equivale a la fila de
+// audio pero en formato tarjeta, con título en serif y compositor en cursiva.
+interface AudioCardProps {
+  audio: AudioItem;
+  isAdmin: boolean;
+  isOpen: boolean;
+  isPrev: boolean;
+  onToggleOpen: () => void;
+  onTogglePrev: () => void;
+  onEdit: (a: AudioItem) => void;
+  onDelete: (id: string) => void;
+  askConfirm: AskConfirm;
+}
+function AudioCard({ audio, isAdmin, isOpen, isPrev, onToggleOpen, onTogglePrev, onEdit, onDelete, askConfirm }: AudioCardProps) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
+      <div onClick={onToggleOpen} {...rowButtonProps(onToggleOpen)} aria-expanded={isOpen}
+        style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, lineHeight: 1.12, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{audio.title}</div>
+          {audio.composer && (
+            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14, color: C.ink2, marginTop: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.composer}</div>
+          )}
+          <div style={{ fontFamily: F.sans, fontSize: 11.5, color: C.muted, marginTop: 6 }}>{fmt(audio.duration ?? 0)}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={() => { onTogglePrev(); if (!isOpen) onToggleOpen(); }} style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>{isPrev ? "⏹" : "▶"}</button>
+            {isAdmin && hover && (
+              <>
+                <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                  style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+              </>
+            )}
+          </div>
+          <Chevron open={isOpen} />
+        </div>
+      </div>
+      {isOpen && (
+        <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", background: C.bg }}>
+          {audio.description && (
+            <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
+          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+            {(audio.tags || []).map((tag) => (
+              <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
+            ))}
+          </div>
+          {isPrev && (
+            <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 12, height: 36 }} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }: AudiosTabProps) {
+  const isMobile = useIsMobile();
   const [openId,          setOpenId]          = useState<string | null>(null);
   const [previewId,       setPreviewId]       = useState<string | null>(null);
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
@@ -501,6 +650,17 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
         </div>
       )}
 
+      {!isMobile ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+          {filtered.map((audio) => (
+            <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
+              isOpen={openId === audio.id} isPrev={previewId === audio.id}
+              onToggleOpen={() => setOpenId(openId === audio.id ? null : audio.id)}
+              onTogglePrev={() => setPreviewId(previewId === audio.id ? null : audio.id)}
+              onEdit={onEdit} onDelete={onDelete} askConfirm={askConfirm} />
+          ))}
+        </div>
+      ) : (
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
         {filtered.map((audio) => {
           const isOpen = openId === audio.id;
@@ -560,6 +720,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
           );
         })}
       </div>
+      )}
     </>
   );
 }

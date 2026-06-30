@@ -7,7 +7,7 @@ import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { harmonyBlockColors } from "../lib/harmony.js";
-import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC, SCHEMA_HND_VISUAL_W } from "../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC } from "../lib/schema.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFromPalette, phraseColorFromPalette, schemaBlockColor, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
@@ -1008,8 +1008,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     e.preventDefault();
   };
 
-  const SCHEMA_HND_W   = 18;
-
   const exSchemaLevels = exercise.schemaLevels as number[] | undefined;
   const activeLevels = SCHEMA_LEVELS.filter(lv =>
     !exSchemaLevels || exSchemaLevels.length === 0 || exSchemaLevels.includes(lv.id)
@@ -1063,10 +1061,27 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     // / 44 (resto) y el bloque va con top:6 bottom:6, así que su alto = pista − 12.
     const _trackH    = lvId === 1 ? 62 : lvId === 2 ? 52 : 44;
     const _blockH    = lvId >= 3 ? 32 : _trackH - 12;
-    const _hndH      = Math.round(_blockH * 2 / 3);
-    const _hndTop    = 6 + Math.round((_blockH - _hndH) / 2);
-    const hStyle: React.CSSProperties = { position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, background: "transparent", cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" };
-    const vis: React.CSSProperties = { width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" };
+    // Asas como "cápsulas" integradas DENTRO del borde del bloque (no objetos
+    // aparte): un recuadro redondeado en cada extremo, con un chevron que indica
+    // el sentido de arrastre.
+    const _capW      = 16;
+    // Mismo alto y radio que el bloque → las curvaturas del asa coinciden con su borde.
+    // El extremo exterior copia el radio del bloque (semicírculo en píldoras, 5px en
+    // rectángulos); el lado interior lleva un radio menor.
+    const _capRouter = lvId >= 3 ? Math.round(_blockH / 2) : 5;
+    const _capRinner = lvId >= 3 ? 6 : 5;
+    const capBase: React.CSSProperties = { position: "absolute", top: 6, height: _blockH, width: _capW, background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.16)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
+    const _capChev   = "rgba(35,40,70,0.72)";
+    const edgeChevron = (dir: "l" | "r" | "both") => (
+      <svg width={dir === "both" ? 14 : 9} height="12" viewBox={dir === "both" ? "0 0 14 12" : "0 0 9 12"} fill="none" style={{ pointerEvents: "none" }}>
+        {dir === "l" && <path d="M6 2 L2.5 6 L6 10" stroke={_capChev} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />}
+        {dir === "r" && <path d="M3 2 L6.5 6 L3 10" stroke={_capChev} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />}
+        {dir === "both" && <>
+          <path d="M5 2 L2 6 L5 10" stroke={_capChev} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M9 2 L12 6 L9 10" stroke={_capChev} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </>}
+      </svg>
+    );
 
     return (<>
       {/* Cuadrícula de fondo — paso fijo global para que la densidad
@@ -1207,8 +1222,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           <div key={block.id} data-block="true" style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
             background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
-            border: isSel ? `2px solid ${C.ink}` : isActive ? `2px solid rgba(255,255,255,0.75)` : `1px solid rgba(255,255,255,0.22)`,
-            boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.22)" : "none",
+            // El borde depende SOLO de la selección (acción del usuario), nunca del
+            // estado "activo" del cursor de reproducción. Ancho constante (2px) y sin
+            // cambio de color al pasar la barra por encima → el bloque no varía nada.
+            border: `2px solid ${isSel ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.18)"}`,
+            boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.16)" : "none",
             display: "flex", alignItems: "center", justifyContent: "center",
             overflow: "hidden", cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
             zIndex: isSel ? 7 : isActive ? 4 : 3, boxSizing: "border-box",
@@ -1233,23 +1251,25 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       {viewMode !== "resumida" && real.flatMap(block => {
         const lPct = ((block.start - bounds.min) / segDur) * 100;
         const rPct = ((block.end   - bounds.min) / segDur) * 100;
+        const selHere = selected === block.id;        // asa opaca solo si el bloque está seleccionado
+        const capOpacity = selHere ? 1 : 0.4;
         const out: ReactNode[] = [];
         // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
         if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
           <div key={`hl-${block.id}`} data-block="true"
-            style={{ ...hStyle, left: `calc(${lPct}% - ${SCHEMA_HND_W / 2}px)` }}
+            style={{ ...capBase, borderRadius: `${_capRouter}px ${_capRinner}px ${_capRinner}px ${_capRouter}px`, cursor: "ew-resize", opacity: capOpacity, left: `${lPct}%` }}
             onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
             onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
-            <div style={vis} />
+            {edgeChevron("l")}
           </div>
         );
         // Ocultar el asa derecha si el bloque está bloqueado al borde de zona
         if (!adjRIds.has(block.id) && !block._lockedEnd) out.push(
           <div key={`hr-${block.id}`} data-block="true"
-            style={{ ...hStyle, left: `calc(${rPct}% - ${SCHEMA_HND_W / 2}px)` }}
+            style={{ ...capBase, borderRadius: `${_capRinner}px ${_capRouter}px ${_capRouter}px ${_capRinner}px`, cursor: "ew-resize", opacity: capOpacity, left: `calc(${rPct}% - ${_capW}px)` }}
             onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
             onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
-            <div style={vis} />
+            {edgeChevron("r")}
           </div>
         );
         return out;
@@ -1257,12 +1277,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       {/* Asas de borde compartido — ocultas en modo resumida */}
       {viewMode !== "resumida" && adjPairs.map(({ left, right }) => {
         const pct = ((left.end - bounds.min) / segDur) * 100;
+        const shSel = selected === left.id || selected === right.id;
         return (
           <div key={`sh-${left.id}-${right.id}`} data-block="true"
-            style={{ position: "absolute", top: _hndTop, width: SCHEMA_HND_W, height: _hndH, left: `calc(${pct}% - ${SCHEMA_HND_W / 2}px)`, background: "transparent", cursor: "col-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ ...capBase, borderRadius: _capRouter, cursor: "col-resize", zIndex: 11, opacity: shSel ? 1 : 0.4, left: `calc(${pct}% - ${_capW / 2}px)` }}
             onMouseDown={e => handleSharedHandleDown(e, left, right)}
             onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-            <div style={{ width: SCHEMA_HND_VISUAL_W, height: "100%", background: "rgba(255,255,255,0.88)", borderRadius: 5, boxShadow: "0 1px 4px rgba(0,0,0,0.16)", pointerEvents: "none" }} />
+            {edgeChevron("both")}
           </div>
         );
       })}
