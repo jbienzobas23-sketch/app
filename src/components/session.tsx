@@ -2,7 +2,7 @@
 // FragmentRangeSelector, WaveformDisplay, AudioScrubber, FigureLabel y
 // FunctionButtons. Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
 import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from "react";
-import { C, S, FONT_MONO } from "../theme/tokens.js";
+import { C, S, FONT_MONO, FONT_SERIF } from "../theme/tokens.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, IV_BAND_H, IV_BAND_GAP } from "../lib/sessionConstants.js";
 import { fmt } from "../lib/ids.js";
@@ -871,13 +871,13 @@ interface FunctionButtonsProps {
   pressing: Pressing | null;
   onDown: (id: string) => void;
   onUp: (id: string) => void;
-  twoRows?: boolean;
+  grados?: boolean;
   hideNames?: boolean;
   paintFn?: string | null;
 }
 
 function fnButtonsEqual(a: FunctionButtonsProps, b: FunctionButtonsProps) {
-  return a.buttons === b.buttons && a.pressing === b.pressing && a.twoRows === b.twoRows
+  return a.buttons === b.buttons && a.pressing === b.pressing && a.grados === b.grados
     && a.hideNames === b.hideNames && a.paintFn === b.paintFn;
 }
 
@@ -909,9 +909,10 @@ export function FigureLabel({ item, color = "currentColor", size = 13 }: FigureL
 // Botonera de funciones (T/S/D…) pulsables con tecla.
 // hideNames: oculta el nombre bajo el botón (redundante en grados).
 // paintFn: id del botón activo como pincel (modo colorear) → se resalta.
-// twoRows: reparte los botones en exactamente 2 filas que ocupan todo el ancho
-//   (cada fila con flex:1), aunque los botones no queden alineados verticalmente.
-export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, twoRows = false, hideNames = false, paintFn = null }: FunctionButtonsProps) {
+// grados: layout de los botones de grados (categorías con cifrado). En escritorio
+//   van en UNA sola fila (mejor aprovechamiento del ancho); en móvil se reparten
+//   en 2 filas. Además el número romano se rotula con serifa.
+export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pressing, onDown, onUp, grados = false, hideNames = false, paintFn = null }: FunctionButtonsProps) {
   const isMobile = useIsMobile();
 
   const renderBtn = (b: FnBtn) => {
@@ -935,20 +936,28 @@ export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pr
           boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
           userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
         }}>
-        <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: 800, fontFamily: FONT_MONO, letterSpacing: -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+        <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: grados ? 700 : 800, fontFamily: grados ? FONT_SERIF : FONT_MONO, letterSpacing: grados ? 0 : -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
         {!hideNames && <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
         {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {(b.key ?? "").toUpperCase()}</span>}
       </button>
     );
   };
 
-  if (twoRows) {
-    const half = Math.ceil(buttons.length / 2);
-    const row1 = buttons.slice(0, half), row2 = buttons.slice(half);
+  if (grados) {
+    // Móvil: 2 filas (7-8 grados no caben cómodos en una). Escritorio: 1 fila.
+    if (isMobile) {
+      const half = Math.ceil(buttons.length / 2);
+      const row1 = buttons.slice(0, half), row2 = buttons.slice(half);
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
+          <div style={{ display: "flex", gap: 10 }}>{row1.map(renderBtn)}</div>
+          <div style={{ display: "flex", gap: 10 }}>{row2.map(renderBtn)}</div>
+        </div>
+      );
+    }
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
-        <div style={{ display: "flex", gap: 10 }}>{row1.map(renderBtn)}</div>
-        <div style={{ display: "flex", gap: 10 }}>{row2.map(renderBtn)}</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 4 }}>
+        {buttons.map(renderBtn)}
       </div>
     );
   }

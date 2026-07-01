@@ -438,85 +438,70 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
           </div>
         )}
 
-        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} twoRows={!!exCategory.hasFigures} hideNames={!!exCategory.hasFigures} paintFn={paintFn} />
+        <FunctionButtons buttons={exCategory.buttons} pressing={pressing} onDown={handleFnDown} onUp={handleFnUp} grados={!!exCategory.hasFigures} hideNames={!!exCategory.hasFigures} paintFn={paintFn} />
 
         {/* Control de cifrado (categorías de grados): debajo de los botones.
-            Switch Tríada/Cuatríada grande + opciones de inversión. */}
+            Switch compacto Tríada/Cuatríada + tiles de inversión por familia. */}
         {selected && selectedIv && exCategory.hasFigures && (() => {
           const setFig = (figId: string) => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fig: figId } : iv));
           const curFig = selectedIv.fig;
           const isQuad = curFig != null && !isTriadFig(curFig);
-          // Botón de inversión teñido con el acento de su familia.
-          const FigBtn = ({ item, accent, i = 0 }: { item: FigItem; accent: string; i?: number }) => {
+          // Tile compacto de cifrado, teñido con el acento de su familia.
+          const FigTile = ({ item, accent, i = 0 }: { item: FigItem; accent: string; i?: number }) => {
             const isSel = curFig === item.id;
             return (
               <button key={item.id} className="fa-pressable fa-opt-in" onClick={() => setFig(item.id)}
-                style={{ width: "100%", minHeight: 52, background: isSel ? accent : C.paper,
-                  border: `1.5px solid ${isSel ? accent : accent + "55"}`, borderRadius: 12, padding: "6px 10px",
+                style={{ width: 52, height: 46, flexShrink: 0, background: isSel ? accent : C.paper,
+                  border: `1.5px solid ${isSel ? accent : accent + "44"}`, borderRadius: 10, padding: 0,
                   cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                  animationDelay: `${i * 35}ms`, transform: isSel ? "translateY(-1px)" : "none",
-                  boxShadow: isSel ? `0 3px 10px ${accent}55` : "none",
-                  transition: "background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s cubic-bezier(.34,1.5,.64,1)" }}>
-                <FigureLabel item={item} color={isSel ? C.paper : accent} size={18} />
+                  animationDelay: `${i * 30}ms`, transform: isSel ? "translateY(-1px)" : "none",
+                  boxShadow: isSel ? `0 2px 8px ${accent}44` : "none",
+                  transition: "background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .12s cubic-bezier(.34,1.5,.64,1)" }}>
+                <FigureLabel item={item} color={isSel ? C.paper : accent} size={17} />
               </button>
             );
           };
-          // Columna de una familia: tarjeta teñida con cabecera del color de acento.
-          // `single`: cuando es la única columna (p. ej. solo diatónica) no se
-          // estira a todo el ancho; se limita a ~el ancho del botón "Cuatríada".
-          const FamilyColumn = ({ gk, single }: { gk: string; single: boolean }) => {
-            const grp = FIG_GROUPS[gk], accent = grp.accent;
-            // single → mitad derecha (bajo el botón "Cuatríada"); resto → reparto equitativo.
-            const widthStyle = single ? { width: "calc(50% - 5px)", flex: "0 0 auto", marginLeft: "auto" } : { flex: 1, minWidth: 0 };
-            return (
-              <div style={{ ...widthStyle, display: "flex", flexDirection: "column", gap: 8,
-                background: `${accent}0D`, border: `1px solid ${accent}33`, borderRadius: 14, padding: 8 }}>
-                <span className="fa-opt-in" style={{ fontSize: 10.5, fontWeight: 700, color: C.paper, background: accent, fontFamily: FONT_SANS,
-                  textAlign: "center", lineHeight: 1.2, padding: "4px 6px", borderRadius: 8, minHeight: 30,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}>{grp.label}</span>
-                {grp.items.map((it, i) => <FigBtn key={it.id} item={it} accent={accent} i={i + 1} />)}
-              </div>
-            );
-          };
+          // Grupo de cifras de una familia: solo la fila de tiles (sin título; el
+          // acento de color ya distingue la familia). Tríada y cuatríada comparten
+          // esta estructura → misma altura, sin saltos al alternar el switch.
+          const FigGroup = ({ accent, items }: { accent: string; items: FigItem[] }) => (
+            <div style={{ display: "flex", gap: 6 }}>
+              {items.map((it, i) => <FigTile key={it.id} item={it} accent={accent} i={i} />)}
+            </div>
+          );
+          // Familias a mostrar según el switch (misma estructura en ambos modos).
+          const families = isQuad
+            ? quadGroupsForDegree(selectedIv.fn).map((gk) => ({ key: gk, accent: FIG_GROUPS[gk].accent, items: FIG_GROUPS[gk].items }))
+            : [{ key: "triada", accent: FIG_GROUPS.triada.accent, items: FIG_GROUPS.triada.items }];
           return (
-            <div onMouseDown={(e) => e.stopPropagation()} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-              {/* Switch Tríada / Cuatríada con pastilla deslizante (transición sutil) */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ position: "relative", display: "flex", flex: 1, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4 }}>
-                  {/* Indicador deslizante */}
-                  <div style={{ position: "absolute", top: 4, bottom: 4, left: 4, width: "calc(50% - 4px)", borderRadius: 999, background: C.ink, transform: isQuad ? "translateX(100%)" : "translateX(0)", transition: "transform .22s cubic-bezier(.4,0,.2,1)" }} />
-                  {[{ k: "triada", label: "Tríada" }, { k: "quad", label: "Cuatríada" }].map(({ k, label }) => {
-                    const active = k === "triada" ? !isQuad : isQuad;
-                    return (
-                      <button key={k}
-                        onClick={() => setFig(k === "triada" ? "t0" : FIG_GROUPS[quadGroupsForDegree(selectedIv.fn)[0]].items[0].id)}
-                        style={{ position: "relative", zIndex: 1, flex: 1, padding: "9px 0", fontSize: 14, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: "none", background: "transparent", color: active ? C.paper : C.muted, cursor: "pointer", transition: "color .2s" }}>
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
-                  style={{ ...S.btnDanger, width: 44, padding: 0, height: 44, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <div onMouseDown={(e) => e.stopPropagation()} className="fa-fade-in"
+              style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap",
+                background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 14px" }}>
+              {/* Switch compacto Tríada / Cuatríada (pastilla deslizante) */}
+              <div style={{ position: "relative", display: "flex", width: 200, flexShrink: 0, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4 }}>
+                {/* Indicador deslizante */}
+                <div style={{ position: "absolute", top: 4, bottom: 4, left: 4, width: "calc(50% - 4px)", borderRadius: 999, background: C.ink, transform: isQuad ? "translateX(100%)" : "translateX(0)", transition: "transform .22s cubic-bezier(.4,0,.2,1)" }} />
+                {[{ k: "triada", label: "Tríada" }, { k: "quad", label: "Cuatríada" }].map(({ k, label }) => {
+                  const active = k === "triada" ? !isQuad : isQuad;
+                  return (
+                    <button key={k}
+                      onClick={() => setFig(k === "triada" ? "t0" : FIG_GROUPS[quadGroupsForDegree(selectedIv.fn)[0]].items[0].id)}
+                      style={{ position: "relative", zIndex: 1, flex: 1, padding: "7px 0", fontSize: 13, fontFamily: FONT_SANS, fontWeight: 600, borderRadius: 999, border: "none", background: "transparent", color: active ? C.paper : C.muted, cursor: "pointer", transition: "color .2s" }}>
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Opciones de inversión. La fila replica la estructura del switch
-                  (contenedor flex:1 + hueco del ancho del ✕) para que las columnas
-                  queden alineadas verticalmente con los botones Tríada/Cuatríada. */}
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <div style={{ flex: 1, display: "flex", gap: 10 }}>
-                  {!isQuad ? (
-                    // Tríada: misma anchura que una columna, bajo el botón "Tríada".
-                    <div style={{ width: "calc(50% - 5px)", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {FIG_GROUPS.triada.items.map((it, i) => <FigBtn key={it.id} item={it} accent={FIG_GROUPS.triada.accent} i={i} />)}
-                    </div>
-                  ) : (() => {
-                    const gks = quadGroupsForDegree(selectedIv.fn);
-                    return gks.map((gk) => <FamilyColumn key={gk} gk={gk} single={gks.length === 1} />);
-                  })()}
-                </div>
-                <div style={{ width: 44, flexShrink: 0 }} />
+              {/* Cifras alineadas con el switch (sin título). En cuatríada las familias
+                  se reparten por el ancho; en tríada se pegan a la izquierda. */}
+              <div style={{ flex: 1, minWidth: 220, display: "flex", justifyContent: isQuad ? "space-evenly" : "flex-start", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+                {families.map((f) => <FigGroup key={f.key} accent={f.accent} items={f.items} />)}
               </div>
+
+              {/* Eliminar fragmento, al final de la fila */}
+              <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+                style={{ ...S.btnDanger, width: 36, height: 36, padding: 0, fontSize: 14, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
             </div>
           );
         })()}
