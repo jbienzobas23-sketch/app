@@ -10,7 +10,7 @@ import { modelOf, answerStats, questionsOf, courseUnitList, unitExList } from ".
 import { modelMeta } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
+import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
 import { ExerciseRow } from "./student.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
 
@@ -143,12 +143,12 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
           : (course.description ? <span style={{ fontFamily: F.sans, fontSize: 12, color: "#888" }}>{course.description}</span> : null)}
       </div>
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <span style={{ flex: 1, height: 5, borderRadius: 3, background: C.line, overflow: "hidden" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: done ? C.fnT : C.ink }} /></span>
-          <span style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 600, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{cs.num}/{cs.total}</span>
+          <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{cs.num}/{cs.total}</span>
         </div>
-        <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>
-          {cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.total} {cs.total === 1 ? "ejercicio" : "ejercicios"}{role === "student" ? ` · ${cs.num} completados` : ` · ${cs.num} con clave`}
+        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+          {cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "completados" : "con clave"}
         </div>
       </div>
     </button>
@@ -158,11 +158,10 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
 export function CoursesLanding({ role, courses, units, exercises, results, groups, onOpen, onCreateCourse }: CoursesData & { onOpen: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, paddingBottom: 16, marginBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
-        <div>
-          <Overline>{role === "student" ? "Mis cursos" : "Gestión"}</Overline>
-          <h2 style={{ fontFamily: F.serif, fontSize: 34, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1, letterSpacing: "-0.01em" }}>Cursos</h2>
-        </div>
+      {/* Sin segundo encabezado "Cursos": la cabecera del panel + pestañas ya dan
+          contexto. Aquí solo una línea de conteo (+ acción de crear en profesor). */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
+        <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
         {role === "teacher" && <CtaButton onClick={onCreateCourse}>+ Nuevo curso</CtaButton>}
       </div>
       {courses.length === 0
@@ -217,19 +216,19 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
 // Placa de tipo + título; al desplegar, metadatos y acciones (editar el
 // ejercicio / quitarlo de la unidad). La clave de corrección queda visible en el
 // desplegable (el profesor no lleva insignia de estado en la cabecera).
-export function TeacherExCard({ ex, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
+export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
   const [open, setOpen]   = useState(false);
   const meta     = modelMeta(ex);
   const isQuiz   = modelOf(ex) === "cuestionario";
   const exQs     = questionsOf(ex);
   const keyReady = exKeyReady(ex);
   return (
-    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: isMobile ? 10 : 14, overflow: "hidden" }}>
       <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}
-        style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 66, boxSizing: "border-box", padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
-        <ExercisePlate ex={ex} size={36} radius={10} />
-        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+        style={{ display: "flex", alignItems: "center", gap: isMobile ? 9 : 14, ...(isMobile ? {} : { minHeight: 66 }), boxSizing: "border-box", padding: isMobile ? "11px 13px" : "12px 16px", cursor: "pointer", userSelect: "none" }}>
+        <ExercisePlate ex={ex} size={isMobile ? 30 : 36} radius={isMobile ? 9 : 10} />
+        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: isMobile ? 16 : 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", ...(isMobile ? { whiteSpace: "nowrap" as const } : { display: "-webkit-box" as const, WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }) }}>{ex.title}</div>
         <Chevron open={open} />
       </div>
       <div className={`fa-expand${open ? " fa-open" : ""}`}>
@@ -284,11 +283,13 @@ interface CourseExercisesPanelProps {
   askConfirm?: AskConfirm;
 }
 const noop = () => {};
+// Eyebrow de conteo (Outfit versalitas) que encabeza la pila de ejercicios.
+const exEyebrow = { fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: C.muted, padding: "2px 4px 10px" };
 export function CourseExercisesPanel({
-  unit, course, exercises, role, results, isMobile,
+  unit, exercises, role, results, isMobile,
   onExercise, onViewCorrection,
   onPickFromBank = noop, onCreateNewExInUnit = noop, onRemoveExFromUnit = noop, onSelectExercise = noop,
-  onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop,
+  askConfirm = noop,
 }: CourseExercisesPanelProps) {
   if (!unit) {
     return <div style={{ padding: "56px 20px", textAlign: "center", fontFamily: F.serif, fontSize: 19, color: C.ink2 }}>Selecciona una unidad</div>;
@@ -296,77 +297,103 @@ export function CourseExercisesPanel({
   const exs = unitExList(unit, exercises, role);
 
   if (role === "teacher") {
+    // Sin cabecera de unidad (el nombre ya está en la barra lateral): solo la
+    // eyebrow de conteo, la pila de filas y los "añadir" al final.
     return (
-      <>
-        <div style={{ padding: "16px 18px 14px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ minWidth: 0, flex: "1 1 180px" }}>
-            <h4 style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, color: C.ink, margin: "0 0 3px", letterSpacing: "-0.01em", display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{unit.name}</span>
-              {unit.hidden && <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>Oculta</span>}
-            </h4>
-            <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
-            <EyeButton visible={!unit.hidden} onClick={() => onUpdateUnit({ ...unit, hidden: !unit.hidden })} />
-            <EditIconButton onClick={() => onEditUnit(unit)} title={`Editar unidad "${unit.name}"`} />
-            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => { onDeleteUnit(unit.id, course.id); onAfterDeleteUnit?.(); })} title={`Eliminar unidad "${unit.name}"`} />
-            <span style={{ width: 1, height: 22, background: C.line, margin: "0 2px" }} />
-            <GhostButton onClick={() => onPickFromBank(unit.id)}>+ Del banco</GhostButton>
-            <CtaButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo</CtaButton>
-          </div>
+      <div>
+        <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>
+        {exs.length
+          ? <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
+              {exs.map((ex) => <TeacherExCard key={ex.id} ex={ex} isMobile={isMobile} unitId={unit.id} onSelectExercise={onSelectExercise} onRemoveExFromUnit={onRemoveExFromUnit} askConfirm={askConfirm} />)}
+            </div>
+          : <div style={{ marginBottom: 10 }}><EmptyExercises role={role} /></div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <DashedAddButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo ejercicio</DashedAddButton>
+          <GhostButton full onClick={() => onPickFromBank(unit.id)}>+ Añadir del banco</GhostButton>
         </div>
-        <div style={{ padding: 16 }}>
-          {exs.length
-            ? <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {exs.map((ex) => <TeacherExCard key={ex.id} ex={ex} isMobile={isMobile} unitId={unit.id} onSelectExercise={onSelectExercise} onRemoveExFromUnit={onRemoveExFromUnit} askConfirm={askConfirm} />)}
-              </div>
-            : <EmptyExercises role={role} />}
-        </div>
-      </>
+      </div>
     );
   }
 
   // alumno
   const s = unitProgress(unit, exercises, role, results);
   return (
-    <>
-      <div style={{ padding: "18px 22px 14px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14 }}>
-        <h4 style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, color: C.ink, margin: 0, letterSpacing: "-0.01em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{unit.name}</h4>
-        <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, whiteSpace: "nowrap", flexShrink: 0 }}>{s.num}/{s.total} completados</span>
-      </div>
-      <div style={{ padding: "14px 18px" }}>
-        {exs.length
-          ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
-              {exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}
-            </div>
-          : <EmptyExercises role={role} />}
-      </div>
-    </>
+    <div>
+      <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>
+      {exs.length
+        ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
+            {exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} compact={isMobile} />)}
+          </div>
+        : <EmptyExercises role={role} />}
+    </div>
+  );
+}
+
+// — Menú "⋯" reutilizable (acciones de curso / unidad) —
+interface KebabItem { label: string; onClick: () => void; danger?: boolean; }
+export function KebabMenu({ items, size = 28, title = "Acciones" }: { items: KebabItem[]; size?: number; title?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => setOpen((o) => !o)} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}
+        style={{ width: size, height: size, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, color: "#888", cursor: "pointer" }}>
+        <svg width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="4" cy="10" r="1.7" fill="currentColor" /><circle cx="10" cy="10" r="1.7" fill="currentColor" /><circle cx="16" cy="10" r="1.7" fill="currentColor" /></svg>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div role="menu" style={{ position: "absolute", top: "100%", right: 0, marginTop: 5, zIndex: 41, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", padding: 5, minWidth: 178, boxSizing: "border-box" }}>
+            {items.map((it, i) => (
+              <button key={i} role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}
+                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: it.danger ? C.danger : C.ink2 }}>
+                {it.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
 // — Panel izquierdo: lista vertical de unidades con anillo de progreso —
-export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit = noop }: { course: Course; units: Unit[]; exercises: Exercise[]; role: Role; results: ResultsMap; selUnitId: string | null; onSelectUnit: (unitId: string) => void; onCreateUnit?: (courseId: string) => void }) {
+// Solo el nombre de unidad (sin eyebrow "UNIDAD n"); las acciones de la unidad
+// seleccionada (profesor) viven en su menú ⋯ (no en la cabecera del panel).
+interface UnitsListProps {
+  course: Course; units: Unit[]; exercises: Exercise[]; role: Role; results: ResultsMap;
+  selUnitId: string | null; onSelectUnit: (unitId: string) => void; onCreateUnit?: (courseId: string) => void;
+  onEditUnit?: (unit: Unit) => void; onUpdateUnit?: (unit: Unit) => void; onDeleteUnit?: (unitId: string, courseId: string) => void;
+  onAfterDeleteUnit?: () => void; askConfirm?: AskConfirm;
+}
+export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit = noop, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop }: UnitsListProps) {
   const cu = courseUnitList(course, units, role);
   return (
     <div>
-      <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 4px 10px" }}>Unidades didácticas</div>
+      <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 4px 10px" }}>Unidades</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 4px 8px" }}>Este curso no tiene unidades todavía.</p>
-          : cu.map((u, i) => {
+          : cu.map((u) => {
               const s  = unitProgress(u, exercises, role, results);
               const on = u.id === selUnitId;
+              const select = () => onSelectUnit(u.id);
               return (
-                <button key={u.id} onClick={() => onSelectUnit(u.id)}
-                  style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 11, border: `1px solid ${on ? C.rail : "transparent"}`, cursor: "pointer", background: on ? C.paper : "transparent", boxShadow: on ? "0 2px 10px rgba(0,0,0,0.05)" : "none" }}>
-                  <ProgressRing ready={s.num} total={s.total} size={40} stroke={4} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 10.5, fontWeight: 700, color: C.muted, letterSpacing: "0.04em" }}>UNIDAD {i + 1}{u.hidden ? " · oculta" : ""}</span>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
+                <div key={u.id} onClick={select} role="button" tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
+                  style={{ boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 11, border: `1px solid ${on ? C.rail : "transparent"}`, cursor: "pointer", background: on ? C.paper : "transparent", boxShadow: on ? "0 2px 10px rgba(0,0,0,0.05)" : "none" }}>
+                  <ProgressRing ready={s.num} total={s.total} size={34} stroke={3.5} />
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: F.serif, fontSize: 16, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
+                    {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
                   </span>
-                  {on && <ArrowRightIcon size={13} color={C.muted} />}
-                </button>
+                  {role === "teacher" && on && (
+                    <KebabMenu size={26} title={`Acciones de la unidad "${u.name}"`} items={[
+                      { label: u.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateUnit({ ...u, hidden: !u.hidden }) },
+                      { label: "Editar unidad", onClick: () => onEditUnit(u) },
+                      { label: "Eliminar unidad", danger: true, onClick: () => askConfirm(`¿Eliminar la unidad "${u.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => { onDeleteUnit(u.id, course.id); onAfterDeleteUnit?.(); }) },
+                    ]} />
+                  )}
+                </div>
               );
             })}
         {role === "teacher" && <div style={{ marginTop: 4 }}><DashedAddButton onClick={() => onCreateUnit(course.id)}>+ Nueva unidad</DashedAddButton></div>}
@@ -401,40 +428,37 @@ export function CourseDetail({
   if (!course) return null;
   const cu   = courseUnitList(course, units, role);
   const unit = cu.find((u) => u.id === selUnitId) || cu[0] || null;
-  const cs   = courseProgress(course, units, exercises, role, results);
-
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Barra superior: volver + desplegable + acciones */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 14, marginBottom: course.description ? 12 : 18, borderBottom: `2px solid ${C.ink}` }}>
-        <button onClick={onBack} style={{ font: "inherit", display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${C.line}`, color: "#555", borderRadius: 8, padding: "8px 13px", fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
-          <ChevronLeftIcon /> Cursos
-        </button>
+      {/* Barra de título: nombre del curso (izq) + "Volver a cursos" (der). Sin
+          borde 2px ni barra de progreso; las acciones del curso van en el menú ⋯. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: course.description ? 10 : 20 }}>
         <CourseDropdown courses={courses} currentId={courseId} role={role} units={units} exercises={exercises} results={results} onSwitch={onSwitch} />
         {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
         <span style={{ flex: 1 }} />
-        {role === "teacher"
-          ? <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
-              <EditIconButton onClick={() => onEditCourse(course)} title={`Editar curso "${course.name}"`} />
-              <DeleteIconButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onBack(); })} title={`Eliminar curso "${course.name}"`} />
-            </div>
-          : <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-              <CourseProgressBar num={cs.num} total={cs.total} width={110} accent={C.fnT} />
-              <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, whiteSpace: "nowrap" }}>completados</span>
-            </div>}
+        {role === "teacher" && (
+          <KebabMenu title={`Acciones del curso "${course.name}"`} items={[
+            { label: course.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateCourse({ ...course, hidden: !course.hidden }) },
+            { label: "Editar curso", onClick: () => onEditCourse(course) },
+            { label: "Eliminar curso", danger: true, onClick: () => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onBack(); }) },
+          ]} />
+        )}
+        <button onClick={onBack} style={{ font: "inherit", display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: "none", padding: 0, color: "#888", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+          <ChevronLeftIcon size={13} color="#888" /> Volver a cursos
+        </button>
       </div>
       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888", margin: "-4px 0 18px" }}>{course.description}</div>}
 
-      {/* Dos paneles: unidades (vertical) + ejercicios */}
-      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 22, alignItems: "start" }}>
-        <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit} />
-        <div style={{ minWidth: 0, border: `1px solid ${C.line}`, borderRadius: 14, background: C.paper, overflow: "hidden" }}>
+      {/* Dos columnas: barra lateral de unidades (210px) + pila de ejercicios (sin tarjeta) */}
+      <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", gap: 18, alignItems: "start" }}>
+        <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit}
+          onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm} />
+        <div style={{ minWidth: 0 }}>
           <CourseExercisesPanel
             unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile={false}
             onExercise={onExercise} onViewCorrection={onViewCorrection}
             onPickFromBank={onPickFromBank} onCreateNewExInUnit={onCreateNewExInUnit} onRemoveExFromUnit={onRemoveExFromUnit} onSelectExercise={onSelectExercise}
-            onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm} />
+            askConfirm={askConfirm} />
         </div>
       </div>
     </div>
@@ -445,7 +469,7 @@ export function CourseDetail({
 export function MobileTopBar({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, marginBottom: 14, borderBottom: `1px solid ${C.line}` }}>
-      {onBack && <button onClick={onBack} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon /></button>}
+      {onBack && <button onClick={onBack} aria-label="Volver" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={12} /></button>}
       <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
     </div>
   );
@@ -454,9 +478,9 @@ export function MobileTopBar({ title, onBack }: { title: string; onBack?: () => 
 export function MobileCoursesScreen({ role, courses, units, exercises, results, groups, onOpenCourse, onCreateCourse }: CoursesData & { onOpenCourse: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      <div style={{ paddingBottom: 14, marginBottom: 14, borderBottom: `2px solid ${C.ink}` }}>
-        <Overline>{role === "student" ? "Mis cursos" : "Gestión"}</Overline>
-        <h2 style={{ fontFamily: F.serif, fontSize: 26, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.02, letterSpacing: "-0.01em" }}>Cursos</h2>
+      {/* Sin segundo encabezado "Cursos" (la cabecera + pestañas ya dan contexto). */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
       </div>
       {courses.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2.5rem 1rem" }}>{role === "student" ? "El profesor aún no ha creado ningún curso." : "Aún no hay cursos. Crea el primero."}</p>
@@ -524,7 +548,7 @@ export function MobileUnitsScreen({
           </div>
         )}
       </div>
-      <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 2px 10px" }}>Unidades didácticas</div>
+      <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 2px 10px" }}>Unidades</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 2px 8px" }}>Este curso no tiene unidades todavía.</p>
@@ -549,14 +573,48 @@ export function MobileUnitsScreen({
   );
 }
 
-type PanelCallbacks = Omit<CourseExercisesPanelProps, "unit" | "course" | "exercises" | "role" | "results" | "isMobile">;
-export function MobileExercisesScreen({ role, course, unit, exercises, results, onBack, panelProps }: { role: Role; course: Course; unit: Unit | null; exercises: Exercise[]; results: ResultsMap; onBack: () => void; panelProps: PanelCallbacks }) {
+type PanelCallbacks = Omit<CourseExercisesPanelProps, "unit" | "course" | "exercises" | "role" | "results" | "isMobile" | "onEditUnit" | "onUpdateUnit" | "onDeleteUnit" | "onAfterDeleteUnit">;
+interface MobileExercisesScreenProps {
+  role: Role; course: Course; unit: Unit | null; units: Unit[]; exercises: Exercise[]; results: ResultsMap;
+  onBack: () => void; onOpenUnit: (unitId: string) => void; panelProps: PanelCallbacks;
+  onEditUnit?: (unit: Unit) => void; onUpdateUnit?: (unit: Unit) => void; onDeleteUnit?: (unitId: string, courseId: string) => void; onAfterDeleteUnit?: () => void; askConfirm?: AskConfirm;
+}
+export function MobileExercisesScreen({ role, course, unit, units, exercises, results, onBack, onOpenUnit, panelProps, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop }: MobileExercisesScreenProps) {
+  const cu = courseUnitList(course, units, role);
   return (
     <div style={{ fontFamily: F.sans }}>
-      <MobileTopBar title={course.name ?? ""} onBack={onBack} />
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, background: C.paper, overflow: "hidden" }}>
-        <CourseExercisesPanel unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile {...panelProps} />
+      {/* Breadcrumb Curso ⟩ Unidad + (profesor) acciones de la unidad en ⋯ */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, marginBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+        <button onClick={onBack} aria-label="Volver" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={12} /></button>
+        <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {course.name}{unit ? <> <span style={{ color: "#d8d8d2" }}>⟩</span> {unit.name}</> : null}
+        </span>
+        {role === "teacher" && unit && (
+          <KebabMenu size={28} title={`Acciones de la unidad "${unit.name}"`} items={[
+            { label: unit.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateUnit({ ...unit, hidden: !unit.hidden }) },
+            { label: "Editar unidad", onClick: () => onEditUnit(unit) },
+            { label: "Eliminar unidad", danger: true, onClick: () => askConfirm(`¿Eliminar la unidad "${unit.name}"?\n\nLos ejercicios no se eliminarán del banco global.`, () => { onDeleteUnit(unit.id, course.id); onAfterDeleteUnit?.(); }) },
+          ]} />
+        )}
       </div>
+      {/* Chips de unidades (scroll horizontal): cambia de unidad sin volver atrás */}
+      {cu.length > 1 && (
+        <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "12px 0 14px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+          {cu.map((u) => {
+            const s = unitProgress(u, exercises, role, results);
+            const on = !!unit && u.id === unit.id;
+            const done = s.total > 0 && s.num === s.total;
+            const label = (role === "student" && done && !on) ? `✓ ${u.name}` : `${u.name} · ${s.num}/${s.total}`;
+            return (
+              <button key={u.id} onClick={() => onOpenUnit(u.id)}
+                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 20, background: on ? C.ink : C.paper2, color: on ? "#fff" : "#555", border: "none", fontFamily: F.sans, fontSize: 11.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", cursor: "pointer" }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <CourseExercisesPanel unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile {...panelProps} />
     </div>
   );
 }
@@ -583,12 +641,15 @@ export function MobileCoursesFlow(props: CoursesPagesProps) {
   }
   const cu   = courseUnitList(course, units, role);
   const unit = cu.find((u) => u.id === nav.unitId) || cu[0] || null;
-  return <MobileExercisesScreen role={role} course={course} unit={unit} exercises={exercises} results={results}
+  return <MobileExercisesScreen role={role} course={course} unit={unit} units={units} exercises={exercises} results={results}
     onBack={() => setNav({ ...nav, level: "units", unitId: null })}
+    onOpenUnit={(unitId) => setNav({ ...nav, level: "exercises", unitId })}
+    onEditUnit={props.onEditUnit} onUpdateUnit={props.onUpdateUnit} onDeleteUnit={props.onDeleteUnit}
+    onAfterDeleteUnit={() => setNav({ ...nav, level: "units", unitId: null })} askConfirm={props.askConfirm}
     panelProps={{
       onExercise: props.onExercise, onViewCorrection: props.onViewCorrection,
       onPickFromBank: props.onPickFromBank, onCreateNewExInUnit: props.onCreateNewExInUnit, onRemoveExFromUnit: props.onRemoveExFromUnit, onSelectExercise: props.onSelectExercise,
-      onEditUnit: props.onEditUnit, onUpdateUnit: props.onUpdateUnit, onDeleteUnit: props.onDeleteUnit, onAfterDeleteUnit: () => setNav({ ...nav, level: "units", unitId: null }), askConfirm: props.askConfirm,
+      askConfirm: props.askConfirm,
     }} />;
 }
 

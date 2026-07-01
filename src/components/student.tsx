@@ -1,6 +1,6 @@
 // ═══ COMPONENTES DE ALUMNO ═══════════════════════════════════════════════════
 // Barra de alternancia de modelos y tarjeta de ejercicio. Extraídos (Fase 2).
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, F } from "../theme/tokens.js";
 import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
@@ -13,7 +13,7 @@ import { ExercisePlate } from "./TypePlate.jsx";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
 interface ModelToggleBarProps { models: string[]; activeIdx: number; onSwitch: (idx: number) => void; }
-interface ExerciseRowProps { ex: Exercise; result?: ExerciseResult | null; onOpen: (ex: Exercise) => void; onViewCorrection?: (ex: Exercise) => void; }
+interface ExerciseRowProps { ex: Exercise; result?: ExerciseResult | null; onOpen: (ex: Exercise) => void; onViewCorrection?: (ex: Exercise) => void; compact?: boolean; }
 
 // Barra de alternancia entre modelos (se inyecta entre título y waveform en sesiones con 2 modelos)
 export function ModelToggleBar({ models, activeIdx, onSwitch }: ModelToggleBarProps) {
@@ -146,7 +146,7 @@ export function ExerciseCard({ ex, result, onOpen, onViewCorrection }: ExerciseR
 // Fila de ejercicio a ancho completo (alumno) — sistema de placas: placa de tipo
 // + título + estado (puntuación/completado); metadatos y acciones (iniciar/
 // repetir/ver entrega) al desplegar. Se apila en la vista de curso.
-export function ExerciseRow({ ex, result, onOpen, onViewCorrection }: ExerciseRowProps) {
+export function ExerciseRow({ ex, result, onOpen, onViewCorrection, compact = false }: ExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
@@ -158,19 +158,23 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection }: ExerciseRo
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
   const showComposer = Boolean(ex.composerName && ex.showComposer !== false);
+  // Variante compacta (móvil): placa/título/medidas menores y título a una línea.
+  const titleStyle: CSSProperties = compact
+    ? { flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 16, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+    : { flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: compact ? 10 : 14, overflow: "hidden" }}>
       <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 66, boxSizing: "border-box", padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
-        <ExercisePlate ex={ex} size={36} radius={10} />
-        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+        style={{ display: "flex", alignItems: "center", gap: compact ? 9 : 14, ...(compact ? {} : { minHeight: 66 }), boxSizing: "border-box", padding: compact ? "11px 13px" : "12px 16px", cursor: "pointer", userSelect: "none" }}>
+        <ExercisePlate ex={ex} size={compact ? 30 : 36} radius={compact ? 9 : 10} />
+        <div style={titleStyle}>
           {ex.title}
         </div>
         {isDone && score != null && (
           <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
         )}
-        {isDone && score == null && <StatusCircle done size={20} />}
+        {isDone && score == null && <StatusCircle done size={compact ? 17 : 20} />}
         <Chevron open={open} />
       </div>
 

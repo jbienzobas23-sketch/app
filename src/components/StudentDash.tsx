@@ -119,12 +119,12 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
                     : "Ningún ejercicio coincide con los filtros."}
                 </p>
               : isMobile
-                ? <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {filteredExercises.map((ex) => (
-                      <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                      <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} compact />
                     ))}
                   </div>
-                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
                     {filteredExercises.map((ex) => (
                       <ExerciseCard key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                     ))}

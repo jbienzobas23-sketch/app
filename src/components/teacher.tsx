@@ -231,7 +231,7 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
                     onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
                 ))}
               </div>
-            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
                 {filtered.map((ex) => (
                   <TeacherExerciseCard key={String(ex.id)} ex={ex} onSelect={onSelect}
                     composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}

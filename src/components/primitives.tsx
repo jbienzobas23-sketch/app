@@ -826,7 +826,7 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
     { id: "done",    label: "Hechos",    accent: C.fnT  },
   ];
   return (
-    <div style={{ marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
       <TypeFilterChips value={filterModel} onChange={setFilterModel} />
 
       <div style={{ display: "flex", gap: 5, background: C.paper2, borderRadius: 20, padding: "3px 4px" }}>
