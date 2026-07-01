@@ -38,6 +38,11 @@ function genSalt(): string {
   crypto.getRandomValues(a);
   return Array.from(a).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+function randomPassword(): string {
+  const a = new Uint8Array(24);
+  crypto.getRandomValues(a);
+  return Array.from(a).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -108,6 +113,24 @@ Deno.serve(async (req: Request) => {
       await admin.from("fa_users").delete().eq("id", id); // rollback del perfil
       return json({ error: "No se pudo crear el secreto." }, 500);
     }
+
+    // ── Enlace de Auth ANTICIPADO ─────────────────────────────────────────────
+    // Crea ya el usuario de Supabase Auth (`${username}@fa.local`) y guarda
+    // auth_uid/auth_password, para que la cuenta pueda ESCRIBIR (RLS app_is_staff)
+    // desde su primer login, sin depender del auto-enlace perezoso del login.
+    // Best-effort: si falla, el login lo enlazará igualmente la primera vez.
+    try {
+      const email = `${username}@fa.local`;
+      const authPassword = randomPassword();
+      const { data: created, error: aErr } = await admin.auth.admin.createUser({
+        email, password: authPassword, email_confirm: true,
+        user_metadata: { app_user_id: id },
+      });
+      const authUid = created?.user?.id;
+      if (!aErr && authUid) {
+        await admin.from("fa_user_secrets").update({ auth_uid: authUid, auth_password: authPassword }).eq("user_id", id);
+      }
+    } catch (_e) { /* enlace perezoso en el primer login */ }
 
     return json({ profile }, 200);
   } catch (_e) {

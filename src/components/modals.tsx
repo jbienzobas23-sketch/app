@@ -266,7 +266,7 @@ export function UnitFormModal({ initial, onSave, onClose }: { initial?: Unit | n
 // Picker de ejercicios del banco (para asignar a una unidad)
 export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }: { exercises: Exercise[]; alreadyInUnit: string[]; onAdd: (ids: string[]) => void; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const inUnit    = new Set(alreadyInUnit);
+  const inUnit    = new Set(alreadyInUnit.map(String));   // ids pueden venir numéricos (dato antiguo)
   const available = exercises.filter((e) => !inUnit.has(String(e.id)));
   const toggle    = (id: string) => setSelected((s) => toggleInSet(s, id) as Set<string>);
 

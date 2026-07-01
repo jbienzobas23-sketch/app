@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelOf, modelsOf, answerStats, questionsOf } from "../lib/domain.js";
+import { modelOf, modelsOf, answerStats, questionsOf, courseUnitList, unitExList } from "../lib/domain.js";
 import { modelMeta, MODEL_META } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
@@ -57,14 +57,8 @@ interface CoursesCallbacks {
 //   · alumno   → sin edición, progreso = ejercicios completados.
 
 // — Helpers de forma/progreso, conscientes del rol —
-function courseUnitList(course: Course | null | undefined, units: Unit[], role: Role): Unit[] {
-  const ordered = (course?.unitIds || []).map((id) => units.find((u) => u.id === id)).filter(Boolean) as Unit[];
-  return role === "student" ? ordered.filter((u) => !u.hidden) : ordered;
-}
-function unitExList(unit: Unit | null | undefined, exercises: Exercise[], role: Role): Exercise[] {
-  const ordered = (unit?.exerciseIds || []).map((id) => exercises.find((e) => e.id === id)).filter(Boolean) as Exercise[];
-  return role === "student" ? ordered.filter((e) => !e.hidden) : ordered;
-}
+// courseUnitList / unitExList viven en lib/domain.ts (comparan ids normalizados
+// a texto para tolerar ids de ejercicio numéricos vs. exerciseIds de texto).
 // ¿La clave del ejercicio está lista? (misma lógica que el acordeón anterior)
 function exKeyReady(ex: Exercise): boolean {
   const isQuiz = modelOf(ex) === "cuestionario";

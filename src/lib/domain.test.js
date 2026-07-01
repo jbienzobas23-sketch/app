@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
-  audioComposers, audioTags,
+  audioComposers, audioTags, courseUnitList, unitExList,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -55,6 +55,44 @@ describe("comboIdFromModels", () => {
     expect(comboIdFromModels(["esquema"])).toBe("esquema");
     expect(comboIdFromModels(["interactivo", "cuestionario"])).toBe("interactivo+cuestionario");
     expect(comboIdFromModels(["esquema", "cuestionario"])).toBe("esquema+cuestionario");
+  });
+});
+
+describe("unitExList — resolución tolerante al tipo de id", () => {
+  // Los ejercicios se crean con id numérico (Date.now()); las unidades guardan
+  // exerciseIds como texto. La resolución debe funcionar con AMBOS tipos.
+  const exercises = [
+    { id: 1779175479413, title: "Cadencia 1" },          // id numérico (real)
+    { id: 1779182638495, title: "Análisis 1" },
+    { id: "ex-abc", title: "Nuevo (id texto)" },
+    { id: 5, title: "Oculto", hidden: true },
+  ];
+  it("resuelve exerciseIds de TEXTO contra ids de ejercicio NUMÉRICOS (el bug)", () => {
+    const unit = { id: "u1", exerciseIds: ["1779175479413", "1779182638495"] };
+    const got = unitExList(unit, exercises, "teacher").map((e) => e.title);
+    expect(got).toEqual(["Cadencia 1", "Análisis 1"]);
+  });
+  it("resuelve exerciseIds NUMÉRICOS (unidades antiguas)", () => {
+    const unit = { id: "u2", exerciseIds: [1779175479413] };
+    expect(unitExList(unit, exercises, "teacher").map((e) => e.title)).toEqual(["Cadencia 1"]);
+  });
+  it("conserva el orden de exerciseIds e ignora ids inexistentes", () => {
+    const unit = { id: "u3", exerciseIds: ["ex-abc", "no-existe", "1779175479413"] };
+    expect(unitExList(unit, exercises, "teacher").map((e) => e.title)).toEqual(["Nuevo (id texto)", "Cadencia 1"]);
+  });
+  it("el alumno no ve los ejercicios ocultos", () => {
+    const unit = { id: "u4", exerciseIds: ["1779175479413", "5"] };
+    expect(unitExList(unit, exercises, "student").map((e) => e.title)).toEqual(["Cadencia 1"]);
+    expect(unitExList(unit, exercises, "teacher").map((e) => e.title)).toEqual(["Cadencia 1", "Oculto"]);
+  });
+});
+
+describe("courseUnitList", () => {
+  const units = [{ id: "u1", name: "A" }, { id: "u2", name: "B", hidden: true }];
+  it("resuelve unitIds en orden y filtra ocultas para el alumno", () => {
+    const course = { id: "c1", unitIds: ["u2", "u1"] };
+    expect(courseUnitList(course, units, "teacher").map((u) => u.name)).toEqual(["B", "A"]);
+    expect(courseUnitList(course, units, "student").map((u) => u.name)).toEqual(["A"]);
   });
 });
 

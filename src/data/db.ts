@@ -7,54 +7,71 @@
 // sigue con los datos semilla.
 //
 // `pendingSavesRef`: contador de escrituras en vuelo (para avisos de "guardando").
+// `onError`: se invoca cuando una escritura falla (p. ej. RLS la rechaza porque
+//   la sesión no está enlazada). Antes los errores se tragaban (solo console.error)
+//   y el estado local divergía en silencio del servidor → incoherencias entre
+//   sesiones/dispositivos. Ahora se pueden mostrar al usuario.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Exercise } from "../lib/types.js";
 
 interface DbDeps {
   getClient: () => SupabaseClient | null;
   pendingSavesRef: { current: number };
+  onError?: (info: { table: string; message: string }) => void;
 }
 
 type AnyRecord = Record<string, unknown>;
+type WriteResult = { error: { message?: string } | null };
 
-export function createDb({ getClient, pendingSavesRef }: DbDeps) {
-  const dbUpsertExercise = async (ex: Exercise) => {
+export function createDb({ getClient, pendingSavesRef, onError }: DbDeps) {
+  // Envuelve una escritura: cuenta pendientes, y ante un error lo registra y
+  // avisa (onError) de forma uniforme para TODAS las tablas y operaciones.
+  const write = async (table: string, run: (sb: SupabaseClient) => PromiseLike<WriteResult>) => {
     const sb = getClient(); if (!sb) return;
+    pendingSavesRef.current++;
+    try {
+      const { error } = await run(sb);
+      if (error) { console.error(`[${table}] Error al guardar:`, error.message); onError?.({ table, message: error.message ?? "error" }); }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[${table}] Error al guardar:`, message); onError?.({ table, message });
+    } finally {
+      pendingSavesRef.current--;
+    }
+  };
+
+  const dbUpsertExercise = async (ex: Exercise) => {
     // El waveform decodificado puede pesar mucho; no se guarda en Supabase.
     const { waveformData: _waveformData, ...rest } = ex;
-    pendingSavesRef.current++;
-    const { error } = await sb.from("fa_exercises").upsert({ id: ex.id, data: rest });
-    pendingSavesRef.current--;
-    if (error) console.error("[fa_exercises] Error al guardar:", error.message, ex.id);
+    await write("fa_exercises", (sb) => sb.from("fa_exercises").upsert({ id: ex.id, data: rest }));
   };
-  const dbDeleteExercise = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_exercises").delete().eq("id", id); };
+  const dbDeleteExercise = async (id: string) => { await write("fa_exercises", (sb) => sb.from("fa_exercises").delete().eq("id", id)); };
 
-  const dbUpsertUser   = async (u: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; const { error } = await sb.from("fa_users").upsert({ id: u.id, data: u }); if (error) console.error("[fa_users] Error al guardar:", error.message); };
-  const dbDeleteUser   = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_users").delete().eq("id", id); };
+  const dbUpsertUser = async (u: AnyRecord & { id: string }) => { await write("fa_users", (sb) => sb.from("fa_users").upsert({ id: u.id, data: u })); };
+  const dbDeleteUser = async (id: string) => { await write("fa_users", (sb) => sb.from("fa_users").delete().eq("id", id)); };
 
-  const dbUpsertCategory = async (c: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; const { error } = await sb.from("fa_categories").upsert({ id: c.id, data: c }); if (error) console.error("[fa_categories] Error al guardar:", error.message); };
-  const dbDeleteCategory = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_categories").delete().eq("id", id); };
+  const dbUpsertCategory = async (c: AnyRecord & { id: string }) => { await write("fa_categories", (sb) => sb.from("fa_categories").upsert({ id: c.id, data: c })); };
+  const dbDeleteCategory = async (id: string) => { await write("fa_categories", (sb) => sb.from("fa_categories").delete().eq("id", id)); };
 
-  const dbUpsertCourse = async (c: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; const { error } = await sb.from("fa_courses").upsert({ id: c.id, data: c }); if (error) console.error("[fa_courses] Error al guardar:", error.message); };
-  const dbDeleteCourse = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_courses").delete().eq("id", id); };
+  const dbUpsertCourse = async (c: AnyRecord & { id: string }) => { await write("fa_courses", (sb) => sb.from("fa_courses").upsert({ id: c.id, data: c })); };
+  const dbDeleteCourse = async (id: string) => { await write("fa_courses", (sb) => sb.from("fa_courses").delete().eq("id", id)); };
 
-  const dbUpsertUnit = async (u: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; const { error } = await sb.from("fa_units").upsert({ id: u.id, data: u }); if (error) console.error("[fa_units] Error al guardar:", error.message); };
-  const dbDeleteUnit = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_units").delete().eq("id", id); };
+  const dbUpsertUnit = async (u: AnyRecord & { id: string }) => { await write("fa_units", (sb) => sb.from("fa_units").upsert({ id: u.id, data: u })); };
+  const dbDeleteUnit = async (id: string) => { await write("fa_units", (sb) => sb.from("fa_units").delete().eq("id", id)); };
 
   const dbUpsertResult = async (userId: string, exerciseId: string, data: AnyRecord) => {
-    const sb = getClient(); if (!sb) return;
-    await sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data });
+    await write("fa_results", (sb) => sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data }));
   };
-  const dbDeleteResultsForUser     = async (userId: string)     => { const sb = getClient(); if (!sb) return; await sb.from("fa_results").delete().eq("user_id", userId); };
-  const dbDeleteResultsForExercise = async (exerciseId: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_results").delete().eq("exercise_id", exerciseId); };
+  const dbDeleteResultsForUser = async (userId: string) => { await write("fa_results", (sb) => sb.from("fa_results").delete().eq("user_id", userId)); };
+  const dbDeleteResultsForExercise = async (exerciseId: string) => { await write("fa_results", (sb) => sb.from("fa_results").delete().eq("exercise_id", exerciseId)); };
 
-  const dbUpsertSetting = async (key: string, value: unknown) => { const sb = getClient(); if (!sb) return; await sb.from("fa_settings").upsert({ key, value }); };
+  const dbUpsertSetting = async (key: string, value: unknown) => { await write("fa_settings", (sb) => sb.from("fa_settings").upsert({ key, value })); };
 
-  const dbUpsertAudio = async (a: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; await sb.from("fa_audio_library").upsert({ id: a.id, data: a }); };
-  const dbDeleteAudio = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_audio_library").delete().eq("id", id); };
+  const dbUpsertAudio = async (a: AnyRecord & { id: string }) => { await write("fa_audio_library", (sb) => sb.from("fa_audio_library").upsert({ id: a.id, data: a })); };
+  const dbDeleteAudio = async (id: string) => { await write("fa_audio_library", (sb) => sb.from("fa_audio_library").delete().eq("id", id)); };
 
-  const dbUpsertGroup = async (g: AnyRecord & { id: string })  => { const sb = getClient(); if (!sb) return; await sb.from("fa_groups").upsert({ id: g.id, data: g }); };
-  const dbDeleteGroup = async (id: string) => { const sb = getClient(); if (!sb) return; await sb.from("fa_groups").delete().eq("id", id); };
+  const dbUpsertGroup = async (g: AnyRecord & { id: string }) => { await write("fa_groups", (sb) => sb.from("fa_groups").upsert({ id: g.id, data: g })); };
+  const dbDeleteGroup = async (id: string) => { await write("fa_groups", (sb) => sb.from("fa_groups").delete().eq("id", id)); };
 
   return {
     dbUpsertExercise, dbDeleteExercise,

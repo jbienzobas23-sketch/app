@@ -3,7 +3,7 @@
 // y heredado `mode`/`answer`), modelos y combos, y listas del almacén de audios.
 // Extraídos de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { DEFAULT_CATEGORY } from "../seed.js";
-import type { Exercise, Category, Button, Question } from "./types.js";
+import type { Exercise, Category, Button, Question, Course, Unit, Role } from "./types.js";
 
 export const DEFAULT_MODEL_ID = "interactivo";
 
@@ -56,6 +56,24 @@ export const answerStats = (exercise?: Exercise | null): { recorded: number; tot
   const cats = categoriesOf(exercise);
   const recorded = cats.filter((c) => answerFor(exercise, c.id).length > 0).length;
   return { recorded, total: cats.length };
+};
+
+// ── Resolución de referencias curso→unidad→ejercicio ─────────────────────────
+// Los ids se comparan SIEMPRE normalizados a texto: el id de un ejercicio puede
+// ser numérico (creado con Date.now()) mientras que unit.exerciseIds se guarda
+// como texto (addExercisesToUnit hace .map(String)). Sin normalizar, un `===`
+// estricto falla (1779 !== "1779") y el ejercicio "desaparece" de la unidad.
+export const courseUnitList = (course: Course | null | undefined, units: Unit[], role: Role): Unit[] => {
+  const ordered = (course?.unitIds || [])
+    .map((id) => units.find((u) => String(u.id) === String(id)))
+    .filter(Boolean) as Unit[];
+  return role === "student" ? ordered.filter((u) => !u.hidden) : ordered;
+};
+export const unitExList = (unit: Unit | null | undefined, exercises: Exercise[], role: Role): Exercise[] => {
+  const ordered = (unit?.exerciseIds || [])
+    .map((id) => exercises.find((e) => String(e.id) === String(id)))
+    .filter(Boolean) as Exercise[];
+  return role === "student" ? ordered.filter((e) => !e.hidden) : ordered;
 };
 
 export const btnOf       = (category: { buttons: Button[] }, id: string): Button => category.buttons.find((b) => b.id === id) || category.buttons[0];

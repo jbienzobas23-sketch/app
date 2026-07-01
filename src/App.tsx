@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "./lib/types.js";
 import type { AudioItem } from "./components/modals.js";
 
@@ -11,7 +12,7 @@ import type { AudioItem } from "./components/modals.js";
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { TEACHER_TAB_PATH, useHashRoute } from "./lib/routing.js";
-import { C, S } from "./theme/tokens.js";
+import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
 import { modelsOf, answerFor } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
@@ -50,6 +51,23 @@ const lazyFallback = (
   </div>
 );
 
+// Aviso flotante cuando una escritura al servidor falla (p. ej. RLS la rechaza
+// porque la sesión no está enlazada). Portal a document.body → visible en
+// cualquier vista. Antes estos fallos eran silenciosos y el estado local
+// divergía del servidor sin que el usuario lo supiera.
+function SaveErrorToast({ message, onClose }: { message: string | null; onClose: () => void }) {
+  if (!message || typeof document === "undefined") return null;
+  return createPortal(
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 2000, display: "flex", justifyContent: "center", padding: "0 16px 16px", pointerEvents: "none" }}>
+      <div role="alert" style={{ pointerEvents: "auto", maxWidth: 540, width: "100%", background: C.danger, color: "#fff", borderRadius: 10, padding: "12px 14px", boxShadow: "0 8px 30px rgba(0,0,0,0.28)", display: "flex", alignItems: "center", gap: 12, fontFamily: FONT_SANS, fontSize: 13, lineHeight: 1.4 }}>
+        <span style={{ flex: 1 }}>{message}</span>
+        <button onClick={onClose} className="fa-pressable" style={{ flexShrink: 0, background: "rgba(255,255,255,0.22)", border: "none", color: "#fff", borderRadius: 6, padding: "6px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_SANS }}>Cerrar</button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
   useInjectFonts();
@@ -72,6 +90,8 @@ export default function App() {
 
   const [dbReady, setDbReady] = useState(false);
   const [user,    setUser]    = useState<any | null>(null);
+  // Mensaje de error de guardado (persistencia). null = sin error.
+  const [saveError, setSaveError] = useState<string | null>(null);
   // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
   // Con RLS, anon no puede leer fa_users, así que el primer arranque no se puede
   // deducir de la carga; se consulta has_admin().
@@ -217,7 +237,18 @@ export default function App() {
     dbUpsertSetting,
     dbUpsertAudio, dbDeleteAudio,
     dbUpsertGroup, dbDeleteGroup,
-  } = useMemo(() => createDb({ getClient: () => supabaseRef.current, pendingSavesRef }), []);
+  } = useMemo(() => createDb({
+    getClient: () => supabaseRef.current,
+    pendingSavesRef,
+    onError: () => setSaveError("No se pudieron guardar los cambios en el servidor. Puede que se pierdan al recargar — prueba a cerrar sesión y volver a entrar."),
+  }), []);
+
+  // El aviso de error de guardado se oculta solo tras unos segundos (o al cerrarlo).
+  useEffect(() => {
+    if (!saveError) return;
+    const t = setTimeout(() => setSaveError(null), 9000);
+    return () => clearTimeout(t);
+  }, [saveError]);
 
   // ─── Users ───────────────────────────────────────────────────────────────
   const addUser = (newUser: any) => {
@@ -292,7 +323,7 @@ export default function App() {
     const sid = String(id);
     setExercises((prev) => prev.filter((e) => e.id !== id));
     setUnits((prev) => prev.map((u) =>
-      (u.exerciseIds || []).includes(sid) ? { ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => eid !== sid) } : u
+      (u.exerciseIds || []).some((eid) => String(eid) === sid) ? { ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => String(eid) !== sid) } : u
     ));
     // Persistir las unidades afectadas. Se calculan desde el estado actual
     // (closure `units`), NO dentro del updater de setUnits: React ejecuta ese
@@ -300,8 +331,8 @@ export default function App() {
     // vacío aquí y las unidades no se guardarían (referencias colgantes al
     // ejercicio borrado tras recargar).
     units
-      .filter((u) => (u.exerciseIds || []).includes(sid))
-      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => eid !== sid) }));
+      .filter((u) => (u.exerciseIds || []).some((eid) => String(eid) === sid))
+      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => String(eid) !== sid) }));
     setResults((prev) => {
       const next: Record<string, Record<string, ExerciseResult>> = {};
       for (const uid of Object.keys(prev)) {
@@ -378,14 +409,16 @@ export default function App() {
   const addExercisesToUnit = (unitId: string, exIds: Array<string | number | undefined>) => {
     const ids = exIds.map((x) => String(x));
     const existingUnit = units.find((u) => u.id === unitId);
+    // `cur` se normaliza a texto: así el dedup funciona aunque el dato antiguo
+    // tuviera ids numéricos, y de paso los deja consistentes (todo texto).
     setUnits((prev) => prev.map((u) => {
       if (u.id !== unitId) return u;
-      const cur = u.exerciseIds || [];
+      const cur = (u.exerciseIds || []).map(String);
       const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
       return { ...u, exerciseIds: merged };
     }));
     if (existingUnit) {
-      const cur = existingUnit.exerciseIds || [];
+      const cur = (existingUnit.exerciseIds || []).map(String);
       const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
       dbUpsertUnit({ ...existingUnit, exerciseIds: merged });
     }
@@ -393,8 +426,8 @@ export default function App() {
 
   const removeExerciseFromUnit = (unitId: string, exId: string) => {
     const existingUnit = units.find((u) => u.id === unitId);
-    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: (u.exerciseIds || []).filter((id) => id !== exId) } : u));
-    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: (existingUnit.exerciseIds || []).filter((id) => id !== exId) });
+    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: (u.exerciseIds || []).filter((id) => String(id) !== String(exId)) } : u));
+    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: (existingUnit.exerciseIds || []).filter((id) => String(id) !== String(exId)) });
   };
 
   // ─── Audio library ───────────────────────────────────────────────────────
@@ -766,6 +799,8 @@ export default function App() {
   if (isStudent) {
     const visibleExercises = exercises; // (heurística actual: banco completo)
     return (
+      <>
+      <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
       <StudentDash
         user={user}
         exercises={visibleExercises}
@@ -781,12 +816,14 @@ export default function App() {
         onChangeTeacher={user.isGuest ? undefined : () => navigate("/alumno/elegir-profesor")}
         onUpdatePalette={(id) => updateUser({ ...user, defaultPalette: id })}
       />
+      </>
     );
   }
 
   // ── Panel del profesor / admin ──
   return (
     <Suspense fallback={lazyFallback}>
+    <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
     <TeacherDash
       currentUser={user}
       users={users}
