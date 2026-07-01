@@ -61,6 +61,13 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
     });
   }, [exercises, filterModel, filterDone, results]);
 
+  // Conteo global de la vista "Todos": total visible · completados.
+  const allStats = useMemo(() => {
+    const visible = exercises.filter((ex) => !ex.hidden);
+    const done = visible.filter((ex) => results[String(ex.id ?? "")]).length;
+    return { total: visible.length, done };
+  }, [exercises, results]);
+
   return (
     <div style={S.app}>
       <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
@@ -96,6 +103,11 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
         {/* ── Todos los ejercicios ── */}
         {view === "all" && (
           <>
+            {allStats.total > 0 && (
+              <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
+                {allStats.total} {allStats.total === 1 ? "ejercicio" : "ejercicios"} · {allStats.done} {allStats.done === 1 ? "completado" : "completados"}
+              </div>
+            )}
             <StudentFilterBar
               filterModel={filterModel} setFilterModel={setFilterModel}
               filterDone={filterDone}   setFilterDone={setFilterDone}

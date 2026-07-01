@@ -31,7 +31,7 @@ interface TagInputProps { tags?: string[]; onChange: (tags: string[]) => void; s
 interface IconButtonProps { onClick: () => void; title?: string; }
 interface FilterDropdownProps { label: string; options: string[]; selected: string[]; onToggle: (v: string) => void; onClear: () => void; accent?: string; }
 interface PillSelectProps { value: string; onChange: (v: string) => void; options: Option[]; accent?: string; }
-interface TeacherFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; allComposers: string[]; filterComposers: string[]; setFilterComposers: (v: string[]) => void; allTags: string[]; filterTags: string[]; setFilterTags: (v: string[]) => void; }
+interface TeacherFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; allComposers: string[]; filterComposers: string[]; setFilterComposers: (v: string[]) => void; allTags: string[]; filterTags: string[]; setFilterTags: (v: string[]) => void; trailing?: ReactNode; }
 interface StudentFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; filterDone: string; setFilterDone: (v: string) => void; }
 interface OverlineProps { children: ReactNode; style?: CSSProperties; }
 interface ButtonProps { children: ReactNode; onClick?: () => void; full?: boolean; lg?: boolean; disabled?: boolean; }
@@ -742,22 +742,50 @@ export function PillSelect({ value, onChange, options, accent = C.ink }: PillSel
   );
 }
 
-// ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
-const MODEL_OPTIONS = [
-  { id: "all",          label: "Todos los modelos" },
-  { id: "interactivo",  label: "Interactivo" },
-  { id: "cuestionario", label: "Cuestionario" },
-  { id: "esquema",      label: "Esquema" },
+// ─── TypeFilterChips — filtro por tipo de ejercicio (placas) ──────────────────
+// Chips con punto de color del tipo: "Todos" (pill oscuro al activarse) +
+// Interactivo/Cuestionario/Esquema. Un solo tipo activo a la vez; volver a
+// pulsar el activo restablece a "Todos". Reemplaza al PillSelect de modelo.
+const TYPE_CHIPS: Array<{ id: string; label: string; color?: string }> = [
+  { id: "all",          label: "Todos" },
+  { id: "interactivo",  label: "Interactivo",  color: "#3F9B5B" },
+  { id: "cuestionario", label: "Cuestionario", color: "#2F6FB8" },
+  { id: "esquema",      label: "Esquema",      color: "#C77A1A" },
 ];
+export function TypeFilterChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      {TYPE_CHIPS.map((c) => {
+        const on = value === c.id;
+        if (c.id === "all") {
+          return (
+            <button key={c.id} onClick={() => onChange("all")}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: 20, border: `1px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? "#fff" : "#555", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: on ? 600 : 500, transition: "all .15s", whiteSpace: "nowrap" }}>
+              {c.label}
+            </button>
+          );
+        }
+        return (
+          <button key={c.id} onClick={() => onChange(on ? "all" : c.id)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: 20, border: `1px solid ${on ? c.color! : C.line}`, background: on ? `${c.color}14` : C.paper, color: on ? c.color! : "#555", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: on ? 600 : 500, transition: "all .15s", whiteSpace: "nowrap" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: c.color, flexShrink: 0 }} />
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
-export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags }: TeacherFilterBarProps) {
+// ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
+export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags, trailing }: TeacherFilterBarProps) {
   const toggleComposer = (val: string) => setFilterComposers(filterComposers.includes(val) ? filterComposers.filter((x) => x !== val) : [...filterComposers, val]);
   const toggleTag      = (val: string) => setFilterTags(filterTags.includes(val) ? filterTags.filter((x) => x !== val) : [...filterTags, val]);
   const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
 
   return (
     <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+      <TypeFilterChips value={filterModel} onChange={setFilterModel} />
 
       <FilterDropdown
         label="Compositor"
@@ -783,6 +811,8 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
           ✕ Limpiar
         </button>
       )}
+
+      {trailing && <><span style={{ flex: 1 }} />{trailing}</>}
     </div>
   );
 }
@@ -797,7 +827,7 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
   ];
   return (
     <div style={{ marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <PillSelect value={filterModel} onChange={setFilterModel} options={MODEL_OPTIONS} />
+      <TypeFilterChips value={filterModel} onChange={setFilterModel} />
 
       <div style={{ display: "flex", gap: 5, background: C.paper2, borderRadius: 20, padding: "3px 4px" }}>
         {DONE_OPTIONS.map((opt) => {

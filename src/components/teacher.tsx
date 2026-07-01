@@ -9,10 +9,11 @@ import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
 import { categoriesOf, modelOf, modelsOf, answerStats, questionsOf, audioComposers, audioTags } from "../lib/domain.js";
-import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
+import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, StatusCircle, CategoryDots, EyeButton, EditIconButton, DeleteIconButton, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
+import { ExercisePlate } from "./TypePlate.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab } from "./courses.js";
@@ -47,7 +48,6 @@ interface TeacherExerciseRowProps {
 export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
-  const exModels= modelsOf(ex);
   const isQuiz  = modelOf(ex) === "cuestionario";
   const isSchema= modelOf(ex) === "esquema";
   const exQs    = questionsOf(ex);
@@ -57,25 +57,13 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   const isHidden = !!ex.hidden;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
       <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.title}</div>
-          {/* Subrayado de modelo: un trazo de color por modelo (igual que la tarjeta de PC) */}
-          <div style={{ display: "flex", gap: 3, margin: "7px 0 6px" }}>
-            {exModels.map((m, i) => (
-              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
-            ))}
-          </div>
-          {composerName && (
-            <div style={{ fontFamily: F.sans, fontStyle: "italic", fontSize: 12, color: C.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em" }}>OCULTO</span>}
-          <Chevron open={open} />
-        </div>
+        style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 66, boxSizing: "border-box", padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
+        <ExercisePlate ex={ex} size={36} radius={10} />
+        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+        {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
+        <Chevron open={open} />
       </div>
       <div className={`fa-expand${open ? " fa-open" : ""}`}>
         <div className="fa-expand-inner">
@@ -84,6 +72,7 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
             <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
             {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
               : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
@@ -104,16 +93,13 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   );
 }
 
-// Versión "tarjeta" de la fila de ejercicio para la vista de ordenador.
+// Versión "tarjeta" de la fila de ejercicio para la vista de ordenador (rejilla).
 // Mismo contenido y comportamiento que TeacherExerciseRow, pero dispuesto como
-// tarjeta (rejilla) en lugar de fila a todo el ancho. El modelo del ejercicio se
-// representa con líneas horizontales de color (una por modelo) en vez de la
-// franja vertical lateral.
+// tarjeta. El tipo del ejercicio se comunica con la placa (icono + color).
 export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
   const [open, setOpen]   = useState(false);
   const [hover, setHover] = useState(false);
   const meta    = modelMeta(ex);
-  const exModels= modelsOf(ex);
   const isQuiz  = modelOf(ex) === "cuestionario";
   const isSchema= modelOf(ex) === "esquema";
   const exQs    = questionsOf(ex);
@@ -122,31 +108,18 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
   const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
   const isHidden = !!ex.hidden;
 
-  // Altura fija del encabezado en reposo → todas las tarjetas quedan iguales
-  // (rasgo "editorial": rejilla regular aunque varíe el contenido).
-  const HEAD_H = 106;
+  // Alto mínimo de la cabecera → rejilla regular (placa + título + estado).
+  const HEAD_H = 76;
 
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.6 : 1, boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s, opacity .2s" }}>
       <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 13, height: HEAD_H, boxSizing: "border-box", padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
-          {/* Subrayado de modelo: un trazo de color por modelo, separa título y compositor */}
-          <div style={{ display: "flex", gap: 3, margin: "8px 0 7px" }}>
-            {exModels.map((m, i) => (
-              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
-            ))}
-          </div>
-          {composerName && (
-            <div style={{ fontFamily: F.sans, fontStyle: "italic", fontSize: 12, color: C.ink2, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerName}</div>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
-          {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em" }}>OCULTO</span>}
-          <Chevron open={open} />
-        </div>
+        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: HEAD_H, boxSizing: "border-box", padding: "14px 16px", cursor: "pointer", userSelect: "none" }}>
+        <ExercisePlate ex={ex} size={38} radius={10} />
+        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+        {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
+        <Chevron open={open} />
       </div>
       <div className={`fa-expand${open ? " fa-open" : ""}`}>
         <div className="fa-expand-inner">
@@ -155,6 +128,7 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
             <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
             {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
               : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
@@ -220,19 +194,24 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
 
   // La barra de filtros se muestra siempre que haya ejercicios.
   const showFilterBar = exercises.length > 0;
+  const hiddenCount   = useMemo(() => exercises.filter((e) => e.hidden).length, [exercises]);
 
   return (
     <>
-      <div style={{ marginBottom: 14 }}>
-        <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
-      </div>
-      {showFilterBar && (
-        <TeacherFilterBar
-          filterModel={filterModel}       setFilterModel={setFilterModel}
-          allComposers={allComposers}     filterComposers={filterComposers} setFilterComposers={setFilterComposers}
-          allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
-        />
+      {exercises.length > 0 && (
+        <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
+          {exercises.length} {exercises.length === 1 ? "ejercicio" : "ejercicios"}
+          {hiddenCount > 0 && ` · ${hiddenCount} ${hiddenCount === 1 ? "oculto" : "ocultos"}`}
+        </div>
       )}
+      {showFilterBar
+        ? <TeacherFilterBar
+            filterModel={filterModel}       setFilterModel={setFilterModel}
+            allComposers={allComposers}     filterComposers={filterComposers} setFilterComposers={setFilterComposers}
+            allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
+            trailing={<CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>}
+          />
+        : <div style={{ marginBottom: 14 }}><CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton></div>}
       {exercises.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
         : filtered.length === 0

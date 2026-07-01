@@ -6,12 +6,13 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelOf, modelsOf, answerStats, questionsOf, courseUnitList, unitExList } from "../lib/domain.js";
-import { modelMeta, MODEL_META } from "../lib/modelMeta.js";
+import { modelOf, answerStats, questionsOf, courseUnitList, unitExList } from "../lib/domain.js";
+import { modelMeta } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
-import { ExerciseRow, ExerciseCard } from "./student.jsx";
+import { ExerciseRow } from "./student.jsx";
+import { ExercisePlate } from "./TypePlate.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -134,15 +135,12 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
   const done = cs.total > 0 && cs.num === cs.total;
   return (
     <button onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 14, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "20px 20px 18px", cursor: "pointer", boxShadow: hover ? "0 10px 30px rgba(0,0,0,0.08)" : "none", transform: hover ? "translateY(-2px)" : "none", transition: "box-shadow .18s, transform .18s" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontFamily: F.serif, fontSize: 24, fontWeight: 600, color: C.ink, margin: "0 0 6px", lineHeight: 1.08, letterSpacing: "-0.01em", wordBreak: "break-word" }}>{course.name}</h3>
-          {role === "teacher"
-            ? <CourseVisBadge course={course} groups={groups} />
-            : (course.description ? <span style={{ fontFamily: F.sans, fontSize: 12.5, color: "#888" }}>{course.description}</span> : null)}
-        </div>
-        <span style={{ display: "flex", alignItems: "center", gap: 5, color: hover ? C.ink : C.muted, fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, flexShrink: 0, transition: "color .15s" }}>Abrir <ArrowRightIcon color={hover ? C.ink : C.muted} /></span>
+      style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 13, background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, padding: "18px 18px 16px", cursor: "pointer", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
+      <div style={{ minWidth: 0 }}>
+        <h3 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, margin: "0 0 4px", lineHeight: 1.1, letterSpacing: "-0.01em", wordBreak: "break-word" }}>{course.name}</h3>
+        {role === "teacher"
+          ? <CourseVisBadge course={course} groups={groups} />
+          : (course.description ? <span style={{ fontFamily: F.sans, fontSize: 12, color: "#888" }}>{course.description}</span> : null)}
       </div>
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
@@ -215,39 +213,28 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
   );
 }
 
-// — Tarjeta de ejercicio (profesor, "versión B") —
+// — Fila de ejercicio a ancho completo (profesor, dentro de una unidad) —
+// Placa de tipo + título; al desplegar, metadatos y acciones (editar el
+// ejercicio / quitarlo de la unidad). La clave de corrección queda visible en el
+// desplegable (el profesor no lleva insignia de estado en la cabecera).
 export function TeacherExCard({ ex, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
   const [open, setOpen]   = useState(false);
-  const [hover, setHover] = useState(false);
   const meta     = modelMeta(ex);
-  const exModels = modelsOf(ex);
   const isQuiz   = modelOf(ex) === "cuestionario";
   const exQs     = questionsOf(ex);
   const keyReady = exKeyReady(ex);
-  // Cabecera de altura fija → rejilla uniforme (igual que la tarjeta de Ejercicios)
-  const HEAD_H = 106;
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
+    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
       <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}
-        style={{ display: "flex", alignItems: "center", gap: 13, height: HEAD_H, boxSizing: "border-box", padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
-          {/* Subrayado de modelo: un trazo de color por modelo */}
-          <div style={{ display: "flex", gap: 3, margin: "8px 0 7px" }}>
-            {exModels.map((m, i) => (
-              <span key={i} title={MODEL_META[m]?.label} style={{ width: 30, height: 3, borderRadius: 2, background: MODEL_META[m]?.color || meta.color }} />
-            ))}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
-          <Chevron open={open} />
-        </div>
+        style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 66, boxSizing: "border-box", padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
+        <ExercisePlate ex={ex} size={36} radius={10} />
+        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
+        <Chevron open={open} />
       </div>
       <div className={`fa-expand${open ? " fa-open" : ""}`}>
         <div className="fa-expand-inner">
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
             <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
             {isQuiz && <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>}
@@ -330,7 +317,7 @@ export function CourseExercisesPanel({
         </div>
         <div style={{ padding: 16 }}>
           {exs.length
-            ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, alignItems: "start" }}>
+            ? <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {exs.map((ex) => <TeacherExCard key={ex.id} ex={ex} isMobile={isMobile} unitId={unit.id} onSelectExercise={onSelectExercise} onRemoveExFromUnit={onRemoveExFromUnit} askConfirm={askConfirm} />)}
               </div>
             : <EmptyExercises role={role} />}
@@ -349,9 +336,9 @@ export function CourseExercisesPanel({
       </div>
       <div style={{ padding: "14px 18px" }}>
         {exs.length
-          ? isMobile
-            ? <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
-            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, alignItems: "start" }}>{exs.map((ex) => <ExerciseCard key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}</div>
+          ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
+              {exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />)}
+            </div>
           : <EmptyExercises role={role} />}
       </div>
     </>
