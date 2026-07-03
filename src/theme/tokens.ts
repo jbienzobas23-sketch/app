@@ -6,10 +6,10 @@ import type { CSSProperties } from "react";
 export const C = {
   // Base palette
   bg: "#f8f8f6", paper: "#ffffff", paper2: "#f0f0ee",
-  ink: "#1a1a1a", ink2: "#555555", muted: "#b0b0a8", muted2: "#b0b0a8", line: "#e6e6e3",
+  ink: "#1a1a1a", ink2: "#555555", muted: "#8a8a82", muted2: "#8a8a82", line: "#e6e6e3",
   // V0_9 aliases (usados por primitivos compartidos)
   border: "#e6e6e3", rail: "#e0e0db", chevron: "#c0c0b8",
-  chipBg: "#f0f0ee", chipInk: "#888888", tabOff: "#aaaaaa",
+  chipBg: "#f0f0ee", chipInk: "#888888", tabOff: "#8a8a82",
   noteBg: "#fffaeb", noteInk: "#c07427",
   field: "#fcfcfb", fieldFocus: "#555",
   // Colores funcionales — sin cambios
@@ -30,7 +30,7 @@ export const S = {
   card:       { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 18px", marginBottom: 12 },
   h1:         { fontFamily: FONT_SERIF, fontSize: 32, fontWeight: 600, margin: 0, color: C.ink, letterSpacing: "-0.01em", lineHeight: 1 },
   h2:         { fontFamily: FONT_SERIF, fontSize: 22, fontWeight: 600, margin: "0 0 12px", color: C.ink, letterSpacing: "-0.01em" },
-  label:      { fontSize: 11, color: "#999", marginBottom: 6, display: "block", fontFamily: FONT_SANS, fontWeight: 500 },
+  label:      { fontSize: 11, color: "#767670", marginBottom: 6, display: "block", fontFamily: FONT_SANS, fontWeight: 500 },
   btn:        { background: C.paper, border: `1px solid ${C.line}`, color: "#555", borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: FONT_SANS },
   btnPrimary: { background: C.ink, border: `1px solid ${C.ink}`, color: "#fff", borderRadius: 7, padding: "7px 15px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },
   btnDanger:  { background: "transparent", border: `1px solid rgba(184,74,58,0.4)`, color: C.danger, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS },

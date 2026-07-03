@@ -868,7 +868,7 @@ export function CtaButton({ children, onClick, disabled, full, lg }: ButtonProps
 }
 
 export function FieldLabel({ children }: FieldLabelProps) {
-  return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#999", marginBottom: 6 }}>{children}</label>;
+  return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#767670", marginBottom: 6 }}>{children}</label>;
 }
 
 export function TextInput({ value, onChange, placeholder, type = "text", big }: TextInputProps) {
