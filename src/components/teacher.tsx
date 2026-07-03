@@ -818,9 +818,9 @@ interface TeacherDashProps {
   results: Record<string, Record<string, ExerciseResult>>;
   margin: number;
   onMargin: (v: number) => void;
-  onRecord: (ex: Exercise) => void;
-  onPreview: (ex: Exercise) => void;
-  onManageQuestions: (ex: Exercise) => void;
+  onRecord: (ex: Exercise, partId?: string) => void;
+  onPreview: (ex: Exercise, partId?: string) => void;
+  onManageQuestions: (ex: Exercise, partId?: string) => void;
   onAdd: (ex: Record<string, unknown>) => void;
   onLogout: () => void;
   categories: Category[];

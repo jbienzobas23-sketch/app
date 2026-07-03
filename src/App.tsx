@@ -937,9 +937,9 @@ export default function App() {
         else if (id === "new") navigate("/profesor/ejercicio/nuevo");
         else navigate(`/profesor/ejercicio/${id}`);
       }}
-      onRecord={(ex) => openEx(freshExercise(ex), "record")}
-      onManageQuestions={(ex) => navigate(`/profesor/ejercicio/${ex.id}/preguntas`)}
-      onPreview={(ex) => navigate(`/profesor/ejercicio/${ex.id}/previsualizar`)}
+      onRecord={(ex, partId) => partId ? navigate(`/profesor/ejercicio/${ex.id}/parte/${partId}/grabar`) : openEx(freshExercise(ex), "record")}
+      onManageQuestions={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/preguntas` : `/profesor/ejercicio/${ex.id}/preguntas`)}
+      onPreview={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/previsualizar` : `/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
       onLogout={onLogout}
       categories={categories}
