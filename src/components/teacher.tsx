@@ -44,8 +44,12 @@ interface TeacherExerciseRowProps {
   onDelete: (ex: Exercise) => void;
   onToggleVisibility: (ex: Exercise) => void;
   composerName?: string | null;
+  // Entregas de este ejercicio, sobre `results` (F6, T6.1) — cuántas en total
+  // y cuántas siguen pendientes de corrección manual.
+  submissionsCount?: number;
+  pendingCount?: number;
 }
-export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
+export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName, submissionsCount = 0, pendingCount = 0 }: TeacherExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
   const hasQuiz = modelsOf(ex).includes("cuestionario");
@@ -85,6 +89,11 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
             </MetaItem>
+            {submissionsCount > 0 && (
+              <MetaItem label="Entregas">
+                {submissionsCount}{pendingCount > 0 && <span style={{ color: C.danger, fontWeight: 600 }}> · Pendientes: {pendingCount}</span>}
+              </MetaItem>
+            )}
             <MetaItem label="Visible para alumnos">
               <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
             </MetaItem>
@@ -104,7 +113,7 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
 // Versión "tarjeta" de la fila de ejercicio para la vista de ordenador (rejilla).
 // Mismo contenido y comportamiento que TeacherExerciseRow, pero dispuesto como
 // tarjeta. El tipo del ejercicio se comunica con la placa (icono + color).
-export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
+export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility, composerName, submissionsCount = 0, pendingCount = 0 }: TeacherExerciseRowProps) {
   const [open, setOpen]   = useState(false);
   const [hover, setHover] = useState(false);
   const meta    = modelMeta(ex);
@@ -149,6 +158,11 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
             </MetaItem>
+            {submissionsCount > 0 && (
+              <MetaItem label="Entregas">
+                {submissionsCount}{pendingCount > 0 && <span style={{ color: C.danger, fontWeight: 600 }}> · Pendientes: {pendingCount}</span>}
+              </MetaItem>
+            )}
             <MetaItem label="Visible para alumnos">
               <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
             </MetaItem>
@@ -168,13 +182,14 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
 interface ExercisesTabProps {
   exercises: Exercise[];
   audioLibrary?: AudioItem[];
+  results?: Record<string, Record<string, ExerciseResult>>;
   onNew: () => void;
   onSelect: (id: ExId) => void;
   onToggleVisibility: (ex: Exercise) => void;
   askConfirm: AskConfirm;
   onDelete: (id: ExId) => void;
 }
-export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, onToggleVisibility, askConfirm, onDelete }: ExercisesTabProps) {
+export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew, onSelect, onToggleVisibility, askConfirm, onDelete }: ExercisesTabProps) {
   const isMobile = useIsMobile();
   const [filterModel,     setFilterModel]     = useState("all");
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
@@ -189,6 +204,21 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
     audioLibrary.forEach((a) => { if (a.url) m[a.url] = a; });
     return m;
   }, [audioLibrary]);
+  // Entregas y pendientes por ejercicio, sobre `results` (F6, T6.1) — un
+  // recorrido de todos los alumnos por ejercicio, no por alumno.
+  const submissionStats = useMemo(() => {
+    const stats: Record<string, { total: number; pending: number }> = {};
+    exercises.forEach((ex) => { stats[String(ex.id)] = { total: 0, pending: 0 }; });
+    Object.values(results).forEach((studentResults) => {
+      Object.entries(studentResults || {}).forEach(([exId, r]) => {
+        if (!stats[exId]) return; // ejercicio borrado — su entrega histórica no cuenta
+        stats[exId].total++;
+        const ex = exercises.find((e) => String(e.id) === exId);
+        if (ex && resultStatusOf(r, ex) === "pendiente") stats[exId].pending++;
+      });
+    });
+    return stats;
+  }, [exercises, results]);
 
   const filtered = useMemo(() => {
     return exercises.filter((ex) => {
@@ -243,6 +273,8 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
                 {filtered.map((ex) => (
                   <TeacherExerciseRow key={String(ex.id)} ex={ex} onSelect={onSelect}
                     composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                    submissionsCount={submissionStats[String(ex.id)]?.total ?? 0}
+                    pendingCount={submissionStats[String(ex.id)]?.pending ?? 0}
                     onToggleVisibility={onToggleVisibility}
                     onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
                 ))}
@@ -251,6 +283,8 @@ export function ExercisesTab({ exercises, audioLibrary = [], onNew, onSelect, on
                 {filtered.map((ex) => (
                   <TeacherExerciseCard key={String(ex.id)} ex={ex} onSelect={onSelect}
                     composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                    submissionsCount={submissionStats[String(ex.id)]?.total ?? 0}
+                    pendingCount={submissionStats[String(ex.id)]?.pending ?? 0}
                     onToggleVisibility={onToggleVisibility}
                     onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
                 ))}
@@ -276,15 +310,38 @@ interface StudentsTabProps {
 export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }: StudentsTabProps) {
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
   const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(() => new Set(groups.map((g) => g.id)));
+  // Cola de pendientes (F6, T6.1): con el filtro activo, solo se listan alumnos
+  // con al menos una entrega pendiente, y solo esas entregas dentro de su ficha.
+  const [onlyPending, setOnlyPending] = useState(false);
   const toggleExpand = (id: string) =>
     setExpandedStudents((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleGroup = (id: string) =>
     setExpandedGroups((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
+  // Entregas de un alumno, con su nota vigente y estado — ordenadas por fecha
+  // de entrega descendente (T6.1). `all` sin filtrar (para el contador X/Y);
+  // `visible` respeta el filtro "Solo pendientes".
+  const studentEntries = (s: User): { all: Array<{ ex: Exercise; r: ExerciseResult }>; visible: Array<{ ex: Exercise; r: ExerciseResult }> } => {
+    const sRes = results[s.id] || {};
+    const all = exercises
+      .map((ex) => ({ ex, r: sRes[String(ex.id)] }))
+      .filter((e): e is { ex: Exercise; r: ExerciseResult } => Boolean(e.r))
+      .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0));
+    const visible = onlyPending ? all.filter((e) => resultStatusOf(e.r, e.ex) === "pendiente") : all;
+    return { all, visible };
+  };
+  const pendingTotal = students.reduce((sum, s) => {
+    const sRes = results[s.id] || {};
+    return sum + exercises.filter((ex) => {
+      const r = sRes[String(ex.id)];
+      return r && resultStatusOf(r, ex) === "pendiente";
+    }).length;
+  }, 0);
+
   const renderStudentCard = (s: User) => {
-    const sRes    = results[s.id] || {};
     const isOpen  = expandedStudents.has(s.id);
-    const doneExs = exercises.filter((ex) => sRes[String(ex.id)]);
+    const { all: allExs, visible: doneExs } = studentEntries(s);
+    if (onlyPending && doneExs.length === 0) return null;
     return (
       <div
         key={s.id}
@@ -316,25 +373,22 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
                 </span>
                 {exercises.length > 0 && (
                   <span style={{ ...S.badge, background: C.line, color: C.muted, fontSize: 10 }}>
-                    {doneExs.length}/{exercises.length} ejs.
+                    {allExs.length}/{exercises.length} ejs.
                   </span>
                 )}
                 <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
               </div>
               {doneExs.length === 0
-                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
-                : doneExs.map((ex) => {
-                    const r = sRes[String(ex.id)];
-                    return (
-                      <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
-                        <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
-                        <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                          <ScoreBadge score={r.score} status={resultStatusOf(r, ex)} />
-                          <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
-                        </div>
+                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>{onlyPending ? "Sin entregas pendientes." : "Ningún ejercicio entregado todavía."}</p>
+                : doneExs.map(({ ex, r }) => (
+                    <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
+                      <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                        <ScoreBadge score={r.score} status={resultStatusOf(r, ex)} />
+                        <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
                       </div>
-                    );
-                  })
+                    </div>
+                  ))
               }
             </div>
           </div>
@@ -349,9 +403,23 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
   return (
     <>
       <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
-          {students.length} {students.length === 1 ? "alumno" : "alumnos"} · {groups.length} {groups.length === 1 ? "grupo" : "grupos"}
-        </p>
+        <div style={{ ...S.row, gap: 10, flexWrap: "wrap" }}>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
+            {students.length} {students.length === 1 ? "alumno" : "alumnos"} · {groups.length} {groups.length === 1 ? "grupo" : "grupos"}
+            {pendingTotal > 0 && <> · <span style={{ color: C.danger, fontWeight: 600 }}>Pendientes ({pendingTotal})</span></>}
+          </p>
+          {(pendingTotal > 0 || onlyPending) && (
+            <button onClick={() => setOnlyPending((v) => !v)} disabled={pendingTotal === 0 && !onlyPending}
+              style={{
+                ...S.btn, fontSize: 11.5, padding: "3px 10px",
+                background: onlyPending ? C.danger : C.paper,
+                color:      onlyPending ? "#fff" : C.danger,
+                borderColor: C.danger,
+              }}>
+              {onlyPending ? "✓ Solo pendientes" : "Solo pendientes"}
+            </button>
+          )}
+        </div>
         <div style={{ ...S.row, gap: 8 }}>
           <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
           <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
@@ -367,6 +435,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
 
       {groups.map((group) => {
         const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
+        const visibleStudents = onlyPending ? groupStudents.filter((s) => studentEntries(s).visible.length > 0) : groupStudents;
         const isGroupOpen   = expandedGroups.has(group.id);
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
@@ -387,7 +456,9 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
             {isGroupOpen && (
               groupStudents.length === 0
                 ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
-                : groupStudents.map(renderStudentCard)
+                : visibleStudents.length === 0
+                  ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Sin pendientes en este grupo.</p>
+                  : visibleStudents.map(renderStudentCard)
             )}
           </div>
         );
@@ -400,7 +471,9 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, color: C.muted }}>Sin grupo</span>
             </div>
           )}
-          {ungrouped.map(renderStudentCard)}
+          {onlyPending && ungrouped.every((s) => studentEntries(s).visible.length === 0)
+            ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Sin pendientes.</p>
+            : ungrouped.map(renderStudentCard)}
         </div>
       )}
     </>
@@ -1074,7 +1147,7 @@ export function TeacherDash({
         )}
 
         {tab === "exercises" && (
-          <ExercisesTab exercises={exercises} audioLibrary={audioLibrary}
+          <ExercisesTab exercises={exercises} audioLibrary={audioLibrary} results={results}
             onNew={() => setSelectedExerciseId("new")}
             onSelect={setSelectedExerciseId}
             onToggleVisibility={(ex) => onUpdateExercise(ex.id, { hidden: !ex.hidden })}

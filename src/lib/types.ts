@@ -112,6 +112,14 @@ export interface ExerciseResult {
   score?: number | null;
   status?: "auto" | "pendiente" | "corregido";
   teacherCorrection?: { corrected?: boolean; [k: string]: unknown };
+  // Momento de la entrega (Date.now()) — usado para ordenar la cola de
+  // pendientes por fecha descendente (F6, T6.1).
+  timestamp?: number;
+  // Intentos (F6, T6.3): con más de un intento, cada elemento es un sobre
+  // completo (mismo shape que el nivel superior, sin anidar attempts). Sin
+  // este campo (entregas de antes de T6.3), el propio result ES el único
+  // intento — ver attemptsOf en domain.ts.
+  attempts?: ExerciseResult[];
   [k: string]: unknown;
 }
 
