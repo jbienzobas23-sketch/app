@@ -880,7 +880,7 @@ export function TeacherDash({
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
   tab = "exercises", onTab, detailExId = null, onSelectExercise,
 }: TeacherDashProps) {
-  const isAdmin = currentUser?.role === "admin" || currentUser?.username === "jonb";
+  const isAdmin = currentUser?.role === "admin";
   const isMobile = useIsMobile();
 
   const students = useMemo(() =>
