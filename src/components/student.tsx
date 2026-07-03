@@ -4,11 +4,10 @@ import { useState, type CSSProperties } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, F } from "../theme/tokens.js";
 import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
-import { modelOf, modelsOf, questionsOf, categoriesOf } from "../lib/domain.js";
+import { modelOf, modelsOf, questionsOf, categoriesOf, resultStatusOf } from "../lib/domain.js";
 import { fmt } from "../lib/ids.js";
-import { scoreBg, scoreColor } from "../lib/color.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { StatusCircle, Chevron, MetaItem, CategoryDots } from "./primitives.jsx";
+import { Chevron, MetaItem, CategoryDots, ScoreBadge } from "./primitives.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
@@ -96,10 +95,7 @@ export function ExerciseCard({ ex, result, onOpen, onViewCorrection }: ExerciseR
         style={{ display: "flex", alignItems: "center", gap: 12, minHeight: HEAD_H, boxSizing: "border-box", padding: "14px 16px", cursor: "pointer", userSelect: "none" }}>
         <ExercisePlate ex={ex} size={38} radius={10} />
         <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
-        {isDone && score != null && (
-          <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
-        )}
-        {isDone && score == null && <StatusCircle done size={20} />}
+        {isDone && <ScoreBadge score={score} status={resultStatusOf(result, ex)} />}
         {!isDone && <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: C.muted, flexShrink: 0, whiteSpace: "nowrap" }}>Pendiente</span>}
         <Chevron open={open} />
       </div>
@@ -118,8 +114,7 @@ export function ExerciseCard({ ex, result, onOpen, onViewCorrection }: ExerciseR
             {showComposer && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{ex.composerName}</span></MetaItem>}
             {isDone && (
               <MetaItem label="Resultado">
-                <StatusCircle done />
-                {score != null ? `${score}%` : "Entregado"}
+                <ScoreBadge score={score} status={resultStatusOf(result, ex)} />
               </MetaItem>
             )}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -171,10 +166,7 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection, compact = fa
         <div style={titleStyle}>
           {ex.title}
         </div>
-        {isDone && score != null && (
-          <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score), flexShrink: 0 }}>{score}%</span>
-        )}
-        {isDone && score == null && <StatusCircle done size={compact ? 17 : 20} />}
+        {isDone && <ScoreBadge score={score} status={resultStatusOf(result, ex)} />}
         <Chevron open={open} />
       </div>
 
@@ -192,8 +184,7 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection, compact = fa
             {showComposer && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{ex.composerName}</span></MetaItem>}
             {isDone && (
               <MetaItem label="Resultado">
-                <StatusCircle done />
-                {score != null ? `${score}%` : "Entregado"}
+                <ScoreBadge score={score} status={resultStatusOf(result, ex)} />
               </MetaItem>
             )}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
