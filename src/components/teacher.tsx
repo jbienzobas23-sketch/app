@@ -8,7 +8,7 @@ import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
-import { categoriesOf, modelOf, modelsOf, answerStats, questionsOf, audioComposers, audioTags } from "../lib/domain.js";
+import { categoriesOf, modelOf, modelsOf, answerStats, questionsOf, audioComposers, audioTags, resultStatusOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
@@ -309,18 +309,11 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
                 ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
                 : doneExs.map((ex) => {
                     const r = sRes[String(ex.id)];
-                    const needsCorrection = r && !r.teacherCorrection?.corrected && (
-                      r.type === "esquema" ||
-                      (r.type === "cuestionario" && questionsOf(ex).some((q) => q.type === "desarrollo"))
-                    );
                     return (
                       <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
                         <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
                         <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
-                          {needsCorrection && (
-                            <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800", fontSize: 10 }}>Pendiente</span>
-                          )}
-                          <ScoreBadge score={r.score} />
+                          <ScoreBadge score={r.score} status={resultStatusOf(r, ex)} />
                           <button onClick={() => onViewAnswer(s, ex, r)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px", color: C.fnS, borderColor: C.fnS }}>Ver</button>
                         </div>
                       </div>
@@ -717,13 +710,13 @@ export function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }: Set
   return (
     <>
       <div style={S.card}>
-        <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos</label>
+        <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos (valor por defecto para nuevos ejercicios)</label>
         <div style={S.row}>
           <input type="range" min={0} max={3} step={0.5} value={margin}
             onChange={(e) => onMargin(Number(e.target.value))} style={{ flex: 1 }} />
           <span style={{ minWidth: 40, textAlign: "center", fontWeight: 600, color: C.fnD }}>{margin}s</span>
         </div>
-        <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Por defecto: 1 segundo.</p>
+        <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Por defecto: 1 segundo. Cada ejercicio puede definir su propio margen en su edición.</p>
       </div>
       <PalettePreferenceCard current={current} onSelect={setPalette} />
     </>
@@ -974,6 +967,7 @@ export function TeacherDash({
         onDelete={() => {}}
         categories={categories}
         audioLibrary={audioLibrary}
+        globalMargin={margin}
       />
     );
   }
@@ -995,6 +989,7 @@ export function TeacherDash({
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
         categories={categories}
         audioLibrary={audioLibrary}
+        globalMargin={margin}
       />
     );
   }
