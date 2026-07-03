@@ -3,7 +3,7 @@
 // App.jsx (Fase 2) sin cambiar su lógica.
 import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
-import { C, F, S, FONT_SANS, FONT_MONO } from "../theme/tokens.js";
+import { C, F, S, FONT_SANS } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
 import type { FigItem } from "../lib/figures.js";
@@ -427,7 +427,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
               return (
                 <button key={b.id} className="fa-pressable"
                   onClick={() => setIntervals((prev) => prev.map((iv) => iv.id === selected ? { ...iv, fn: b.id } : iv))}
-                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
+                  style={{ background: isSel ? b.color : C.paper, color: isSel ? C.paper : b.color, border: `1.5px solid ${b.color}`, borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_SANS }}>
                   {b.id}
                 </button>
               );
@@ -441,7 +441,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
           <div className="fa-pop" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "9px 12px", background: `${(colorByFn[paintFn] || C.ink)}14`, border: `1.5px solid ${colorByFn[paintFn] || C.ink}`, borderRadius: 12 }}>
             <span style={{ fontSize: 16 }}>🖌️</span>
             <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 13, color: C.ink }}>
-              <b>Modo colorear</b> · arrastra sobre la onda para pintar el grado <b style={{ fontFamily: FONT_MONO }}>{paintFn}</b>
+              <b>Modo colorear</b> · arrastra sobre la onda para pintar el grado <b style={{ fontFamily: FONT_SANS }}>{paintFn}</b>
             </span>
             <button onClick={() => setPaintFn(null)} className="fa-pressable"
               style={{ ...S.btn, padding: "5px 14px", fontSize: 12, flexShrink: 0 }}>Salir</button>
@@ -666,7 +666,7 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }: Repe
               value={r.second.end}
               onChange={e => updSecondEnd(r.id, e.target.value)} />
           </div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>
             {fmt(r.first.start)} → {fmt(r.first.end)} → {fmt(r.second.end)}
             &nbsp;·&nbsp;1ª: {fmt(r.first.end - r.first.start)} · 2ª: {fmt(Math.max(0, r.second.end - r.first.end))}
           </div>

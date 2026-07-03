@@ -4,7 +4,7 @@
 // QuestionManagerView. Extraídas de App.jsx (Fase 2). TODO: subdividir en teacher/ y courses/.
 import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "../lib/types.js";
-import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
+import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
@@ -389,7 +389,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
           <div className="fa-expand-inner">
             <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
               <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
-                <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{s.username}</span>
+                <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontSize: 10 }}>@{s.username}</span>
                 <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
                   {s.credType === "pin" ? "PIN" : "Contraseña"}
                 </span>
@@ -788,7 +788,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
                     <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
                   )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
                     {(audio.tags || []).map((tag) => (
                       <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
@@ -893,7 +893,7 @@ export function UsersTab({ currentUser, teachers, onAddTeacher, onResetCred, onR
           <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>{t.displayName}</div>
-              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{t.username}</span>
+              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontSize: 10 }}>@{t.username}</span>
             </div>
             <div style={{ ...S.row, gap: 6 }}>
               <button onClick={() => onResetCred(t)} style={{ ...S.btn, fontSize: 12, padding: "5px 11px" }}>Resetear contraseña</button>
@@ -910,7 +910,7 @@ export function UsersTab({ currentUser, teachers, onAddTeacher, onResetCred, onR
           <div>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>{currentUser.displayName}</div>
             <div style={{ ...S.row, gap: 6 }}>
-              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontSize: 10 }}>@{currentUser.username}</span>
+              <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontSize: 10 }}>@{currentUser.username}</span>
               <span style={{ ...S.badge, background: "rgba(154,79,184,0.12)", color: C.fnI }}>Admin</span>
             </div>
           </div>

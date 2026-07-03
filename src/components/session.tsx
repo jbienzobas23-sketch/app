@@ -2,7 +2,7 @@
 // FragmentRangeSelector, WaveformDisplay, AudioScrubber, FigureLabel y
 // FunctionButtons. Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
 import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from "react";
-import { C, S, FONT_MONO, FONT_SERIF } from "../theme/tokens.js";
+import { C, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, IV_BAND_H, IV_BAND_GAP } from "../lib/sessionConstants.js";
 import { fmt } from "../lib/ids.js";
@@ -204,7 +204,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
         </button>
 
         {/* Contador de tiempo */}
-        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2, minWidth: 70, fontVariantNumeric: "tabular-nums" }}>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.ink2, minWidth: 70, fontVariantNumeric: "tabular-nums" }}>
           {fmtP(currentTime)}
           {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
         </span>
@@ -237,12 +237,12 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
       <div style={{ position: "relative", paddingTop: start != null ? 20 : 6, marginBottom: 12, userSelect: "none" }}>
         {/* Etiquetas sobre los handles */}
         {start != null && startPct != null && (
-          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
             {fmt(start)}
           </div>
         )}
         {end != null && endPct != null && (
-          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
             {fmt(end)}
           </div>
         )}
@@ -298,7 +298,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
             <input type="number" min={0} max={end - 0.5} step={0.1}
-              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+              style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={start}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
@@ -308,7 +308,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
             <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
-              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+              style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={end}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
@@ -317,7 +317,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           </div>
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
-            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center", fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center", fontVariantNumeric: "tabular-nums" }}>
               {fmt(Math.max(0, end - start))}
             </div>
           </div>
@@ -449,7 +449,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     // con su borde izquierdo en x. Devuelve el ancho dibujado. fs = font size.
     const drawGlyph = (glyph: Glyph | null, x: number, cy: number, fs: number) => {
       if (!glyph) return 0;
-      ctx.font = `700 ${fs}px ${FONT_MONO}`;
+      ctx.font = `700 ${fs}px ${FONT_SANS}`;
       ctx.textAlign = "left"; ctx.textBaseline = "middle";
       let gx = x;
       if (glyph.pre) { ctx.fillText(glyph.pre, gx, cy); gx += ctx.measureText(glyph.pre).width + 0.5; }
@@ -553,7 +553,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
 
         const nowMs = (typeof performance !== "undefined" ? performance.now() : Date.now());
         const ANIM_MS = 260;
-        ctx.font = `700 10px ${FONT_MONO}`;
+        ctx.font = `700 10px ${FONT_SANS}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         for (let j = 0; j < ivs.length; j++) {
@@ -589,7 +589,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
               // Romano + cifrado de bajo apilado a la derecha (estilo análisis).
               // El conjunto se centra: romano a la izquierda, dígitos a la derecha.
               const fs = 9;
-              ctx.font = `700 13px ${FONT_MONO}`;
+              ctx.font = `700 13px ${FONT_SANS}`;
               const romW = ctx.measureText(iv.fn).width;
               const figW = 11;                        // ancho aproximado del bloque de cifra
               const totalW = romW + 1.5 + figW;
@@ -605,7 +605,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
               }
             } else {
               ctx.textAlign = "center"; ctx.textBaseline = "middle";
-              ctx.font = `700 13px ${FONT_MONO}`;
+              ctx.font = `700 13px ${FONT_SANS}`;
               ctx.fillText(iv.fn, cx, cy);
             }
           }
@@ -899,7 +899,7 @@ export function FigureLabel({ item, color = "currentColor", size = 13 }: FigureL
     );
   };
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 0.95, fontFamily: FONT_MONO, fontWeight: 700, fontSize: size, color }}>
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 0.95, fontFamily: FONT_SANS, fontWeight: 700, fontSize: size, color }}>
       {item.top && <Glyph glyph={item.top} />}
       {item.bot && <Glyph glyph={item.bot} />}
     </span>
@@ -936,9 +936,9 @@ export const FunctionButtons = React.memo(function FunctionButtons({ buttons, pr
           boxShadow: isActive ? `0 0 0 4px ${b.color}26` : "none",
           userSelect: "none", touchAction: "none", WebkitTapHighlightColor: "transparent",
         }}>
-        <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: grados ? 700 : 800, fontFamily: grados ? FONT_SERIF : FONT_MONO, letterSpacing: grados ? 0 : -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
+        <span style={{ fontSize: isMobile ? 32 : 30, fontWeight: grados ? 700 : 800, fontFamily: grados ? FONT_SERIF : FONT_SANS, letterSpacing: grados ? 0 : -1, color: isActive ? C.paper : b.color, lineHeight: 1 }}>{b.id}</span>
         {!hideNames && <span style={{ fontSize: 12.5, fontWeight: 500, color: isActive ? C.paper : C.ink2 }}>{b.name}</span>}
-        {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {(b.key ?? "").toUpperCase()}</span>}
+        {!isMobile && <span style={{ fontSize: 10, fontFamily: FONT_SANS, color: isActive ? C.paper : C.muted, opacity: 0.85, marginTop: 1 }}>tecla {(b.key ?? "").toUpperCase()}</span>}
       </button>
     );
   };

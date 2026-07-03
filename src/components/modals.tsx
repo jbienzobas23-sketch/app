@@ -3,7 +3,7 @@
 // audios, preguntas). Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
 import { useState, useRef } from "react";
 import type { Category, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
-import { C, F, S, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
+import { C, F, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { fmt, uid, toggleInSet } from "../lib/ids.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelOf } from "../lib/domain.js";
@@ -89,12 +89,12 @@ export function CategoryEditorModal({ initialCategory, onSave, onClose }: { init
             <input type="color" value={b.color} onChange={(e) => updateBtn(i, { color: e.target.value })}
               style={{ width: 36, height: 32, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "pointer", padding: 0, background: "transparent", flexShrink: 0 }} />
             <input value={b.id} onChange={(e) => updateBtn(i, { id: e.target.value.slice(0, 4) })}
-              style={{ ...S.input, width: 50, fontFamily: FONT_MONO, fontWeight: 700, textAlign: "center", padding: "6px 4px", flexShrink: 0 }}
+              style={{ ...S.input, width: 50, fontFamily: FONT_SANS, fontWeight: 700, textAlign: "center", padding: "6px 4px", flexShrink: 0 }}
               maxLength={4} placeholder="ID" />
             <input value={b.name} onChange={(e) => updateBtn(i, { name: e.target.value })}
               style={{ ...S.input, flex: 1, padding: "6px 10px", minWidth: 0 }} placeholder="Nombre" />
             <input value={b.key} onChange={(e) => updateBtn(i, { key: e.target.value.slice(0, 1) })}
-              style={{ ...S.input, width: 36, fontFamily: FONT_MONO, textAlign: "center", padding: "6px 4px", flexShrink: 0 }}
+              style={{ ...S.input, width: 36, fontFamily: FONT_SANS, textAlign: "center", padding: "6px 4px", flexShrink: 0 }}
               maxLength={1} placeholder="t" />
             <button onClick={() => removeBtn(i)} disabled={buttons.length <= 2}
               style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 11, ...disabledStyle(buttons.length > 2), flexShrink: 0 }}>×</button>
@@ -150,7 +150,7 @@ export function GroupEditorModal({ initial, students, currentUserId, onSave, onC
                 <input type="checkbox" checked={studentIds.has(s.id)} onChange={() => toggleStudent(s.id)}
                   style={{ accentColor: C.ink, width: 15, height: 15, cursor: "pointer" }} />
                 <span style={{ flex: 1 }}>{s.displayName}</span>
-                <span style={{ color: C.muted, fontSize: 11, fontFamily: FONT_MONO }}>@{s.username}</span>
+                <span style={{ color: C.muted, fontSize: 11, fontFamily: FONT_SANS }}>@{s.username}</span>
               </label>
             ))}
           </div>
@@ -293,7 +293,7 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 4 }}>{ex.title}</div>
                   <div style={{ ...S.row, gap: 6 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(ex.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(ex.duration ?? 0)}</span>
                     {(() => {
                       const isQuiz = modelOf(ex) === "cuestionario";
                       return <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : C.fnT }}>{isQuiz ? "Cuestionario" : "Interactivo"}</span>;
@@ -529,7 +529,7 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }: { library:
                     <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
                     {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
                   </div>
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
                     <button onClick={() => setPreviewId(isPrev ? null : audio.id)} style={{ ...S.btn, padding: "5px 9px", fontSize: 11 }}>
@@ -782,7 +782,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
                       background: isCorrect ? C.fnT : C.paper,
                       border:     `1.5px solid ${isCorrect ? C.fnT : C.line}`,
                       color:      isCorrect ? C.paper : C.muted,
-                      cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: FONT_MONO,
+                      cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: FONT_SANS,
                       display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                     }}>
                     {opt.id}

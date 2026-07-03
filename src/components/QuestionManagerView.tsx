@@ -2,7 +2,7 @@
 // Extraída de teacher.jsx (Fase 2, subdivisión).
 import { useState, useEffect, useRef } from "react";
 import type { Exercise, Question } from "../lib/types.js";
-import { C, S, FONT_MONO } from "../theme/tokens.js";
+import { C, S, FONT_SANS } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { questionsOf } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
@@ -177,7 +177,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                   <div onMouseDown ={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "start"); }}
                        onTouchStart={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "start"); }}
                        style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 3, background: isSel ? "rgba(255,255,255,0.22)" : "transparent" }} />
-                  <span style={{ fontSize: 8, color: C.paper, fontWeight: 700, fontFamily: FONT_MONO, pointerEvents: "none", padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap" }}>P{idx + 1}</span>
+                  <span style={{ fontSize: 8, color: C.paper, fontWeight: 700, fontFamily: FONT_SANS, pointerEvents: "none", padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap" }}>P{idx + 1}</span>
                   <div onMouseDown ={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "end"); }}
                        onTouchStart={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "end"); }}
                        style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 3, background: isSel ? "rgba(255,255,255,0.22)" : "transparent" }} />
@@ -194,8 +194,8 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             return (
               <div onMouseDown={(e) => e.stopPropagation()}
                 style={{ ...S.row, gap: 8, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", marginBottom: 6, fontSize: 11 }}>
-                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
-                <span style={{ fontFamily: FONT_MONO, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmt(selQ.audioStart)} → {fmt(selQ.audioEnd)}</span>
+                <span style={{ fontFamily: FONT_SANS, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
+                <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmt(selQ.audioStart)} → {fmt(selQ.audioEnd)}</span>
                 <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmt(selQ.audioEnd - selQ.audioStart)}</span>
                 <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
                 <button onClick={() => { setEditingQ(selQ); setSelectedQId(null); }} style={{ ...S.btn, padding: "3px 10px", fontSize: 11 }}>Editar contenido</button>
@@ -211,7 +211,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 primary size={42} fontSize={14}>{playing ? "❚❚" : "▶"}</CircleButton>
               <CircleButton onClick={() => seekTo(Math.min(dur, time + 5))} size={36} fontSize={10}>+5s</CircleButton>
             </div>
-            <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums", fontSize: 18, fontWeight: 600, color: C.ink }}>
+            <div style={{ textAlign: "right", fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums", fontSize: 18, fontWeight: 600, color: C.ink }}>
               {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
             </div>
           </div>
@@ -249,7 +249,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
+                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
                   {q.type === "test" && (q.points ?? 1) !== 1 && (
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
                   )}

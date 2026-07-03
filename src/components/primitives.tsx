@@ -2,7 +2,7 @@
 // Modales, barras, inputs, iconos y botones-icono reutilizados por toda la app.
 // Extraídos de App.jsx (Fase 2) sin cambiar su lógica ni su aspecto.
 import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
-import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
+import { C, S, F, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor, textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 
@@ -188,7 +188,7 @@ export function CircleButton({ onClick, disabled, title, children, size = 42, pr
       display:    "flex", alignItems: "center", justifyContent: "center",
       fontSize:   fontSize ?? (primary ? 16 : 11),
       fontWeight: primary ? 700 : 400,
-      fontFamily: FONT_MONO,
+      fontFamily: FONT_SANS,
       opacity:    disabled ? 0.4 : 1,
     }}>
       {children}
@@ -955,7 +955,7 @@ export function CorrectionAudioBar({ time, timeRef, duration, playing, audioRead
           <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
           <SchemaPlayhead timeRef={timeRef} duration={duration} />
         </div>
-        <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(time)} / {fmt(duration)}</span>
+        <span style={{ fontSize: 12, fontFamily: FONT_SANS, color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(time)} / {fmt(duration)}</span>
       </div>
     </div>
   );

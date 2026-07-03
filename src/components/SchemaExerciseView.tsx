@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
-import { C, F, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
+import { C, F, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
 import { harmonyBlockColors } from "../lib/harmony.js";
 import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC } from "../lib/schema.js";
@@ -1362,7 +1362,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                           onMouseDown={e => handleMarkDown(e, globalIdx)} onTouchStart={e => handleMarkDown(e, globalIdx)}>
                           <div style={{ width: 2, height: "100%", background: "rgba(184,74,58,0.6)", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }} />
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: C.danger, border: "2px solid white", marginTop: 4, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", position: "relative", zIndex: 1, flexShrink: 0 }} />
-                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_MONO, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>{fmt(mt)}</span>
+                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_SANS, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>{fmt(mt)}</span>
                         </div>
                       );
                     })}
@@ -1481,7 +1481,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     {ticks.map(({ t, frac }) => (
                       <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
                         <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
-                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_MONO, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmt(t)}</span>
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmt(t)}</span>
                       </div>
                     ))}
                   </div>
@@ -1663,7 +1663,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   transition: "background .12s",
                 }} />
                 {/* Indicador de zoom */}
-                <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.muted2, fontFamily: FONT_MONO, fontWeight: 600, pointerEvents: "none", letterSpacing: 0.3 }}>
+                <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.muted2, fontFamily: FONT_SANS, fontWeight: 600, pointerEvents: "none", letterSpacing: 0.3 }}>
                   ×{schemaZoom.toFixed(1)}
                 </div>
               </div>

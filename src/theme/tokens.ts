@@ -21,7 +21,6 @@ export const C = {
 
 export const FONT_SANS  = "'Outfit', system-ui, sans-serif";
 export const FONT_SERIF = "'Cormorant Garamond', Georgia, serif";
-export const FONT_MONO  = "'Outfit', system-ui, sans-serif";
 export const F = { serif: FONT_SERIF, sans: FONT_SANS };
 
 export const S = {

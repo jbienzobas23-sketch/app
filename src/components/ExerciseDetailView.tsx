@@ -2,7 +2,7 @@
 // Extraída de teacher.jsx (Fase 2, subdivisión).
 import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Button, Part } from "../lib/types.js";
-import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
+import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../lib/audio.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
@@ -461,7 +461,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {audioName}
               </span>
-              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                 {fmt(effDuration)}
               </span>
               {audioLibrary.length > 0 && (
@@ -512,7 +512,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
               <p style={{ ...SECTION_STYLE, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
                 Fragmento
                 {fragStart !== null && (
-                  <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.quiz, fontWeight: 600,
+                  <span style={{ fontFamily: FONT_SANS, fontSize: 10, color: C.quiz, fontWeight: 600,
                     textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
                     padding: "1px 6px", borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
                     {fmt(fragStart ?? 0)} – {fmt(fragEnd ?? 0)}
@@ -621,7 +621,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                         <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat.id)}
                           style={{ cursor: isLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
                         <span style={{ fontSize: 13, fontWeight: 500, color: checked ? C.ink : C.muted2, flex: 1 }}>{cat.name}</span>
-                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
+                        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>
                           {checked ? `${selCount}/${allCount}` : `${allCount} btn`}
                         </span>
                       </label>
@@ -634,9 +634,9 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                               <label key={btn.id} style={{ ...S.row, gap: 8, padding: "4px 8px", borderRadius: 6, cursor: bIsLast ? "not-allowed" : "pointer", opacity: bChecked ? 1 : 0.45 }}>
                                 <input type="checkbox" checked={bChecked} onChange={() => toggleButton(cat.id, btn.id)}
                                   style={{ cursor: bIsLast ? "not-allowed" : "pointer", flexShrink: 0 }} />
-                                <span style={{ width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_MONO }}>{btn.id}</span>
+                                <span style={{ width: 20, height: 20, borderRadius: "50%", background: btn.color, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", fontFamily: FONT_SANS }}>{btn.id}</span>
                                 <span style={{ fontSize: 13, color: C.ink2 }}>{btn.name}</span>
-                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, marginLeft: "auto" }}>[{(btn.key ?? "").toUpperCase()}]</span>
+                                <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, marginLeft: "auto" }}>[{(btn.key ?? "").toUpperCase()}]</span>
                               </label>
                             );
                           })}
@@ -683,7 +683,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8 }}>
                       <AudioWaveIcon size={14} color={C.ink2} />
                       <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{part.audioName}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(partTotalDur)}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(partTotalDur)}</span>
                       {audioLibrary.length > 0 && (
                         <button type="button" onClick={() => setLibraryPickerForPart(part.id)} style={{ ...S.btn, padding: "2px 8px", fontSize: 11, flexShrink: 0 }}>Cambiar</button>
                       )}
