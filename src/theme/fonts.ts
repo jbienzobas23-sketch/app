@@ -1,19 +1,11 @@
-// ═══ INYECCIÓN DE FUENTES Y ESTILOS GLOBALES ════════════════════════════════
-// Hook que inyecta Google Fonts + keyframes/utilidades CSS una sola vez al
-// montar la app. Extraído de App.jsx (Fase 2).
+// ═══ INYECCIÓN DE ESTILOS GLOBALES ═══════════════════════════════════════════
+// Hook que inyecta keyframes/utilidades CSS una sola vez al montar la app.
+// Extraído de App.jsx (Fase 2). Las fuentes están autoalojadas (main.tsx) desde F0.
 import { useEffect } from "react";
 
-// Inyecta Google Fonts una sola vez al montar la app
 export function useInjectFonts(): void {
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (!document.querySelector('link[data-gf="fa-v3"]')) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.setAttribute("data-gf", "fa-v3");
-      link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@400;500;600;700&display=swap";
-      document.head.appendChild(link);
-    }
     if (!document.querySelector('style[data-fa-anim]')) {
       const style = document.createElement("style");
       style.setAttribute("data-fa-anim", "1");
@@ -58,7 +50,10 @@ export function useInjectFonts(): void {
         + "@keyframes faOptIn{from{opacity:0;transform:translateY(7px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}"
         + ".fa-opt-in{animation:faOptIn .22s cubic-bezier(.34,1.3,.64,1) both;transform-origin:center top}"
         // Respeta la preferencia de reducir movimiento del sistema
-        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar,.fa-opt-in{animation:none!important;transition:none!important}}";
+        + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar,.fa-opt-in{animation:none!important;transition:none!important}}"
+        // S.input fija outline:none sin alternativa — sin esto el foco de teclado
+        // es invisible en inputs de credencial y numéricos (AA de teclado).
+        + "input:focus-visible,textarea:focus-visible,select:focus-visible{box-shadow:0 0 0 2px rgba(85,85,85,.4)}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)
