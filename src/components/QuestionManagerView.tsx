@@ -29,7 +29,11 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
   const [editingQ,    setEditingQ]    = useState<EditingQ>(null);
   const [confirmDel,  setConfirmDel]  = useState<{ id: string; text: string } | null>(null);
   const [selectedQId, setSelectedQId] = useState<string | null>(null);
+  const [confirmBack, setConfirmBack] = useState(false);
   const minimapRef = useRef<HTMLDivElement | null>(null);
+
+  const isDirty = JSON.stringify(questions) !== JSON.stringify(questionsOf(exercise));
+  const guardedOnBack = () => { if (isDirty) setConfirmBack(true); else onBack(); };
 
   // QMV usa exercise.waveformData directamente — sin callback de onWaveform
   const {
@@ -100,7 +104,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
     <div style={S.app}>
       <div style={S.page}>
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
-          <button onClick={onBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 13 }}>← Volver</button>
+          <button onClick={guardedOnBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 13 }}>← Volver</button>
           <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1 }}>{exercise.title} — Preguntas</div>
           <button onClick={() => onSave(questions)} style={S.btnPrimary}>Guardar</button>
         </div>
@@ -263,6 +267,13 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
           message={`¿Eliminar la pregunta "${confirmDel.text.slice(0, 60)}${confirmDel.text.length > 60 ? "…" : ""}"?`}
           onConfirm={() => { setQuestions((prev) => prev.filter((x) => x.id !== confirmDel.id)); setConfirmDel(null); }}
           onCancel={() => setConfirmDel(null)} />
+      )}
+      {confirmBack && (
+        <ConfirmModal
+          message={"Tienes cambios sin guardar.\n\n¿Quieres descartarlos y continuar?"}
+          confirmLabel="Descartar y continuar"
+          onConfirm={() => { setConfirmBack(false); onBack(); }}
+          onCancel={() => setConfirmBack(false)} />
       )}
     </div>
   );

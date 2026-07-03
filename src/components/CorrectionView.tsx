@@ -298,7 +298,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     }
 
     // ── Vista del alumno ──────────────────────────────────────────────────────
-    const showRefSchema = Boolean(exercise.immediateSchemaFeedback) && hasKey;
+    const showRefSchema = (Boolean(exercise.immediateSchemaFeedback) || Boolean(tc?.corrected)) && hasKey;
     return (
       <div style={S.app}>
         <div style={S.page}>

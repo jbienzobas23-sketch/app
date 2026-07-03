@@ -235,6 +235,16 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
   const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
 
+  // Guardia de cambios sin guardar: las salidas que abandonan la vista (volver,
+  // grabar, previsualizar, gestionar preguntas) piden confirmación si hay
+  // ediciones sin guardar antes de descartarlas.
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const guardIfDirty = (action: () => void) => () => { if (isDirty) setPendingAction(() => action); else action(); };
+  const guardedOnBack             = guardIfDirty(onBack);
+  const guardedOnRecord           = guardIfDirty(() => onRecord(exercise));
+  const guardedOnPreview          = onPreview ? guardIfDirty(() => onPreview(exercise)) : undefined;
+  const guardedOnManageOrRecord   = guardIfDirty(() => (onManageQuestions || onRecord)(exercise));
+
   const handleSave = () => {
     if (!canSave) return;
     const hasInteractivo = selectedModels.includes("interactivo");
@@ -314,7 +324,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
       <div style={S.page}>
         {/* Cabecera */}
         <div style={{ marginBottom: 20 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 14 }}>← Ejercicios</button>
+          <button onClick={guardedOnBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, fontSize: 13, color: "#888", padding: 0, marginBottom: 14 }}>← Ejercicios</button>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
             <h1 style={{ ...S.h1 }}>{isCreating ? "Nuevo ejercicio" : title || "Sin título"}</h1>
             {(isCreating || isDirty) && (
@@ -546,7 +556,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     );
                   })}
                 </div>
-                <button onClick={() => onRecord(exercise)} style={{
+                <button onClick={guardedOnRecord} style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                   background: recorded === 0 ? C.ink : C.paper2,
                   color:      recorded === 0 ? C.paper : C.ink,
@@ -605,8 +615,8 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                 <input type="checkbox" checked={immediateSchemaFeedback} onChange={e => setImmediateSchemaFeedback(e.target.checked)}
                   style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Retroalimentación inmediata</div>
-                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Al entregar el ejercicio, el alumno verá el esquema de referencia del profesor antes de que corrija manualmente.</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Mostrar el esquema de referencia al entregar</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Si no, se mostrará tras la corrección del profesor.</div>
                 </div>
               </label>
             </div>
@@ -667,12 +677,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
               );
             })()}
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => onRecord(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.ink : C.paper2, color: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.paper : C.ink, border: !(exercise.schemaKey as unknown[] | undefined)?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+              <button onClick={guardedOnRecord} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.ink : C.paper2, color: !(exercise.schemaKey as unknown[] | undefined)?.length ? C.paper : C.ink, border: !(exercise.schemaKey as unknown[] | undefined)?.length ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                 <span>{(exercise.schemaKey as unknown[] | undefined)?.length ? "Regrabar clave" : "Grabar clave"}</span>
                 <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
               </button>
               {onPreview && (
-                <button onClick={() => onPreview(exercise)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                <button onClick={guardedOnPreview} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.paper2, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
                   <span>Probar ejercicio</span>
                   <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>›</span>
                 </button>
@@ -691,12 +701,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                 {exQs.length > 0 ? `${exQs.length} ${exQs.length === 1 ? "pregunta" : "preguntas"}` : "Ninguna todavía"}
               </span>
             </div>
-            <button onClick={() => (onManageQuestions || onRecord)(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: exQs.length === 0 ? C.ink : C.paper2, color: exQs.length === 0 ? C.paper : C.ink, border: exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
+            <button onClick={guardedOnManageOrRecord} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: exQs.length === 0 ? C.ink : C.paper2, color: exQs.length === 0 ? C.paper : C.ink, border: exQs.length === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
               <span>{exQs.length === 0 ? "Crear preguntas" : "Editar preguntas"}</span>
               <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
             </button>
             {selectedModels.length > 1 && onPreview && (
-              <button onClick={() => onPreview(exercise)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", color: C.ink2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13, fontWeight: 500, marginTop: 8 }}>
+              <button onClick={guardedOnPreview} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", color: C.ink2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontSize: 13, fontWeight: 500, marginTop: 8 }}>
                 <span>Probar ejercicio completo</span>
                 <span style={{ fontSize: 16, opacity: 0.45, fontWeight: 300 }}>→</span>
               </button>
@@ -750,6 +760,13 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
           message={`¿Eliminar el ejercicio "${exercise?.title}"?\n\nSe perderán también las respuestas guardadas de los alumnos.`}
           onConfirm={onDelete}
           onCancel={() => setShowConfirmDel(false)} />
+      )}
+      {pendingAction && (
+        <ConfirmModal
+          message={"Tienes cambios sin guardar.\n\n¿Quieres descartarlos y continuar?"}
+          confirmLabel="Descartar y continuar"
+          onConfirm={() => { const action = pendingAction; setPendingAction(null); action(); }}
+          onCancel={() => setPendingAction(null)} />
       )}
       {showLibraryPicker && (
         <AudioLibraryPickerModal
