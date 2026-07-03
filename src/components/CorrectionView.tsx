@@ -856,9 +856,6 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, isTeacherMode 
             <>
               <div style={{ fontSize: 64, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
               <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>de acierto · margen ±{effMargin}s</div>
-              <div style={{ fontSize: 14, marginTop: 12, color: col }}>
-                {sc >= 80 ? "Excelente análisis armónico." : sc >= 50 ? "Bien, pero hay margen de mejora." : "Sigue practicando."}
-              </div>
             </>
           )}
         </div>
