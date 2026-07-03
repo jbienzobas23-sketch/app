@@ -37,6 +37,31 @@ export interface Question {
   [k: string]: unknown;
 }
 
+// Una parte de un ejercicio multiparte (F4): exactamente el subconjunto de
+// campos del Exercise plano que depende del audio y de la clave. El resto
+// (modelo/combo, categorías, paleta, niveles…) queda a nivel de ejercicio,
+// compartido por todas las partes (v1: mismo modelo para todas — ver
+// PLAN_MAESTRO.md F4). Ver partsOf/partToExercise en domain.ts.
+export interface Part {
+  id: string;
+  title?: string;
+  composerName?: string;
+  showComposer?: boolean;
+  audioUrl?: string | null;
+  audioName?: string | null;
+  duration?: number;
+  audioFragmentStart?: number;
+  audioFragmentEnd?: number | null;
+  audioTotalDuration?: number | null;
+  waveformData?: number[] | null;
+  answers?: Record<string, unknown[]>;
+  schemaKey?: unknown[];
+  repetitions?: unknown[];
+  questions?: Question[];
+  points?: number;
+  [k: string]: unknown;
+}
+
 export interface Exercise {
   id?: string | number; // Las semillas usan number; los datos reales usan string
   title?: string;
@@ -62,6 +87,12 @@ export interface Exercise {
   // Campos de presentación — usados en tarjetas y cabeceras de sesión
   composerName?: string;
   showComposer?: boolean;
+  // Ejercicio multiparte (F4): varias partes, cada una con su audio y su
+  // clave, resueltas en una sola sesión con una sola entrega. Si falta o
+  // está vacío, partsOf() sintetiza una única parte desde los campos planos
+  // de arriba — todo ejercicio existente es, automáticamente, un multiparte
+  // de una parte (sin migración).
+  parts?: Part[];
   [k: string]: unknown;
 }
 

@@ -222,3 +222,19 @@ export const schemaDiagnostics = (
   });
   return { bloques, sobrantes: pool };
 };
+
+// Nota agregada de un ejercicio multiparte (F4): media ponderada por
+// part.points de las partes con nota calculable — las partes sin nota
+// automática (esquema/desarrollo sin corregir aún, null) no cuentan en el
+// promedio ni en el peso total, para no penalizar lo que el profesor
+// todavía no ha corregido. null si ninguna parte tiene nota.
+export const aggregateParts = (scores: Array<number | null | undefined>, points: number[] = []): number | null => {
+  let weightedSum = 0, totalWeight = 0;
+  scores.forEach((s, i) => {
+    if (s == null) return;
+    const w = points[i] ?? 1;
+    weightedSum += s * w;
+    totalWeight += w;
+  });
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
+};

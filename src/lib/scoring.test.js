@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAt, resolveOverlap, calcScore, calcQuestionnaireScore, calcSchemaPlacementScore,
-  interactiveDiagnostics, schemaDiagnostics,
+  interactiveDiagnostics, schemaDiagnostics, aggregateParts,
 } from "./scoring.js";
 
 // Tests de caracterización: fijan el comportamiento ACTUAL para detectar
@@ -205,5 +205,22 @@ describe("schemaDiagnostics", () => {
     const student = [{ id: "s1", level: 1, start: 0, end: 4, label: "A" }, { id: "s2", level: 1, start: 20, end: 24, label: "B" }];
     const d = schemaDiagnostics(key, student, 3);
     expect(d.sobrantes).toEqual([{ id: "s2", level: 1, start: 20, end: 24, label: "B" }]);
+  });
+});
+
+describe("aggregateParts", () => {
+  it("media ponderada por points", () => {
+    expect(aggregateParts([80, 60], [1, 1])).toBe(70);
+    expect(aggregateParts([100, 0], [3, 1])).toBe(75); // (300+0)/4
+  });
+  it("points por defecto = 1 si falta", () => {
+    expect(aggregateParts([80, 60])).toBe(70);
+  });
+  it("ignora las partes sin nota calculable (null)", () => {
+    expect(aggregateParts([80, null, 60])).toBe(70);
+    expect(aggregateParts([null, null])).toBeNull();
+  });
+  it("array vacío → null", () => {
+    expect(aggregateParts([])).toBeNull();
   });
 });

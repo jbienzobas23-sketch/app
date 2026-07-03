@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
+  partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -116,6 +117,110 @@ describe("resultStatusOf", () => {
   it("auto por defecto (interactivo, sin corrección)", () => {
     expect(resultStatusOf({}, { model: "interactivo" })).toBe("auto");
     expect(resultStatusOf(null, {})).toBe("auto");
+  });
+});
+
+describe("partsOf", () => {
+  it("devuelve `parts` tal cual si existe y no está vacío", () => {
+    const parts = [{ id: "a", audioUrl: "x.mp3" }, { id: "b", audioUrl: "y.mp3" }];
+    expect(partsOf({ parts })).toBe(parts);
+  });
+  it("sintetiza una única parte desde los campos planos si no hay `parts`", () => {
+    const ex = { id: "e1", audioUrl: "x.mp3", duration: 40, answers: { c1: [1] }, questions: [{ id: "q1" }] };
+    const parts = partsOf(ex);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({ id: "p1", audioUrl: "x.mp3", duration: 40, answers: { c1: [1] }, questions: [{ id: "q1" }], points: 1 });
+  });
+  it("una parts vacío también sintetiza", () => {
+    expect(partsOf({ parts: [], audioUrl: "x.mp3" })[0]).toMatchObject({ audioUrl: "x.mp3" });
+  });
+});
+
+describe("partToExercise", () => {
+  it("mezcla la parte sobre el ejercicio conservando el id del ejercicio", () => {
+    const exercise = { id: "e1", title: "T", composerName: "Bach" };
+    const part = { id: "p2", audioUrl: "y.mp3", duration: 30 };
+    const projected = partToExercise(exercise, part);
+    expect(projected.id).toBe("e1");
+    expect(projected.audioUrl).toBe("y.mp3");
+    expect(projected.duration).toBe(30);
+    expect(projected.title).toBe("T");
+  });
+  it("composerName de la parte, con fallback al del ejercicio", () => {
+    const exercise = { id: "e1", composerName: "Bach" };
+    expect(partToExercise(exercise, { id: "p1", composerName: "Mozart" }).composerName).toBe("Mozart");
+    expect(partToExercise(exercise, { id: "p1" }).composerName).toBe("Bach");
+  });
+  it("con ejercicios actuales (una parte sintetizada), la proyección conserva los campos que leen las vistas", () => {
+    // La parte sintetizada añade `points` (metadato de la parte, no leído por
+    // ninguna vista existente) — "bit a bit igual" aplica a lo que las vistas
+    // consumen, no a la igualdad estricta del objeto.
+    const exercise = { id: "e1", title: "T", audioUrl: "x.mp3", duration: 40, answers: { c1: [1] } };
+    const projected = partToExercise(exercise, partsOf(exercise)[0]);
+    expect(projected).toMatchObject(exercise);
+  });
+});
+
+describe("durationOf", () => {
+  it("suma la duración de las partes", () => {
+    const ex = { parts: [{ id: "a", duration: 30 }, { id: "b", duration: 45 }, { id: "c", duration: 20 }] };
+    expect(durationOf(ex)).toBe(95);
+  });
+  it("con una sola parte sintetizada, es la duración del ejercicio", () => {
+    expect(durationOf({ duration: 60 })).toBe(60);
+  });
+});
+
+describe("questionsCountOf", () => {
+  it("con una sola parte sintetizada, coincide con questions.length", () => {
+    expect(questionsCountOf({ questions: [{ id: "q1" }, { id: "q2" }] })).toBe(2);
+    expect(questionsCountOf({})).toBe(0);
+  });
+  it("multiparte: suma las preguntas de todas las partes", () => {
+    const ex = { parts: [{ id: "a", questions: [{ id: "q1" }] }, { id: "b", questions: [{ id: "q2" }, { id: "q3" }] }] };
+    expect(questionsCountOf(ex)).toBe(3);
+  });
+});
+
+describe("keyReadyOf", () => {
+  it("interactivo: lista si todas las categorías tienen respuesta", () => {
+    const ex = { model: "interactivo", categories: [{ id: "c1", buttons: [] }], answers: { c1: [{ fn: "T", start: 0, end: 1 }] } };
+    expect(keyReadyOf(ex)).toBe(true);
+    expect(keyReadyOf({ model: "interactivo", categories: [{ id: "c1", buttons: [] }], answers: {} })).toBe(false);
+  });
+  it("cuestionario: lista si hay preguntas (aunque sea el modelo secundario de un combo)", () => {
+    const ex = { models: ["esquema", "cuestionario"], schemaKey: [{ level: 1, start: 0, end: 1 }], questions: [{ id: "q1" }] };
+    expect(keyReadyOf(ex)).toBe(true);
+    expect(keyReadyOf({ ...ex, questions: [] })).toBe(false);
+  });
+  it("esquema: ya NO es siempre true — exige schemaKey no vacío", () => {
+    expect(keyReadyOf({ model: "esquema", schemaKey: [] })).toBe(false);
+    expect(keyReadyOf({ model: "esquema", schemaKey: [{ level: 1, start: 0, end: 1 }] })).toBe(true);
+  });
+  it("multiparte: exige que TODAS las partes tengan clave lista", () => {
+    const ex = {
+      model: "esquema",
+      parts: [
+        { id: "a", schemaKey: [{ level: 1, start: 0, end: 1 }] },
+        { id: "b", schemaKey: [] },
+      ],
+    };
+    expect(keyReadyOf(ex)).toBe(false);
+  });
+});
+
+describe("resultPartsOf", () => {
+  it("resultado plano heredado se envuelve como una única parte con un único modelo", () => {
+    const result = { type: "esquema", blocks: [], placementScore: 80 };
+    expect(resultPartsOf(result)).toEqual({ p1: { byModel: { esquema: result } } });
+  });
+  it("resultado con `parts` (sobre compuesto) se devuelve tal cual", () => {
+    const result = { type: "multi", parts: { a: { byModel: { interactivo: {} } } } };
+    expect(resultPartsOf(result)).toBe(result.parts);
+  });
+  it("null/undefined → objeto vacío", () => {
+    expect(resultPartsOf(null)).toEqual({});
+    expect(resultPartsOf(undefined)).toEqual({});
   });
 });
 

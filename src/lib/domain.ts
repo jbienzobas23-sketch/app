@@ -3,7 +3,7 @@
 // y heredado `mode`/`answer`), modelos y combos, y listas del almacén de audios.
 // Extraídos de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { DEFAULT_CATEGORY } from "../seed.js";
-import type { Exercise, Category, Button, Question, Course, Unit, Role, ExerciseResult } from "./types.js";
+import type { Exercise, Category, Button, Question, Course, Unit, Role, ExerciseResult, Part } from "./types.js";
 
 export const DEFAULT_MODEL_ID = "interactivo";
 
@@ -89,6 +89,92 @@ export const resultStatusOf = (result: ExerciseResult | null | undefined, exerci
   if (models.includes("esquema")) return "pendiente";
   if (models.includes("cuestionario") && questionsOf(exercise).some((q) => q.type === "desarrollo")) return "pendiente";
   return "auto";
+};
+
+// ── Ejercicios multiparte (F4) ────────────────────────────────────────────────
+// Partes embebidas, no ejercicios enlazados: un solo documento, una entrega,
+// instantánea por construcción. La proyección (partsOf/partToExercise) es la
+// pieza que hace todo lo demás barato — ver PLAN_MAESTRO.md F4 y
+// plan_ejercicios_multiparte.md. Con las vistas grandes (ExerciseView,
+// SchemaExerciseView, QuestionnaireView, QuestionManagerView, CorrectionView)
+// sin tocar por dentro: reciben el ejercicio proyectado de la parte activa,
+// igual que hoy reciben el proyectado de paleta (applyPaletteToExercise).
+
+const SINGLE_PART_ID = "p1";
+// Campos que definen una parte — exactamente el subconjunto de Exercise que
+// depende del audio y de la clave (ver Part en types.ts).
+const PART_FIELDS = [
+  "title", "composerName", "showComposer",
+  "audioUrl", "audioName", "duration",
+  "audioFragmentStart", "audioFragmentEnd", "audioTotalDuration", "waveformData",
+  "answers", "schemaKey", "repetitions", "questions",
+] as const;
+
+// Si `parts` existe y no está vacío, lo devuelve. Si no, sintetiza una única
+// parte a partir de los campos planos actuales: todo ejercicio existente es,
+// automáticamente, un multiparte de una parte — cero migración de datos.
+export const partsOf = (exercise?: Exercise | null): Part[] => {
+  if (Array.isArray(exercise?.parts) && exercise.parts.length > 0) return exercise.parts;
+  if (!exercise) return [];
+  const synthesized: Part = { id: SINGLE_PART_ID, points: 1 };
+  for (const field of PART_FIELDS) (synthesized as Record<string, unknown>)[field] = exercise[field];
+  return [synthesized];
+};
+
+// Mezcla una parte sobre el ejercicio: el resultado tiene la forma plana que
+// hoy consumen las vistas (useAudioPlayer, ExerciseView, SchemaExerciseView,
+// QuestionnaireView, QuestionManagerView, CorrectionView). `id` siempre es el
+// del ejercicio (no el de la parte); `composerName` cae al del ejercicio si
+// la parte no trae uno propio.
+export const partToExercise = (exercise: Exercise, part: Part): Exercise => ({
+  ...exercise,
+  ...part,
+  id: exercise.id,
+  composerName: part.composerName || exercise.composerName,
+});
+
+// Duración total del ejercicio: suma de sus partes.
+export const durationOf = (exercise?: Exercise | null): number =>
+  partsOf(exercise).reduce((sum, p) => sum + (p.duration || 0), 0);
+
+// Número total de preguntas del ejercicio: suma de sus partes (con una parte
+// sintetizada, coincide con questionsOf(exercise).length).
+export const questionsCountOf = (exercise?: Exercise | null): number =>
+  partsOf(exercise).reduce((sum, p) => sum + (p.questions?.length ?? 0), 0);
+
+// La clave está lista si TODAS las partes tienen clave lista para TODOS los
+// modelos del combo (v1: mismo combo para todas las partes). Sustituye a los
+// cálculos ad-hoc de keyReady dispersos por las vistas — algunos de los
+// cuales daban "Configurada" a un esquema sin schemaKey, o ignoraban el
+// segundo modelo de un combo (el agujero de los híbridos ya documentado).
+export const keyReadyOf = (exercise?: Exercise | null): boolean => {
+  const models = modelsOf(exercise);
+  const parts = partsOf(exercise);
+  if (parts.length === 0) return false;
+  return parts.every((part) => {
+    const projected = partToExercise(exercise as Exercise, part);
+    return models.every((m) => {
+      if (m === "cuestionario") return questionsOf(projected).length > 0;
+      if (m === "esquema") return Array.isArray(projected.schemaKey) && (projected.schemaKey as unknown[]).length > 0;
+      const { recorded, total } = answerStats(projected);
+      return total > 0 && recorded === total;
+    });
+  });
+};
+
+export interface PartResultEnvelope { byModel: Record<string, ExerciseResult>; }
+
+// El gemelo tolerante de partsOf, para resultados: si el result ya trae
+// `parts` (sobre compuesto, F4), lo devuelve tal cual; si no (resultado plano
+// heredado, de antes de esta fase), lo envuelve como una única parte con un
+// único modelo — el que indica `result.type`. CorrectionView y las listas
+// leen siempre a través de este lector, sin ramas legacy propias.
+export const resultPartsOf = (result: ExerciseResult | null | undefined): Record<string, PartResultEnvelope> => {
+  const parts = (result as { parts?: unknown } | null | undefined)?.parts;
+  if (parts && typeof parts === "object") return parts as Record<string, PartResultEnvelope>;
+  if (!result) return {};
+  const modelId = (result as { type?: string }).type || "interactivo";
+  return { [SINGLE_PART_ID]: { byModel: { [modelId]: result } } };
 };
 
 // Listas únicas y ordenadas de compositores / etiquetas del almacén de audios.
