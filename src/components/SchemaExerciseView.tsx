@@ -1,8 +1,17 @@
 // ═══ SCHEMAEXERCISEVIEW (MODELO ESQUEMA) ═════════════════════════════════════
 // Vista de sesión del modelo Esquema (timeline de bloques, repeticiones, paletas).
-// Extraída de App.jsx (Fase 2). Troceo en curso (F7, T7.1): zoom/pinch/scroll en
+// Extraída de App.jsx (Fase 2). Troceo (F7, T7.1): zoom/pinch/scroll en
 // useSchemaZoom, bloques/historial/selección/etiquetas en useSchemaEditor, banda
-// de repetición en RepeatBand; queda por extraer SchemaTimeline.
+// de repetición en RepeatBand.
+//
+// SchemaTimeline (la 4ª extracción del plan) NO se separó: la régla, las pistas
+// y renderSegBlocks están tejidas con la física de arrastre a través de refs
+// mutables compartidos (dragRef, trackSegRefs) y el useEffect de arrastre. Un
+// corte fiel obligaría a mover esa física —el comportamiento más frágil y menos
+// testeable de la app— o a un componente de ~40 props (indirección sin reducir
+// el acoplamiento). Ninguna opción cumple "sin cambio de comportamiento" con
+// riesgo aceptable, así que se dejó dentro. El archivo bajó de 2087 a ~1805
+// líneas (no llega al objetivo <900 del plan).
 import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
