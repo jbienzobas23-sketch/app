@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAt, resolveOverlap, calcScore, calcQuestionnaireScore, calcSchemaPlacementScore,
+  interactiveDiagnostics, schemaDiagnostics,
 } from "./scoring.js";
 
 // Tests de caracterización: fijan el comportamiento ACTUAL para detectar
@@ -122,5 +123,87 @@ describe("calcSchemaPlacementScore", () => {
     const strict = calcSchemaPlacementScore(kb, sb, 1); // margen del ejercicio A
     const loose  = calcSchemaPlacementScore(kb, sb, 3); // margen del ejercicio B
     expect(loose).toBeGreaterThan(strict);
+  });
+});
+
+describe("interactiveDiagnostics", () => {
+  it("null si no hay clave", () => {
+    expect(interactiveDiagnostics([], [], 10, 1)).toBeNull();
+  });
+  it("coincidencia total → cobertura y precisión 100, sin tramos ni confusiones", () => {
+    const key = [{ fn: "T", start: 0, end: 10 }];
+    const d = interactiveDiagnostics(key, key, 10, 1);
+    expect(d.cobertura).toBe(100);
+    expect(d.precision).toBe(100);
+    expect(d.confusiones).toEqual([]);
+    expect(d.tramos).toEqual([]);
+  });
+  it("silencio del alumno → cobertura 0 y un único tramo con marcado null", () => {
+    const key = [{ fn: "T", start: 0, end: 10 }];
+    const d = interactiveDiagnostics(key, [], 10, 1);
+    expect(d.cobertura).toBe(0);
+    expect(d.precision).toBe(0);
+    expect(d.tramos).toHaveLength(1);
+    expect(d.tramos[0]).toMatchObject({ start: 0, esperado: "T", marcado: null });
+  });
+  it("función equivocada todo el tramo → cobertura 100, precisión 0 y una confusión", () => {
+    const key = [{ fn: "T", start: 0, end: 10 }];
+    const student = [{ fn: "S", start: 0, end: 10 }];
+    const d = interactiveDiagnostics(key, student, 10, 1);
+    expect(d.cobertura).toBe(100);
+    expect(d.precision).toBe(0);
+    expect(d.confusiones).toHaveLength(1);
+    expect(d.confusiones[0]).toMatchObject({ de: "T", a: "S" });
+    expect(d.confusiones[0].segundos).toBeCloseTo(10, 0);
+    expect(d.tramos).toHaveLength(1);
+    expect(d.tramos[0]).toMatchObject({ esperado: "T", marcado: "S" });
+  });
+  it("desplazado dentro del margen: coincide igualmente y registra desfase", () => {
+    const key     = [{ fn: "T", start: 0, end: 10 }];
+    const student = [{ fn: "T", start: 0.5, end: 10.5 }];
+    const d = interactiveDiagnostics(key, student, 10, 1);
+    expect(d.precision).toBe(100);
+    expect(d.tramos).toEqual([]);
+    expect(d.desfaseMedio).not.toBeNull();
+  });
+});
+
+describe("schemaDiagnostics", () => {
+  it("null si no hay bloques clave", () => {
+    expect(schemaDiagnostics([], [], 3)).toBeNull();
+    expect(schemaDiagnostics(null, [], 3)).toBeNull();
+  });
+  it("bloque exacto y bien etiquetado", () => {
+    const key     = [{ id: "k1", level: 1, start: 0, end: 4, label: "Exposición" }];
+    const student = [{ id: "s1", level: 1, start: 0, end: 4, label: "A" }]; // misma ranura semántica
+    const d = schemaDiagnostics(key, student, 3);
+    expect(d.bloques).toEqual([{ id: "k1", level: 1, label: "Exposición", estado: "exacto", delta: 0, etiquetaOk: true }]);
+    expect(d.sobrantes).toEqual([]);
+  });
+  it("desplazado dentro del margen con delta con signo", () => {
+    const key     = [{ id: "k1", level: 1, start: 0, end: 4, label: "A" }];
+    const student = [{ id: "s1", level: 1, start: 2, end: 6, label: "A" }];
+    const d = schemaDiagnostics(key, student, 3);
+    expect(d.bloques[0].estado).toBe("desplazado");
+    expect(d.bloques[0].delta).toBe(2);
+  });
+  it("falta si no hay bloque del alumno en esa posición/nivel", () => {
+    const key = [{ id: "k1", level: 1, start: 0, end: 4, label: "A" }];
+    const d = schemaDiagnostics(key, [], 3);
+    expect(d.bloques[0]).toMatchObject({ estado: "falta", etiquetaOk: false });
+  });
+  it("colocación 100% pero mal etiquetado → Nombres 0% sin alterar la nota de colocación", () => {
+    const key     = [{ id: "k1", level: 1, start: 0, end: 4, label: "A" }, { id: "k2", level: 1, start: 4, end: 8, label: "B" }];
+    const student = [{ id: "s1", level: 1, start: 0, end: 4, label: "B" }, { id: "s2", level: 1, start: 4, end: 8, label: "A" }];
+    const colocacion = calcSchemaPlacementScore(key, student, 3);
+    const d = schemaDiagnostics(key, student, 3);
+    expect(colocacion).toBe(100); // la nota no cambia
+    expect(d.bloques.every((b) => !b.etiquetaOk)).toBe(true); // "Nombres 0%"
+  });
+  it("sobrantes: bloques del alumno que no corresponden a ningún bloque clave", () => {
+    const key     = [{ id: "k1", level: 1, start: 0, end: 4, label: "A" }];
+    const student = [{ id: "s1", level: 1, start: 0, end: 4, label: "A" }, { id: "s2", level: 1, start: 20, end: 24, label: "B" }];
+    const d = schemaDiagnostics(key, student, 3);
+    expect(d.sobrantes).toEqual([{ id: "s2", level: 1, start: 20, end: 24, label: "B" }]);
   });
 });
