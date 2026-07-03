@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, S, FONT_MONO } from "../theme/tokens.js";
-import { fmt } from "../lib/ids.js";
+import { fmt, uid } from "../lib/ids.js";
 import { questionsOf } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
@@ -54,6 +54,34 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
   }, []);
+
+  // Orden y duplicado (F5, T5.3) — mueven/copian dentro del array local;
+  // el orden se persiste al pulsar "Guardar preguntas", como el resto de cambios.
+  const moveQuestion = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= questions.length) return;
+    setQuestions((prev) => {
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
+  };
+  const sortByTime = () => setQuestions((prev) => [...prev].sort((a, b) => a.audioStart - b.audioStart));
+  const duplicateQuestion = (q: QuizQuestion) => {
+    const shift = 0.5;
+    const dup: QuizQuestion = {
+      ...q,
+      id: uid("q"),
+      audioStart: Math.min(dur, q.audioStart + shift),
+      audioEnd:   Math.min(dur, q.audioEnd + shift),
+    };
+    setQuestions((prev) => {
+      const idx = prev.findIndex((x) => x.id === q.id);
+      const next = [...prev];
+      next.splice(idx + 1, 0, dup);
+      return next;
+    });
+  };
 
   // Drag del cuerpo de una pregunta en el minimapa
   const beginDragQBody = (e: any, qId: string) => {
@@ -189,13 +217,20 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
           </div>
         </section>
 
-        <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           <h2 style={{ ...S.h2, margin: 0 }}>Preguntas ({questions.length})</h2>
-          {/* BUG FIX: el original usaba timeRef.current (undefined en este componente).
-              Ahora se pasa `time` directamente, que ya está disponible del hook. */}
-          <button onClick={() => setEditingQ({ _new: true, defaultStart: time })} style={S.btnPrimary}>
-            + Añadir aquí
-          </button>
+          <div style={{ ...S.row, gap: 8 }}>
+            {questions.length > 1 && (
+              <button onClick={sortByTime} style={{ ...S.btn, fontSize: 12.5 }} title="Reordena las preguntas según su inicio en el audio">
+                Ordenar por tiempo
+              </button>
+            )}
+            {/* BUG FIX: el original usaba timeRef.current (undefined en este componente).
+                Ahora se pasa `time` directamente, que ya está disponible del hook. */}
+            <button onClick={() => setEditingQ({ _new: true, defaultStart: time })} style={S.btnPrimary}>
+              + Añadir aquí
+            </button>
+          </div>
         </div>
         <p style={{ color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
           Sitúate en el punto del audio deseado y pulsa "+ Añadir aquí" para usar ese instante como inicio sugerido del fragmento.
@@ -233,8 +268,17 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 )}
               </div>
               <div style={{ ...S.row, gap: 6 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <button onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}
+                    style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === 0 ? 0.4 : 1, cursor: idx === 0 ? "default" : "pointer" }}
+                    title="Subir">↑</button>
+                  <button onClick={() => moveQuestion(idx, 1)} disabled={idx === questions.length - 1}
+                    style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === questions.length - 1 ? 0.4 : 1, cursor: idx === questions.length - 1 ? "default" : "pointer" }}
+                    title="Bajar">↓</button>
+                </div>
                 <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmt(q.audioStart)}`}>▶ {fmt(q.audioStart)}</button>
                 <button onClick={() => setEditingQ(q)} style={S.btn}>Editar</button>
+                <button onClick={() => duplicateQuestion(q)} style={{ ...S.btn, fontSize: 12 }} title="Duplicar esta pregunta">⧉ Duplicar</button>
                 <button onClick={() => setConfirmDel({ id: q.id, text: q.text ?? "" })} style={S.btnDanger}>Eliminar</button>
               </div>
             </div>
