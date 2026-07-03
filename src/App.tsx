@@ -14,7 +14,7 @@ import type { AudioItem } from "./components/modals.js";
 import { TEACHER_TAB_PATH, useHashRoute } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { modelsOf, answerFor } from "./lib/domain.js";
+import { modelsOf, answerFor, resultStatusOf } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
@@ -291,7 +291,14 @@ export default function App() {
     const sid = studentId ?? "";
     const eid = String(exerciseId ?? "");
     const existing = (results[sid] || {})[eid] || {};
-    const updated  = { ...existing, teacherCorrection: { ...correction, corrected: true } };
+    const updated: any = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: "corregido" };
+    // Nota normalizada a escala 0-100 (la que consume ScoreBadge). totalScore
+    // puede llegar en 0-10 (correcciones anteriores a T1.2, o inputs aún sin
+    // migrar) — el mismo umbral tolerante que usa CorrectionView al mostrarla.
+    if (correction?.totalScore != null && correction.totalScore !== "") {
+      const raw = Number(correction.totalScore);
+      if (!Number.isNaN(raw)) updated.score = raw <= 10 ? raw * 10 : raw;
+    }
     setResults((prev) => ({ ...prev, [sid]: { ...(prev[sid] || {}), [eid]: updated } }));
     dbUpsertResult(sid, eid, updated);
   };
@@ -518,7 +525,7 @@ export default function App() {
 
     // Cuestionario
     if (payload?.type === "cuestionario") {
-      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, schemaPalette: activePalette, timestamp: Date.now() };
+      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now() };
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [exId]: data }));
       } else if (user) {
@@ -539,8 +546,8 @@ export default function App() {
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey as any, payload.blocks);
-      const data = { type: "esquema", blocks: payload.blocks, placementScore, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey as any, payload.blocks, ex.schemaMargin ?? 3);
+      const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real
         if (isGuest) {
@@ -564,7 +571,7 @@ export default function App() {
     const scoreFor = (categoryId: string, intervals: any[]) => {
       const key = answerFor(ex, categoryId) as any[];
       if (!key.length) return null;
-      return calcScore(key, intervals, ex.duration as number, margin);
+      return calcScore(key, intervals, ex.duration as number, ex.margin ?? margin);
     };
 
     if (exCtx.mode === "record") {
@@ -594,6 +601,7 @@ export default function App() {
       intervals:  mainIvs,
       score:      mainScore,
       extras,
+      status:     resultStatusOf(null, ex),
       schemaPalette: activePalette,
       timestamp:  Date.now(),
     };
