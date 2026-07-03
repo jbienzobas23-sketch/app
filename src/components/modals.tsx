@@ -653,6 +653,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
 export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; onSave: (q: Question) => void; onClose: () => void }) {
   const [text,            setText]            = useState(initial?.text || "");
   const [type,            setType]            = useState(initial?.type || "test");
+  const [explanation,     setExplanation]     = useState(initial?.explanation || "");
   const [audioStart,      setAudioStart]      = useState<number>(initial?.audioStart ?? defaultStart ?? 0);
   const [audioEnd,        setAudioEnd]        = useState<number>(initial?.audioEnd   ?? Math.min(audioDuration, (defaultStart ?? 0) + 10));
   const [options,         setOptions]         = useState<QuestionOption[]>(initial?.options || [
@@ -689,6 +690,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
       audioEnd,
       options:    type === "test" ? options.map((o) => ({ ...o, text: (o.text ?? "").trim() })) : [],
       correctOptionId: type === "test" ? correctOptionId : null,
+      explanation: explanation.trim() || undefined,
     });
   };
 
@@ -763,6 +765,16 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
           </button>
         </>
       )}
+
+      <label style={S.label}>Explicación (opcional)</label>
+      <textarea style={{ ...S.input, marginBottom: 6, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
+        value={explanation} onChange={(e) => setExplanation(e.target.value)}
+        placeholder="Por qué es esa la respuesta correcta…" />
+      <p style={{ fontSize: 11, color: C.muted, margin: "0 0 18px", lineHeight: 1.5 }}>
+        {type === "test"
+          ? "En preguntas test, la verá el alumno en la corrección, junto a la respuesta correcta."
+          : "En preguntas de desarrollo, solo la ves tú — te sirve de pauta al corregir."}
+      </p>
 
       <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>

@@ -468,6 +468,13 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "‚
                   </div>
                   <div style={{ fontSize: 14, color: C.ink, marginBottom: 12 }}>{q.text}</div>
 
+                  {q.explanation && (
+                    <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}33`, borderRadius: 8 }}>
+                      <div style={{ fontSize: 10.5, color: C.quiz, fontWeight: 700, marginBottom: 3 }}>Tu explicaci√≥n</div>
+                      <div style={{ fontSize: 13, color: C.ink2, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{q.explanation}</div>
+                    </div>
+                  )}
+
                   {q.type === "test" && (
                     <>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -609,6 +616,13 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "‚
                   )}
                 </div>
                 <div style={{ fontSize: 14, color: C.ink, marginBottom: 12 }}>{q.text}</div>
+
+                {q.type === "test" && q.explanation && (
+                  <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}33`, borderRadius: 8 }}>
+                    <div style={{ fontSize: 10.5, color: C.quiz, fontWeight: 700, marginBottom: 3 }}>Explicaci√≥n</div>
+                    <div style={{ fontSize: 13, color: C.ink2, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{q.explanation}</div>
+                  </div>
+                )}
 
                 {q.type === "test" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

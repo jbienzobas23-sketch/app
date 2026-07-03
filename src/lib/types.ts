@@ -34,6 +34,10 @@ export interface Question {
   correctOptionId?: string | null;
   audioStart?: number;
   audioEnd?: number;
+  // Explicación del profesor (F5, T5.1): en test se muestra siempre tras
+  // entregar (alumno y profesor); en desarrollo, solo al profesor — sirve de
+  // pauta de corrección, no de respuesta que el alumno pueda ver antes de hora.
+  explanation?: string;
   [k: string]: unknown;
 }
 
