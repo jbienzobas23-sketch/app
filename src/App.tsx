@@ -11,7 +11,7 @@ import type { AudioItem } from "./components/modals.js";
    archivo conserva los componentes React y el estado global de App().
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { TEACHER_TAB_PATH, useHashRoute } from "./lib/routing.js";
+import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
 import { modelsOf, answerFor, resultStatusOf } from "./lib/domain.js";
@@ -101,7 +101,6 @@ export default function App() {
   const { route, navigate } = useHashRoute();
   const [lastResult,   setLastResult]     = useState<any>(null);
   const [guestResults, setGuestResults]   = useState<Record<string, ExerciseResult>>({});
-  const [pickingTeacher, setPickingTeacher] = useState(false);
   const redirectAfterLogin = useRef<string | null>(null);   // enlace profundo a recuperar tras login
 
   const [pendingLoginUser, setPendingLoginUser] = useState<any | null>(null); // alumno esperando configurar correo de recuperación
@@ -508,7 +507,7 @@ export default function App() {
     redirectAfterLogin.current = null;
     if (u.role === "student") {
       const hasTeacher = (loaded.users || []).some((x: any) => x.role === "teacher" && x.id === u.teacherId);
-      if (!u.teacherId || !hasTeacher) { setPickingTeacher(true); return; }
+      if (!u.teacherId || !hasTeacher) { navigate("/alumno/elegir-profesor", { replace: true }); return; }
       navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
     } else {
       navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
@@ -542,7 +541,7 @@ export default function App() {
       if (payload.mode === "record") {
         // El profesor guarda el esquema como modelo de referencia (con su paleta)
         updateExercise(ex.id, { schemaKey: payload.blocks, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT });
-        navigate("/profesor");
+        navigate(getLastPanelPath("/profesor"));
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
@@ -579,7 +578,7 @@ export default function App() {
       const patchAnswers: Record<string, any> = { ...(ex.answers || {}) };
       entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
       updateExercise(ex.id, { answers: patchAnswers });
-      navigate("/profesor");
+      navigate(getLastPanelPath("/profesor"));
       return;
     }
 
@@ -635,14 +634,14 @@ export default function App() {
   if (noAdmin) return <SetupView onSetup={handleSetup} />;
 
   // Selección de profesor para alumno (al primer login o desde "Cambiar profesor")
-  if ((pickingTeacher || route.name === "pick-teacher") && user?.role === "student") {
+  if (route.name === "pick-teacher" && user?.role === "student") {
     const teacherList = (users || []).filter((u) => u.role === "teacher");
     return (
       <TeacherPickerView
         teachers={teacherList}
         currentTeacherId={user.teacherId}
-        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); setPickingTeacher(false); navigate("/alumno"); }}
-        onLogout={() => { setUser(null); setPickingTeacher(false); navigate("/"); }}
+        onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); navigate("/alumno"); }}
+        onLogout={() => { setUser(null); navigate("/"); }}
       />
     );
   }
@@ -754,7 +753,7 @@ export default function App() {
     if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
     if (!exCtx) return <NotFound to={back} />;
     const exModels = modelsOf(exCtx.exercise);
-    const onBack = () => navigate(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno");
+    const onBack = () => navigate(getLastPanelPath(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno"));
     // Paleta efectiva = la del ejercicio, o la preferida por el usuario, o P1.
     const sessionPalette = effectivePaletteId(exCtx.exercise, user?.defaultPalette);
     const sessionExercise = applyPaletteToExercise(exCtx.exercise, sessionPalette) || exCtx.exercise;
@@ -781,8 +780,8 @@ export default function App() {
       <Suspense fallback={lazyFallback}>
         <QuestionManagerView
           exercise={qmCtx.exercise}
-          onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate("/profesor"); }}
-          onBack={() => navigate("/profesor")}
+          onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate(getLastPanelPath("/profesor")); }}
+          onBack={() => navigate(getLastPanelPath("/profesor"))}
         />
       </Suspense>
     );
@@ -792,17 +791,31 @@ export default function App() {
   if (route.name === "correction") {
     const back = route.params.from === "teacher" ? "/profesor" : "/alumno";
     if (!exCtx) return <NotFound to={back} />;
-    if (!lastResult) {
-      // La corrección no se puede reconstruir desde un enlace pegado/recargado
+    const wasPreview = route.params.from === "teacher";
+    // Reconstruible (T3.3): si no hay lastResult en memoria (recarga, enlace
+    // pegado, atrás del navegador) y no es la previsualización efímera del
+    // profesor, se reconstruye desde los resultados guardados — misma lógica
+    // que openCorrection.
+    let result = lastResult;
+    if (!result && !wasPreview) {
+      const exId = String(exCtx.exercise.id);
+      result = user?.isGuest ? guestResults[exId] : (results[user?.id] || {})[exId];
+    }
+    if (!result) {
+      // La previsualización del profesor sí es efímera y no se puede reconstruir.
       return <NotFound to={exCtx ? `/alumno/ejercicio/${exCtx.exercise.id}` : back} />;
     }
-    const wasPreview = route.params.from === "teacher";
-    const corrPalette = effectivePaletteId({ schemaPalette: lastResult?.schemaPalette }, user?.defaultPalette);
+    const corrPalette = effectivePaletteId({ schemaPalette: result?.schemaPalette }, user?.defaultPalette);
     return (
       <CorrectionView
         exercise={applyPaletteToExercise(freshExercise(exCtx.exercise), corrPalette) || freshExercise(exCtx.exercise)}
-        result={lastResult} margin={margin}
-        onBack={() => { setLastResult(null); navigate(wasPreview ? "/profesor" : "/alumno"); }}
+        result={result} margin={margin}
+        onBack={() => {
+          setLastResult(null);
+          // El preview del profesor es efímero: reemplaza la entrada de
+          // historial para que "atrás" no reabra una corrección irreconstruible.
+          navigate(getLastPanelPath(wasPreview ? "/profesor" : "/alumno"), { replace: wasPreview });
+        }}
       />
     );
   }
@@ -822,6 +835,9 @@ export default function App() {
         groups={groups}
         tab={route.name === "student" ? route.params.tab : "all"}
         onTab={(t) => navigate(t === "courses" ? "/alumno/cursos" : "/alumno")}
+        cursoId={route.name === "student" ? route.params.cursoId ?? null : null}
+        unidadId={route.name === "student" ? route.params.unidadId ?? null : null}
+        onNavigateCourses={(cursoId, unidadId) => navigate(coursesPath("student", cursoId, unidadId))}
         onExercise={(ex) => openEx(ex, "student")}
         onViewCorrection={openCorrection}
         onLogout={onLogout}
@@ -853,9 +869,16 @@ export default function App() {
       margin={margin} onMargin={updateMargin}
       tab={route.name === "teacher" ? route.params.tab : "exercises"}
       onTab={(t) => navigate(TEACHER_TAB_PATH[t] || "/profesor")}
+      cursoId={route.name === "teacher" ? route.params.cursoId ?? null : null}
+      unidadId={route.name === "teacher" ? route.params.unidadId ?? null : null}
+      onNavigateCourses={(cursoId, unidadId) => navigate(coursesPath("teacher", cursoId, unidadId))}
       detailExId={route.name === "teacher-detail" ? (route.params.exId === "nuevo" ? "new" : route.params.exId) : null}
+      viewingStudentId={route.name === "teacher-answer" ? route.params.studentId : null}
+      viewingExId={route.name === "teacher-answer" ? route.params.exId : null}
+      onViewStudentAnswer={(studentId, exId) => navigate(`/profesor/alumnos/${studentId}/ejercicio/${exId}`)}
+      onBackFromAnswer={() => navigate(getLastPanelPath("/profesor/alumnos"))}
       onSelectExercise={(id) => {
-        if (id == null) navigate(route.name === "teacher" ? (TEACHER_TAB_PATH[route.params.tab] || "/profesor") : "/profesor");
+        if (id == null) navigate(getLastPanelPath("/profesor"));
         else if (id === "new") navigate("/profesor/ejercicio/nuevo");
         else navigate(`/profesor/ejercicio/${id}`);
       }}
