@@ -14,7 +14,7 @@ import type { AudioItem } from "./components/modals.js";
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { modelsOf, answerFor, resultStatusOf } from "./lib/domain.js";
+import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
@@ -486,8 +486,19 @@ export default function App() {
     if (mode === "record") {
       // El cuestionario puro se "graba" desde el gestor de preguntas.
       // Los híbridos tienen su propio botón onManageQuestions; aquí se graba la clave interactiva.
-      if (modelsOf(ex).join(",") === "cuestionario") navigate(`/profesor/ejercicio/${ex.id}/preguntas`);
-      else navigate(`/profesor/ejercicio/${ex.id}/grabar`);
+      const isQuizOnly = modelsOf(ex).join(",") === "cuestionario";
+      const action = isQuizOnly ? "preguntas" : "grabar";
+      // Multiparte (F4, T4.2): el botón genérico apunta a la primera parte con
+      // la clave incompleta — la entrada canónica pasan a ser los botones
+      // por-parte del detalle, este es solo un atajo razonable.
+      const parts = partsOf(ex);
+      if (parts.length > 1) {
+        const models = modelsOf(ex);
+        const target = parts.find((p) => !partKeyReadyOf(ex, p, models)) || parts[0];
+        navigate(`/profesor/ejercicio/${ex.id}/parte/${target.id}/${action}`);
+      } else {
+        navigate(`/profesor/ejercicio/${ex.id}/${action}`);
+      }
     } else {
       navigate(`/alumno/ejercicio/${ex.id}`);
     }
@@ -521,6 +532,15 @@ export default function App() {
     const exId    = String(ex.id);
     const isGuest = user?.isGuest;
     const activePalette = effectivePaletteId(ex, user?.defaultPalette);
+    // Autoría por parte (F4, T4.2): grabar clave (esquema/interactivo) escribe
+    // en la parte de la URL cuando el ejercicio es genuinamente multiparte —
+    // un ejercicio de una sola parte sigue escribiendo en los campos planos,
+    // sin materializar `parts` (la UI se mantiene idéntica a hoy).
+    const isMultiPart = Array.isArray(ex.parts) && ex.parts.length > 1;
+    const recordParts = partsOf(ex);
+    const recordPartId = (route.params.partId && recordParts.some((p) => p.id === route.params.partId))
+      ? route.params.partId
+      : recordParts[0]?.id;
 
     // Cuestionario
     if (payload?.type === "cuestionario") {
@@ -540,7 +560,14 @@ export default function App() {
     if (payload?.type === "esquema") {
       if (payload.mode === "record") {
         // El profesor guarda el esquema como modelo de referencia (con su paleta)
-        updateExercise(ex.id, { schemaKey: payload.blocks, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT });
+        if (isMultiPart) {
+          updateExercise(ex.id, {
+            parts: updatePart(ex, recordPartId, { schemaKey: payload.blocks }).parts,
+            schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT,
+          });
+        } else {
+          updateExercise(ex.id, { schemaKey: payload.blocks, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT });
+        }
         navigate(getLastPanelPath("/profesor"));
         return;
       }
@@ -575,9 +602,16 @@ export default function App() {
 
     if (exCtx.mode === "record") {
       // Guardar como clave del profesor
-      const patchAnswers: Record<string, any> = { ...(ex.answers || {}) };
-      entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
-      updateExercise(ex.id, { answers: patchAnswers });
+      if (isMultiPart) {
+        const activePart = recordParts.find((p) => p.id === recordPartId);
+        const patchAnswers: Record<string, any> = { ...(activePart?.answers || {}) };
+        entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
+        updateExercise(ex.id, { parts: updatePart(ex, recordPartId, { answers: patchAnswers }).parts });
+      } else {
+        const patchAnswers: Record<string, any> = { ...(ex.answers || {}) };
+        entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
+        updateExercise(ex.id, { answers: patchAnswers });
+      }
       navigate(getLastPanelPath("/profesor"));
       return;
     }
@@ -752,11 +786,17 @@ export default function App() {
     // Un alumno no puede entrar a modos de profesor
     if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
     if (!exCtx) return <NotFound to={back} />;
-    const exModels = modelsOf(exCtx.exercise);
+    // Autoría por parte (F4, T4.2): grabar/previsualizar apuntan a la parte
+    // de la URL (o la primera si no hay). La entrega del alumno de TODAS las
+    // partes en una sola sesión es MultiPartSessionView (T4.3) — aquí no.
+    const baseExercise = (exCtx.mode === "record" || exCtx.mode === "preview")
+      ? partToExercise(exCtx.exercise, partsOf(exCtx.exercise).find((p) => p.id === route.params.partId) || partsOf(exCtx.exercise)[0])
+      : exCtx.exercise;
+    const exModels = modelsOf(baseExercise);
     const onBack = () => navigate(getLastPanelPath(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno"));
     // Paleta efectiva = la del ejercicio, o la preferida por el usuario, o P1.
-    const sessionPalette = effectivePaletteId(exCtx.exercise, user?.defaultPalette);
-    const sessionExercise = applyPaletteToExercise(exCtx.exercise, sessionPalette) || exCtx.exercise;
+    const sessionPalette = effectivePaletteId(baseExercise, user?.defaultPalette);
+    const sessionExercise = applyPaletteToExercise(baseExercise, sessionPalette) || baseExercise;
     // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
     if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
       return <MultiModelSessionView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
@@ -776,11 +816,26 @@ export default function App() {
   if (route.name === "question-manager") {
     if (isStudent) { navigate("/alumno"); return null; }
     if (!qmCtx) return <NotFound to="/profesor" />;
+    // Autoría por parte (F4, T4.2): QuestionManagerView no cambia por dentro —
+    // recibe el ejercicio proyectado de la parte de la URL (o la primera) y
+    // onSave escribe las preguntas en esa misma parte, solo si el ejercicio es
+    // genuinamente multiparte; si no, en el campo plano de siempre.
+    const qmParts = partsOf(qmCtx.exercise);
+    const qmIsMultiPart = Array.isArray(qmCtx.exercise.parts) && qmCtx.exercise.parts.length > 1;
+    const qmPartId = (route.params.partId && qmParts.some((p) => p.id === route.params.partId))
+      ? route.params.partId
+      : qmParts[0]?.id;
+    const qmPart = qmParts.find((p) => p.id === qmPartId) || qmParts[0];
+    const qmExercise = qmIsMultiPart ? partToExercise(qmCtx.exercise, qmPart) : qmCtx.exercise;
     return (
       <Suspense fallback={lazyFallback}>
         <QuestionManagerView
-          exercise={qmCtx.exercise}
-          onSave={(questions) => { updateExercise(qmCtx.exercise.id, { questions }); navigate(getLastPanelPath("/profesor")); }}
+          exercise={qmExercise}
+          onSave={(questions) => {
+            if (qmIsMultiPart) updateExercise(qmCtx.exercise.id, { parts: updatePart(qmCtx.exercise, qmPartId, { questions }).parts });
+            else updateExercise(qmCtx.exercise.id, { questions });
+            navigate(getLastPanelPath("/profesor"));
+          }}
           onBack={() => navigate(getLastPanelPath("/profesor"))}
         />
       </Suspense>
