@@ -69,6 +69,7 @@ export interface Part {
   schemaKey?: unknown[];
   repetitions?: unknown[];
   questions?: Question[];
+  /** @deprecated M0.6: ya no se edita en la autoría; se conserva y se pondera (aggregateParts) solo para partes legacy que lo guardaron con un valor distinto de 1. */
   points?: number;
   [k: string]: unknown;
 }

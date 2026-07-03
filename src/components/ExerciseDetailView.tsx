@@ -720,19 +720,11 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     </div>
                   )}
 
-                  <div style={{ ...S.row, gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-                    <div style={{ flex: "1 1 160px" }}>
-                      <label style={{ ...S.label, margin: "0 0 4px" }}>Compositor (opcional)</label>
-                      <input style={{ ...S.input, fontSize: 12.5 }} value={part.composerName || ""}
-                        onChange={(e) => updatePartField(part.id, { composerName: e.target.value || undefined })}
-                        placeholder="Ej: Bach" />
-                    </div>
-                    <div style={{ width: 90 }}>
-                      <label style={{ ...S.label, margin: "0 0 4px" }}>Peso</label>
-                      <input type="number" min={1} step={1} style={{ ...S.input, fontSize: 12.5 }}
-                        value={part.points ?? 1}
-                        onChange={(e) => updatePartField(part.id, { points: Math.max(1, parseInt(e.target.value) || 1) })} />
-                    </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ ...S.label, margin: "0 0 4px" }}>Compositor (opcional)</label>
+                    <input style={{ ...S.input, fontSize: 12.5 }} value={part.composerName || ""}
+                      onChange={(e) => updatePartField(part.id, { composerName: e.target.value || undefined })}
+                      placeholder="Ej: Bach" />
                   </div>
 
                   <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: 10 }}>

@@ -280,4 +280,10 @@ describe("aggregateParts", () => {
   it("array vacío → null", () => {
     expect(aggregateParts([])).toBeNull();
   });
+  it("M0.6: pesos heredados respetados — una parte legacy con points ≠ 1 sigue ponderando aunque la autoría ya no lo permita editar", () => {
+    // Reproduce el mapeo real (App.tsx/CorrectionView.tsx): parts.map(p => p.points ?? 1).
+    const legacyParts = [{ id: "p1", points: 3 }, { id: "p2" }]; // p2 nunca tuvo el campo
+    const scores = [100, 0];
+    expect(aggregateParts(scores, legacyParts.map((p) => p.points ?? 1))).toBe(75); // (300+0)/4
+  });
 });
