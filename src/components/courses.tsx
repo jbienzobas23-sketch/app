@@ -620,32 +620,35 @@ export function MobileExercisesScreen({ role, course, unit, units, exercises, re
 }
 
 // Props del orquestador de cursos (recibe datos + todos los callbacks del padre).
-type CoursesPagesProps = CoursesData & CoursesCallbacks;
-
-type MobileNav = { level: "courses" | "units" | "exercises"; courseId: string | null; unitId: string | null };
+// cursoId/unidadId/onNavigate hacen de CoursesPages un componente controlado
+// (Fase 3, T3.1): la URL es la única fuente de verdad de qué curso/unidad se
+// ve, tanto en el flujo de escritorio (páginas) como en el de móvil (niveles).
+type CoursesPagesProps = CoursesData & CoursesCallbacks & {
+  cursoId?: string | null;
+  unidadId?: string | null;
+  onNavigate: (cursoId?: string | null, unidadId?: string | null) => void;
+};
 
 export function MobileCoursesFlow(props: CoursesPagesProps) {
-  const { role, courses, units, exercises, results, groups } = props;
-  const [nav, setNav] = useState<MobileNav>({ level: "courses", courseId: null, unitId: null });
-  const course = nav.courseId ? courses.find((c) => c.id === nav.courseId) : null;
-  const goCourses = () => setNav({ level: "courses", courseId: null, unitId: null });
+  const { role, courses, units, exercises, results, groups, cursoId = null, unidadId = null, onNavigate } = props;
+  const course = cursoId ? courses.find((c) => c.id === cursoId) : null;
 
-  if (nav.level === "courses" || !course) {
+  if (!course) {
     return <MobileCoursesScreen role={role} courses={courses} units={units} exercises={exercises} results={results} groups={groups}
-      onOpenCourse={(courseId) => setNav({ level: "units", courseId, unitId: null })} onCreateCourse={props.onCreateCourse} />;
+      onOpenCourse={(cid) => onNavigate(cid)} onCreateCourse={props.onCreateCourse} />;
   }
-  if (nav.level === "units") {
+  if (!unidadId) {
     return <MobileUnitsScreen role={role} course={course} units={units} exercises={exercises} results={results} groups={groups}
-      onBack={goCourses} onOpenUnit={(unitId) => setNav({ ...nav, level: "exercises", unitId })} onCreateUnit={props.onCreateUnit}
-      onUpdateCourse={props.onUpdateCourse} onEditCourse={props.onEditCourse} onDeleteCourse={props.onDeleteCourse} onAfterDeleteCourse={goCourses} askConfirm={props.askConfirm} />;
+      onBack={() => onNavigate()} onOpenUnit={(uid) => onNavigate(course.id, uid)} onCreateUnit={props.onCreateUnit}
+      onUpdateCourse={props.onUpdateCourse} onEditCourse={props.onEditCourse} onDeleteCourse={props.onDeleteCourse} onAfterDeleteCourse={() => onNavigate()} askConfirm={props.askConfirm} />;
   }
   const cu   = courseUnitList(course, units, role);
-  const unit = cu.find((u) => u.id === nav.unitId) || cu[0] || null;
+  const unit = cu.find((u) => u.id === unidadId) || cu[0] || null;
   return <MobileExercisesScreen role={role} course={course} unit={unit} units={units} exercises={exercises} results={results}
-    onBack={() => setNav({ ...nav, level: "units", unitId: null })}
-    onOpenUnit={(unitId) => setNav({ ...nav, level: "exercises", unitId })}
+    onBack={() => onNavigate(course.id)}
+    onOpenUnit={(uid) => onNavigate(course.id, uid)}
     onEditUnit={props.onEditUnit} onUpdateUnit={props.onUpdateUnit} onDeleteUnit={props.onDeleteUnit}
-    onAfterDeleteUnit={() => setNav({ ...nav, level: "units", unitId: null })} askConfirm={props.askConfirm}
+    onAfterDeleteUnit={() => onNavigate(course.id)} askConfirm={props.askConfirm}
     panelProps={{
       onExercise: props.onExercise, onViewCorrection: props.onViewCorrection,
       onPickFromBank: props.onPickFromBank, onCreateNewExInUnit: props.onCreateNewExInUnit, onRemoveExFromUnit: props.onRemoveExFromUnit, onSelectExercise: props.onSelectExercise,
@@ -655,27 +658,18 @@ export function MobileCoursesFlow(props: CoursesPagesProps) {
 
 // — Orquestador: páginas (escritorio) o flujo de niveles (móvil) —
 export function CoursesPages(props: CoursesPagesProps) {
-  const { role, courses, units } = props;
+  const { role, courses, cursoId = null, unidadId = null, onNavigate } = props;
   const isMobile = useIsMobile();
-  const [page, setPage]           = useState<{ name: "list" | "detail"; courseId: string | null }>({ name: "list", courseId: null });
-  const [selUnitId, setSelUnitId] = useState<string | null>(null);
-
-  const openCourse = (courseId: string) => {
-    const c  = courses.find((x) => x.id === courseId);
-    const cu = c ? courseUnitList(c, units, role) : [];
-    setSelUnitId(cu[0]?.id ?? null);
-    setPage({ name: "detail", courseId });
-  };
 
   if (isMobile) return <MobileCoursesFlow {...props} />;
 
-  const current = courses.find((c) => c.id === page.courseId);
-  if (page.name === "list" || !current) {
-    return <CoursesLanding role={role} courses={courses} units={units} exercises={props.exercises} results={props.results} groups={props.groups}
-      onOpen={openCourse} onCreateCourse={props.onCreateCourse} />;
+  const current = courses.find((c) => c.id === cursoId);
+  if (!cursoId || !current) {
+    return <CoursesLanding role={role} courses={courses} units={props.units} exercises={props.exercises} results={props.results} groups={props.groups}
+      onOpen={(cid) => onNavigate(cid)} onCreateCourse={props.onCreateCourse} />;
   }
-  return <CourseDetail {...props} courseId={current.id} selUnitId={selUnitId} setSelUnitId={setSelUnitId}
-    onBack={() => setPage({ name: "list", courseId: null })} onSwitch={openCourse} />;
+  return <CourseDetail {...props} courseId={current.id} selUnitId={unidadId} setSelUnitId={(uid) => onNavigate(current.id, uid)}
+    onBack={() => onNavigate()} onSwitch={(cid) => onNavigate(cid)} />;
 }
 
 // ── Pestaña: Cursos (profesor) — ahora delega en CoursesPages ────────────────
