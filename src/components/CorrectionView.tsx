@@ -66,6 +66,14 @@ interface CorrectionViewProps {
   // + nota agregada que añade el envoltorio multiparte, más abajo en este
   // mismo archivo. null en el uso normal (una parte) — cero cambio visual.
   extraHeaderContent?: React.ReactNode;
+  // Cola de pendientes (F6, T6.2): navegador «‹ Anterior · N/M · Siguiente ›»
+  // entre las entregas pendientes del mismo ejercicio, y botón «Guardar y
+  // siguiente» junto al de guardar. Solo en ejercicios de una parte — con
+  // más de una, MultiPartCorrectionShell los ignora (límite de alcance
+  // documentado: la cola no compone con el navegador de partes de T4.4).
+  queueLabel?: string | null;
+  onPrev?: (() => void) | null;
+  onNext?: (() => void) | null;
 }
 
 // Corrección de UNA parte con UN modelo — es literalmente el componente de
@@ -74,7 +82,7 @@ interface CorrectionViewProps {
 // (y por modelo, en partes híbridas), proyectando el ejercicio y desglosando
 // el sobre compuesto en resultados planos — así un ejercicio de una sola
 // parte se corrige exactamente como siempre (mismo árbol de render).
-function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null, extraHeaderContent = null }: CorrectionViewProps) {
+function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
 
@@ -235,6 +243,13 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
             <button onClick={onBack} style={{ ...S.btn, marginBottom: 20, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
             <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
             {student && <p style={{ color: C.muted, fontSize: 13, margin: "0 0 20px" }}>Alumno: <strong>{student.displayName}</strong></p>}
+            {(queueLabel || onPrev || onNext) && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 16 }}>
+                <button onClick={() => onPrev?.()} disabled={!onPrev} style={{ ...S.btn, fontSize: 12, padding: "5px 12px", opacity: onPrev ? 1 : 0.4, cursor: onPrev ? "pointer" : "default" }}>‹ Anterior</button>
+                {queueLabel && <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{queueLabel}</span>}
+                <button onClick={() => onNext?.()} disabled={!onNext} style={{ ...S.btn, fontSize: 12, padding: "5px 12px", opacity: onNext ? 1 : 0.4, cursor: onNext ? "pointer" : "default" }}>Siguiente ›</button>
+              </div>
+            )}
             {extraHeaderContent}
 
             {ps != null && (
@@ -313,9 +328,16 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                   style={{ ...S.input, width: 120 }} />
               </div>
 
-              <button onClick={handleSave} style={{ ...S.btnPrimary, width: "100%" }}>
-                {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleSave} style={{ ...S.btnPrimary, flex: 1 }}>
+                  {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+                </button>
+                {onNext && (
+                  <button onClick={() => { handleSave(); onNext(); }} style={{ ...S.btnPrimary, flex: 1, background: C.fnT, borderColor: C.fnT }}>
+                    Guardar y siguiente
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{ height: 32 }} />
           </div>
@@ -449,6 +471,13 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
             <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
             <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
             {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
+            {(queueLabel || onPrev || onNext) && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 16 }}>
+                <button onClick={() => onPrev?.()} disabled={!onPrev} style={{ ...S.btn, fontSize: 12, padding: "5px 12px", opacity: onPrev ? 1 : 0.4, cursor: onPrev ? "pointer" : "default" }}>‹ Anterior</button>
+                {queueLabel && <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{queueLabel}</span>}
+                <button onClick={() => onNext?.()} disabled={!onNext} style={{ ...S.btn, fontSize: 12, padding: "5px 12px", opacity: onNext ? 1 : 0.4, cursor: onNext ? "pointer" : "default" }}>Siguiente ›</button>
+              </div>
+            )}
             {extraHeaderContent}
 
             {sc != null && (
@@ -586,12 +615,19 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
               </div>
             </div>
 
-            <button
-              onClick={handleSaveQuiz}
-              style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, marginBottom: 8 }}
-            >
-              {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
-            </button>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={handleSaveQuiz}
+                style={{ ...S.btnPrimary, flex: 1, padding: 14, borderRadius: 12 }}
+              >
+                {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
+              </button>
+              {onNext && (
+                <button onClick={() => { handleSaveQuiz(); onNext(); }} style={{ ...S.btnPrimary, flex: 1, padding: 14, borderRadius: 12, background: C.fnT, borderColor: C.fnT }}>
+                  Guardar y siguiente
+                </button>
+              )}
+            </div>
             <button onClick={onBack} style={{ ...S.btn, width: "100%", padding: 14, borderRadius: 12 }}>{backLabel}</button>
           </div>
         </div>

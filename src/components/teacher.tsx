@@ -1002,6 +1002,27 @@ export function TeacherDash({
       : null;
   const backFromAnswer = onBackFromAnswer || (() => {});
 
+  // Cola de pendientes del mismo ejercicio (F6, T6.2): entregas pendientes
+  // de TODOS los alumnos para el ejercicio que se está corrigiendo, en el
+  // mismo orden que la cola de StudentsTab (fecha de entrega descendente).
+  // Depende solo del ejercicio, no de qué alumno se esté viendo — así no se
+  // recalcula (ni cambia de orden) al navegar dentro de la propia cola.
+  const pendingQueue = useMemo(() => {
+    if (viewingExId == null) return [];
+    const exercise = exercises.find((e) => String(e.id) === String(viewingExId));
+    if (!exercise) return [];
+    return students
+      .map((s) => ({ student: s, r: (results[s.id] || {})[String(viewingExId)] }))
+      .filter((e): e is { student: User; r: ExerciseResult } => Boolean(e.r) && resultStatusOf(e.r, exercise) === "pendiente")
+      .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0));
+  }, [viewingExId, exercises, students, results]);
+  const queueIdx = pendingQueue.findIndex((e) => e.student.id === viewingStudentId);
+  const queueLabel = queueIdx >= 0 ? `${queueIdx + 1}/${pendingQueue.length}` : null;
+  const goToQueueIdx = (idx: number) => {
+    const target = pendingQueue[idx];
+    if (target && onViewStudentAnswer && viewingExId != null) onViewStudentAnswer(target.student.id, viewingExId);
+  };
+
   // Modal state
   const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
   const [confirmState,    setConfirmState]    = useState<{ message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
@@ -1059,6 +1080,9 @@ export function TeacherDash({
           isTeacherMode={true}
           student={student}
           onSaveCorrection={onSaveCorrection}
+          queueLabel={queueLabel}
+          onPrev={queueIdx > 0 ? () => goToQueueIdx(queueIdx - 1) : null}
+          onNext={queueIdx >= 0 && queueIdx < pendingQueue.length - 1 ? () => goToQueueIdx(queueIdx + 1) : null}
         />
       </div>
     );
