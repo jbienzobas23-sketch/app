@@ -14,6 +14,7 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFro
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
+import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
@@ -59,14 +60,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const timeRef = useRef(0);
   timeRef.current = time;
 
-  const [blocks,       setBlocks]       = useState<Block[]>(() => initialDraft ?? (exercise.blocks as Block[] | undefined) ?? []);
-  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
-  useEffect(() => { onDraftChange?.(blocks); }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [history,      setHistory]      = useState<Block[][]>([]);
-  const [selected,     setSelected]     = useState<string | null>(null);
   const [selectedRepId, setSelectedRepId] = useState<string | null>(null); // rep seleccionada en la banda
-  const [editId,       setEditId]       = useState<string | null>(null);
-  const [editVal,      setEditVal]      = useState("");
   const [guides,       setGuides]       = useState<number[]>([]);
   const [localReps,    setLocalReps]    = useState<Repetition[]>((exercise.repetitions as Repetition[] | undefined) || []);
   const [showRepModal, setShowRepModal] = useState(false);
@@ -95,6 +89,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const [viewMode, setViewMode] = useState("completa");
   const viewModeRef = useRef("completa");
   viewModeRef.current = viewMode;
+
+  // ── Bloques, historial, selección, edición de etiqueta (F7, T7.1) ────────
+  const {
+    blocks, setBlocks, blocksRef,
+    history, setHistory,
+    selected, setSelected,
+    editId, setEditId, editVal, setEditVal,
+    setBlocksSnap, undo, resetBlocks, commitEdit,
+  } = useSchemaEditor(initialDraft ?? (exercise.blocks as Block[] | undefined) ?? [], viewMode, localReps, onDraftChange);
+  const resetAll = () => { resetBlocks(); setLocalReps([]); };
 
   // ── Paleta de color elegida por el alumno para los bloques del esquema ──────
   // "p1".."p5" = paletas de Adobe.
@@ -142,34 +146,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, localReps.length]);
 
-  // ── History helpers ──────────────────────────────────────────────────────
-  const setBlocksSnap = (updater: Block[] | ((prev: Block[]) => Block[])) => {
-    setHistory(p => [...p, blocksRef.current]);
-    setBlocks(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // En vista completa, sincronizar la 2ª vez a partir de la 1ª
-      if (viewMode === "completa" && localRepsRef.current.length > 0) {
-        return syncSecondPassBlocks(next, localRepsRef.current);
-      }
-      return next;
-    });
-  };
-  const undo = () => setHistory(p => {
-    if (!p.length) return p;
-    setBlocks(p[p.length - 1]);
-    setSelected(null); setEditId(null); setEditVal("");
-    return p.slice(0, -1);
-  });
-  const resetAll = () => { setHistory([]); setBlocks([]); setLocalReps([]); setSelected(null); setEditId(null); setEditVal(""); };
-
   // ── Refs ─────────────────────────────────────────────────────────────────
   // trackSegRefs: key = `${lvId}_${segIndex}_${pass}`  ("pass" = "normal"|"first"|"second")
   // ruler refs:   key = `ruler_${segIndex}_${pass}`
   const trackSegRefs  = useRef<Record<string, HTMLElement | null>>({});
   const dragRef       = useRef<any>(null);
-  const blocksRef     = useRef(blocks);
   const colorInputRef = useRef<HTMLInputElement | null>(null);
-  blocksRef.current   = blocks;
 
   // Ruler container width (para calcular densidad de marcas)
   const [rulerW, setRulerW] = useState(600);
@@ -845,23 +827,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend",    onUp);
       window.removeEventListener("touchcancel", onUp);
     };
-   
-  }, [duration]);
-
-  // ── Edición de etiquetas ─────────────────────────────────────────────────
-  const commitEdit = () => {
-    if (!editId) return;
-    setBlocks(prev => {
-      const edited = prev.find(b => b.id === editId);
-      return prev.map(b => {
-        if (b.id === editId) return { ...b, label: editVal };
-        // Propagar el nuevo label al bloque espejo de la 2ª vez
-        if (edited?.pass === "first" && b.mirrorId === editId) return { ...b, label: editVal };
-        return b;
-      });
-    });
-    setEditId(null); setEditVal("");
-  };
+    // blocksRef/setBlocks/setHistory/setSelected vienen de useSchemaEditor (F7,
+    // T7.1) pero siguen siendo la misma referencia estable de useState/useRef
+    // de siempre — añadidos al array tras el troceo, sin cambiar cuándo se
+    // reinstala el efecto (nunca cambian de identidad).
+  }, [duration, blocksRef, setBlocks, setHistory, setSelected]);
 
   // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
   const handleTrackSegDown = (e: any, lvId: number, seg: any, pass: string) => {
