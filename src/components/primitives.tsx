@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor } from "../lib/color.js";
+import { fmt } from "../lib/ids.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
 type Tab = { id: string; label: string };
@@ -38,6 +39,8 @@ interface ButtonProps { children: ReactNode; onClick?: () => void; full?: boolea
 interface FieldLabelProps { children: ReactNode; }
 interface TextInputProps { value: string; onChange: (v: string) => void; placeholder?: string; type?: string; big?: boolean; }
 interface MetaItemProps { label: string; children: ReactNode; }
+interface SchemaPlayheadProps { timeRef: { current: number }; duration: number; }
+interface CorrectionAudioBarProps { time: number; timeRef: { current: number }; duration: number; playing: boolean; audioReady: boolean; togglePlay: () => void; onSeek: (e: React.MouseEvent<HTMLDivElement>) => void; }
 
 // Backdrop semitransparente + tarjeta centrada. Usado por todos los modales.
 // Accesibilidad (Fase 5): role="dialog"/aria-modal, foco inicial dentro del
@@ -893,6 +896,59 @@ export function MetaItem({ label, children }: MetaItemProps) {
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.chevron }}>{label}</span>
       <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: F.sans, fontSize: 12, color: "#666" }}>{children}</span>
+    </div>
+  );
+}
+
+// Línea vertical animada a 60 fps sobre un timeline (waveform, banda de esquema,
+// barra de audio de corrección…). Lee timeRef directamente en cada frame en vez
+// de depender de `time` en el estado de React, así no fuerza un re-render por
+// tick. Extraída de CorrectionView (Fase 2).
+export function SchemaPlayhead({ timeRef, duration }: SchemaPlayheadProps) {
+  const lineRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    let raf: number;
+    const tick = () => {
+      if (lineRef.current && duration > 0) {
+        const pct = Math.min(100, (timeRef.current / duration) * 100);
+        lineRef.current.style.left = `${pct}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [timeRef, duration]);
+  return (
+    <div ref={lineRef} style={{
+      position: "absolute", top: 0, left: 0, width: 2, height: "100%",
+      background: C.danger, opacity: 0.75, pointerEvents: "none", zIndex: 10,
+      transform: "translateX(-50%)", borderRadius: 1,
+    }} />
+  );
+}
+
+// Barra de transporte compacta (play/pausa + progreso + tiempo) de las vistas
+// de corrección. Extraída de la rama esquema de CorrectionView (Fase 2) para
+// reutilizarla también en la rama interactiva (T2.2).
+export function CorrectionAudioBar({ time, timeRef, duration, playing, audioReady, togglePlay, onSeek }: CorrectionAudioBarProps) {
+  if (!duration) return null;
+  return (
+    <div style={{ ...S.card, marginBottom: 16, padding: "12px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button
+          onClick={togglePlay}
+          disabled={!audioReady}
+          style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: audioReady ? C.ink : C.line, color: C.paper, cursor: audioReady ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, transition: "background .15s" }}>
+          {playing ? "⏸" : "▶"}
+        </button>
+        <div
+          onClick={onSeek}
+          style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
+          <SchemaPlayhead timeRef={timeRef} duration={duration} />
+        </div>
+        <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(duration)}</span>
+      </div>
     </div>
   );
 }
