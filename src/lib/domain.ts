@@ -79,15 +79,24 @@ export const unitExList = (unit: Unit | null | undefined, exercises: Exercise[],
 export const btnOf       = (category: { buttons: Button[] }, id: string): Button => category.buttons.find((b) => b.id === id) || category.buttons[0];
 export const questionsOf = (exercise?: Exercise | null): Question[] => (Array.isArray(exercise?.questions) ? exercise.questions : []);
 
+// Lector tolerante de las preguntas de una entrega ya hecha (F5, T5.5): si el
+// resultado trae `questionsSnapshot` (congelado al entregar), son esas — tal
+// como las vio el alumno, aunque el profesor las haya editado, reordenado o
+// borrado después. Sin instantánea (resultados de antes de T5.5), cae a las
+// preguntas vigentes del ejercicio — el comportamiento de siempre.
+export const questionsSnapshotOf = (result: ExerciseResult | null | undefined, exercise?: Exercise | null): Question[] =>
+  (result as { questionsSnapshot?: Question[] } | null | undefined)?.questionsSnapshot ?? questionsOf(exercise);
+
 // Estado vigente de una entrega. "Pendiente" cubre los modelos que no se
 // pueden autocorregir con una fórmula (esquema siempre, cuestionario si
 // tiene alguna pregunta de desarrollo) — hasta que el profesor los revisa
-// manualmente, mostrar una nota sería mostrar un cero engañoso.
+// manualmente, mostrar una nota sería mostrar un cero engañoso. El chequeo de
+// desarrollo lee la instantánea de la entrega, no las preguntas vigentes.
 export const resultStatusOf = (result: ExerciseResult | null | undefined, exercise: Exercise | null | undefined): "auto" | "pendiente" | "corregido" => {
   if (result?.teacherCorrection?.corrected) return "corregido";
   const models = modelsOf(exercise);
   if (models.includes("esquema")) return "pendiente";
-  if (models.includes("cuestionario") && questionsOf(exercise).some((q) => q.type === "desarrollo")) return "pendiente";
+  if (models.includes("cuestionario") && questionsSnapshotOf(result, exercise).some((q) => q.type === "desarrollo")) return "pendiente";
   return "auto";
 };
 

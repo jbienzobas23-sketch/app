@@ -1,13 +1,13 @@
 // ═══ CORRECTIONVIEW (CORRECCIÓN / REVISIÓN) ══════════════════════════════════
 // CorrectionView (alumno y profesor). Extraída de App.jsx (Fase 2).
 import React, { useState, useRef } from "react";
-import type { Exercise } from "../lib/types.js";
+import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
 import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { categoriesOf, answerFor, btnOf, questionsOf, partsOf, partToExercise, modelsOf, resultPartsOf } from "../lib/domain.js";
+import { categoriesOf, answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf } from "../lib/domain.js";
 import { interactiveDiagnostics, schemaDiagnostics, aggregateParts } from "../lib/scoring.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
@@ -411,7 +411,10 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
 
   // Modelo cuestionario
   if (result.type === "cuestionario") {
-    const questions = questionsOf(exercise);
+    // Instantánea (F5, T5.5): las preguntas TAL COMO ERAN al entregar, no las
+    // vigentes del ejercicio — si el profesor las editó/reordenó/borró después,
+    // la corrección de una entrega pasada no se descoloca.
+    const questions = questionsSnapshotOf(result as unknown as ExerciseResult, exercise);
     const sc        = result.score;
     const testQs    = questions.filter((q) => q.type === "test" && q.correctOptionId);
     const devQs     = questions.filter((q) => q.type === "desarrollo");

@@ -3,6 +3,7 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
+  questionsSnapshotOf,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -117,6 +118,28 @@ describe("resultStatusOf", () => {
   it("auto por defecto (interactivo, sin corrección)", () => {
     expect(resultStatusOf({}, { model: "interactivo" })).toBe("auto");
     expect(resultStatusOf(null, {})).toBe("auto");
+  });
+  it("lee la instantánea de preguntas de la entrega, no las vigentes (F5, T5.5)", () => {
+    const exercise = { model: "cuestionario", questions: [{ id: "q1", type: "test" }] }; // vigente: sin desarrollo
+    // la entrega se hizo cuando SÍ había una de desarrollo → sigue pendiente
+    const result = { questionsSnapshot: [{ id: "q1", type: "test" }, { id: "q2", type: "desarrollo" }] };
+    expect(resultStatusOf(result, exercise)).toBe("pendiente");
+  });
+  it("sin instantánea (entregas de antes de T5.5), cae a las preguntas vigentes", () => {
+    const exercise = { model: "cuestionario", questions: [{ id: "q1", type: "test" }, { id: "q2", type: "desarrollo" }] };
+    expect(resultStatusOf({}, exercise)).toBe("pendiente");
+  });
+});
+
+describe("questionsSnapshotOf", () => {
+  it("con instantánea, la devuelve tal cual", () => {
+    const snap = [{ id: "q1", type: "test" }];
+    expect(questionsSnapshotOf({ questionsSnapshot: snap }, { questions: [{ id: "otra" }] })).toBe(snap);
+  });
+  it("sin instantánea, cae a questionsOf(exercise)", () => {
+    const exercise = { questions: [{ id: "q1", type: "test" }] };
+    expect(questionsSnapshotOf({}, exercise)).toEqual(exercise.questions);
+    expect(questionsSnapshotOf(null, exercise)).toEqual(exercise.questions);
   });
 });
 

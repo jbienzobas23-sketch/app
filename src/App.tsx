@@ -574,7 +574,7 @@ export default function App() {
           if (status === "pendiente") anyPending = true;
           if (m === "cuestionario") {
             const score = calcQuestionnaireScore(questionsOf(projected), raw.answers);
-            byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now() };
+            byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
             if (score != null) modelScores.push(score);
           } else if (m === "esquema") {
             const score = calcSchemaPlacementScore(projected.schemaKey as any, raw.blocks || [], projected.schemaMargin ?? 3);
@@ -621,7 +621,10 @@ export default function App() {
 
     // Cuestionario
     if (payload?.type === "cuestionario") {
-      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now() };
+      // Instantánea de las preguntas al entregar (F5, T5.5): la corrección y
+      // resultStatusOf la leen en vez de las preguntas vigentes del ejercicio,
+      // así una edición posterior del profesor no descoloca entregas pasadas.
+      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) };
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [exId]: data }));
       } else if (user) {
