@@ -1,8 +1,8 @@
 // ═══ SCHEMAEXERCISEVIEW (MODELO ESQUEMA) ═════════════════════════════════════
 // Vista de sesión del modelo Esquema (timeline de bloques, repeticiones, paletas).
-// Extraída de App.jsx (Fase 2). Troceo en curso (F7, T7.1): el zoom/pinch/scroll
-// vive en useSchemaZoom; quedan por extraer useSchemaEditor, RepeatBand y
-// SchemaTimeline.
+// Extraída de App.jsx (Fase 2). Troceo en curso (F7, T7.1): zoom/pinch/scroll en
+// useSchemaZoom, bloques/historial/selección/etiquetas en useSchemaEditor, banda
+// de repetición en RepeatBand; queda por extraer SchemaTimeline.
 import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
@@ -18,6 +18,7 @@ import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
+import { RepeatBand } from "./schema/RepeatBand.js";
 
 // ── Tipos locales del editor de esquema ──────────────────────────────────────
 // Block y Rep se reutilizan de repeats.ts (forma compartida con los helpers).
@@ -112,13 +113,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     document.addEventListener("touchstart", onDown);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
   }, [paletteOpen]);
-
-  // ── Estado de la banda de repetición ────────────────────────────────────
-  // bandDrag = null
-  //   | { type:"create", startT, curT }          — arrastrando para crear
-  //   | { type:"handle", handle, origRep }        — arrastrando asa de borde
-  const [bandDrag, setBandDrag] = useState<any>(null);
-  const bandRef    = useRef<HTMLDivElement | null>(null);
 
   const segments: any[] = useMemo(() =>
     viewMode === "resumida"
@@ -272,121 +266,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   // ── Eliminar una repetición por id ───────────────────────────────────────
   const deleteRepeat = (repId: string) => handleSaveRepetitions(localRepsRef.current.filter(r => r.id !== repId));
-
-  // ── Banda de repetición: helpers y handlers ──────────────────────────────
-  // En vista completa la fracción es lineal: frac = t / duration
-  const timeToFrac = (t: number)  => Math.max(0, Math.min(1, t / duration));
-  const fracToTime = (f: number)  => f * duration;   // sin redondeo para movimiento suave
-
-  const getBandClientX = (ev: any) =>
-    ev.touches?.[0]?.clientX ?? ev.changedTouches?.[0]?.clientX ?? ev.clientX;
-
-  const getBandFrac = (ev: any) => {
-    const el = bandRef.current; if (!el) return 0;
-    const r  = el.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (getBandClientX(ev) - r.left) / r.width));
-  };
-
-  // Iniciar drag de creación — funciona aunque ya haya repeticiones
-  const handleBandCreateDown = (e: any) => {
-    if (e.target.closest("button") || e.target.closest("[data-band-handle]")) return;
-    e.preventDefault();
-    const BAND_SNAP  = Math.max(0.3, duration * 0.02);
-    const AUTOSNAP_S = 5;
-    const snapT = (raw: number) => {
-      const pts = [0, duration,
-        ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end]),
-        ...localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.end]),
-      ];
-      let best = raw, bestDist = BAND_SNAP;
-      for (const c of pts) { const d = Math.abs(raw - c); if (d < bestDist) { bestDist = d; best = c; } }
-      return best;
-    };
-    const startT = snapT(fracToTime(getBandFrac(e)));
-    setBandDrag({ type: "create", startT, curT: startT });
-    const mv = (ev: any) => {
-      if (ev.cancelable) ev.preventDefault();
-      setBandDrag((p: any) => p ? { ...p, curT: snapT(fracToTime(getBandFrac(ev))) } : null);
-    };
-    const up = () => {
-      setBandDrag((prev: any) => {
-        if (!prev) return null;
-        const s  = Math.min(prev.startT, prev.curT);
-        const e2 = Math.max(prev.startT, prev.curT);
-        const d  = e2 - s;
-        if (d >= SCHEMA_MIN_DUR) {
-          let fs = s < 3 ? 0 : s;
-          for (const r of localRepsRef.current) {
-            if (fs > r.second.end - 0.1 && fs <= r.second.end + AUTOSNAP_S) { fs = r.second.end; break; }
-          }
-          const fe = fs + d, se = Math.min(duration, fe + d);
-          handleSaveRepetitions([
-            ...localRepsRef.current,
-            { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
-          ]);
-        }
-        return null;
-      });
-      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
-      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
-    };
-    window.addEventListener("mousemove", mv);
-    window.addEventListener("mouseup",   up);
-    window.addEventListener("touchmove", mv, { passive: false });
-    window.addEventListener("touchend",  up);
-  };
-
-  // Iniciar drag de asa de borde
-  // handle: "first.start" | "junction" (first.end = second.start) | "second.end"
-  const handleBandHandleDown = (e: any, rep: any, handle: string) => {
-    e.preventDefault(); e.stopPropagation();
-
-    const BAND_SNAP = Math.max(0.3, duration * 0.02);
-    const snapT = (raw: number) => {
-      const candidates = [0, duration, ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end])];
-      let best = raw, bestDist = BAND_SNAP;
-      for (const c of candidates) { const dd = Math.abs(raw - c); if (dd < bestDist) { bestDist = dd; best = c; } }
-      return best;
-    };
-
-    const calcNewRep = (raw: number) => {
-      const t = snapT(raw);
-      const r = { ...rep, first: { ...rep.first }, second: { ...rep.second } };
-      if (handle === "first.start") {
-        r.first.start = Math.max(0, Math.min(t, r.first.end - SCHEMA_MIN_DUR));
-      } else if (handle === "junction") {
-        // Mover juntos: fin del original = inicio de la repetición
-        const jt = Math.max(r.first.start + SCHEMA_MIN_DUR, Math.min(t, duration - SCHEMA_MIN_DUR));
-        // La 2ª vez se ajusta proporcionalmente: si el original crece/encoge, la repetición también
-        const origFD = rep.first.end - rep.first.start || 1;
-        const origSD = rep.second.end - rep.second.start || 1;
-        const ratio  = origSD / origFD;
-        r.first.end    = jt;
-        r.second.start = jt;
-        r.second.end   = Math.min(duration, jt + (jt - r.first.start) * ratio);
-      } else {
-        r.second.end = Math.max(r.second.start + SCHEMA_MIN_DUR, Math.min(t, duration));
-      }
-      return r;
-    };
-
-    const mv = (ev: any) => {
-      if (ev.cancelable) ev.preventDefault();
-      const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
-      setLocalReps(prev => prev.map(r => r.id === rep.id ? newRep : r));
-    };
-    const up = (ev: any) => {
-      const newRep = calcNewRep(fracToTime(getBandFrac(ev)));
-      handleSaveRepetitions(localRepsRef.current.map(r => r.id === rep.id ? newRep : r));
-      setBandDrag(null);
-      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
-      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
-    };
-    window.addEventListener("mousemove", mv);
-    window.addEventListener("mouseup",   up);
-    window.addEventListener("touchmove", mv, { passive: false });
-    window.addEventListener("touchend",  up);
-  };
 
   // Delete / Backspace — borrar bloque o repetición seleccionada
   useEffect(() => {
@@ -1393,84 +1272,17 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           {/* ── BANDA DE REPETICIÓN — dentro del wrapper de zoom para que
                las marcas estén siempre alineadas con la regla y las pistas ── */}
           {viewMode === "completa" && (
-            <div style={{ borderTop: `1px solid rgba(47,111,184,0.18)`, borderBottom: `1px solid ${C.line}`, position: "relative", overflow: "visible" }}>
-              <div
-                ref={bandRef}
-                style={{ height: 26, position: "relative", userSelect: "none", touchAction: "none", cursor: "crosshair", background: "rgba(47,111,184,0.055)" }}
-                onMouseDown={handleBandCreateDown}
-                onTouchStart={handleBandCreateDown}>
-
-                {/* Zonas de repetición */}
-                {localReps.map(rep => {
-                  const fS  = timeToFrac(rep.first.start)  * 100;
-                  const fE  = timeToFrac(rep.first.end)    * 100;
-                  const sE  = timeToFrac(rep.second.end)   * 100;
-                  const fW  = fE - fS;
-                  const sW  = sE - fE;
-                  return (
-                    <React.Fragment key={rep.id}>
-                      {/* Zona "original" — clicable para seleccionar la repetición */}
-                      <div
-                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
-                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
-                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: selectedRepId === rep.id ? `${C.fnS}45` : `${C.fnS}28`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnS}` : `1px solid ${C.fnS}60`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnS, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>original</span>
-                      </div>
-                      {/* Zona "repetición" — clicable para seleccionar la repetición */}
-                      <div
-                        onMouseDown={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
-                        onTouchStart={e => { e.stopPropagation(); setSelectedRepId(r => r === rep.id ? null : (rep.id ?? null)); setSelected(null); }}
-                        style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: selectedRepId === rep.id ? `${C.fnT}38` : `${C.fnT}22`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnT}` : `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>repetición</span>
-                      </div>
-                      {/* Asa: inicio del original */}
-                      <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
-                        title={`Inicio original: ${fmt(rep.first.start)}`}
-                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fS}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnS, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                      </div>
-                      {/* Asa: unión original/repetición */}
-                      <div onMouseDown={e => handleBandHandleDown(e, rep, "junction")} onTouchStart={e => handleBandHandleDown(e, rep, "junction")}
-                        title={`Fin original / inicio repetición: ${fmt(rep.first.end)}`}
-                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fE}% - 6px)`, width: 12, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <div style={{ width: 4, height: 20, borderRadius: 2, background: C.ink2, boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }} />
-                      </div>
-                      {/* Asa: fin de la repetición */}
-                      <div onMouseDown={e => handleBandHandleDown(e, rep, "second.end")} onTouchStart={e => handleBandHandleDown(e, rep, "second.end")}
-                        title={`Fin repetición: ${fmt(rep.second.end)}`}
-                        style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${sE}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnT, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                      </div>
-                      {/* Botón eliminar */}
-                      <button onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-                        onClick={() => deleteRepeat(rep.id ?? "")} title="Eliminar repetición"
-                        style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.85)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 5px", fontSize: 9, cursor: "pointer", color: C.muted, lineHeight: 1.6 }}>
-                        ✕
-                      </button>
-                    </React.Fragment>
-                  );
-                })}
-
-                {/* Preview mientras se arrastra para crear */}
-                {bandDrag?.type === "create" && (() => {
-                  const s  = Math.min(bandDrag.startT, bandDrag.curT);
-                  const e2 = Math.max(bandDrag.startT, bandDrag.curT);
-                  const fS = timeToFrac(s) * 100, fW = timeToFrac(e2) * 100 - fS;
-                  return fW > 0.5 ? (
-                    <div style={{ position: "absolute", top: 3, bottom: 3, left: `${fS}%`, width: `${fW}%`, background: `${C.fnS}40`, borderRadius: 4, border: `2px solid ${C.fnS}`, boxSizing: "border-box", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <span style={{ fontSize: 8, fontWeight: 700, color: C.fnS }}>original</span>
-                    </div>
-                  ) : null;
-                })()}
-
-                {/* Hint cuando no hay repetición */}
-                {localReps.length === 0 && !bandDrag && (
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                    <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para crear una repetición</span>
-                  </div>
-                )}
-              </div>
-            </div>
+            <RepeatBand
+              duration={duration}
+              blocks={blocks}
+              localReps={localReps}
+              setLocalReps={setLocalReps}
+              onSaveRepetitions={handleSaveRepetitions}
+              onDeleteRepeat={deleteRepeat}
+              selectedRepId={selectedRepId}
+              setSelectedRepId={setSelectedRepId}
+              onDeselectBlock={() => setSelected(null)}
+            />
           )}
 
           {/* ── REGLA ── */}
