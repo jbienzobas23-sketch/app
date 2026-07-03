@@ -7,7 +7,7 @@ import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { categoriesOf, answerFor, btnOf, questionsOf } from "../lib/domain.js";
+import { categoriesOf, answerFor, btnOf, questionsOf, partsOf, partToExercise, modelsOf } from "../lib/domain.js";
 import { interactiveDiagnostics, schemaDiagnostics } from "../lib/scoring.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "./primitives.jsx";
@@ -89,6 +89,59 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     setActiveFragmentQId(q.id);
     playFrom(q.audioStart ?? 0);
   };
+
+  // Sesión multiparte (F4, T4.3) — vista de corrección interina: nota agregada
+  // + lista de partes con su nota por modelo. El navegador de partes con la
+  // rama completa de cada modelo (audio, comparación, corrección manual por
+  // parte) es T4.4; esto evita mostrar una pantalla rota mientras tanto.
+  if (result.type === "multi") {
+    const parts = partsOf(exercise);
+    const resultParts = (result as { parts?: Record<string, { byModel?: Record<string, { score?: number | null }> }> }).parts || {};
+    const sc  = result.score ?? null;
+    const col = scoreColor(sc);
+    return (
+      <div style={S.app}>
+        <div style={S.page}>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+          <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+          {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
+
+          {sc != null && (
+            <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
+              <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Nota agregada de {parts.length} partes</div>
+            </div>
+          )}
+
+          {parts.map((p, i) => {
+            const projected = partToExercise(exercise, p);
+            const pModels   = modelsOf(projected);
+            const byModel   = resultParts[p.id]?.byModel || {};
+            return (
+              <div key={p.id} style={{ ...S.card, marginBottom: 12 }}>
+                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ ...S.badge, background: C.line, color: C.muted }}>Parte {i + 1}</span>
+                  {p.title && <span style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 13, color: C.ink }}>{p.title}</span>}
+                  {p.composerName && <span style={{ color: C.muted, fontSize: 12 }}>— {p.composerName}</span>}
+                </div>
+                {pModels.map((m) => {
+                  const mScore = byModel[m]?.score ?? null;
+                  return (
+                    <div key={m} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.ink2, padding: "3px 0" }}>
+                      <span style={{ textTransform: "capitalize" }}>{m}</span>
+                      <span style={{ fontWeight: 700, color: mScore != null ? scoreColor(mScore) : C.muted }}>
+                        {mScore != null ? `${mScore}%` : "pendiente de corrección"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {

@@ -14,9 +14,9 @@ import type { AudioItem } from "./components/modals.js";
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf } from "./lib/domain.js";
+import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
-import { calcScore, calcSchemaPlacementScore } from "./lib/scoring.js";
+import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
 
 
@@ -35,6 +35,7 @@ import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
 import { StudentDash } from "./components/StudentDash.jsx";
 import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
+import { MultiPartSessionView } from "./components/MultiPartSessionView.jsx";
 
 // Carga diferida (code-splitting) de lo pesado que no hace falta en el arranque:
 // el subsistema de profesor (los alumnos no lo cargan) y la vista de esquema
@@ -542,6 +543,78 @@ export default function App() {
       ? route.params.partId
       : recordParts[0]?.id;
 
+    // Sesión multiparte (F4, T4.3): MultiPartSessionView entrega TODAS las
+    // partes en un solo payload — { parts: { [partId]: { points, byModel } } },
+    // con el payload "en bruto" de cada modelo (mismo formato que produciría
+    // ese modelo en una sesión de una sola parte). Puntuamos aquí reutilizando
+    // exactamente los mismos puntuadores puros que las ramas de abajo, una vez
+    // por parte y modelo, y agregamos con aggregateParts (T4.1). El sobre
+    // compuesto completo (status por parte, corrección con navegador de
+    // partes) es T4.4 — aquí se guarda ya con la forma final para que esa fase
+    // no tenga que reescribir el payload, solo enriquecer cómo se lee.
+    if (payload?.type === "multi") {
+      const parts = partsOf(ex);
+      const partScores: Array<number | null> = [];
+      const partPoints: number[] = [];
+      const partsEnvelope: Record<string, { byModel: Record<string, any> }> = {};
+      let anyPending = false;
+      parts.forEach((p) => {
+        const partPayload = payload.parts?.[p.id];
+        const projected = partToExercise(ex, p);
+        const pModels = modelsOf(projected);
+        const byModel: Record<string, any> = {};
+        const modelScores: number[] = [];
+        pModels.forEach((m) => {
+          const raw = partPayload?.byModel?.[m] || {};
+          const status = resultStatusOf(null, projected);
+          if (status === "pendiente") anyPending = true;
+          if (m === "cuestionario") {
+            const score = calcQuestionnaireScore(questionsOf(projected), raw.answers);
+            byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now() };
+            if (score != null) modelScores.push(score);
+          } else if (m === "esquema") {
+            const score = calcSchemaPlacementScore(projected.schemaKey as any, raw.blocks || [], projected.schemaMargin ?? 3);
+            byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
+            if (score != null) modelScores.push(score);
+          } else {
+            const entries = raw.entries || [];
+            const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
+            const scoreFor = (categoryId: string, intervals: any[]) => {
+              const key = answerFor(projected, categoryId) as any[];
+              return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? margin) : null;
+            };
+            const mainEntry = entries.find((e: any) => e.categoryId === currentCategoryId) || entries[0];
+            const mainIvs   = mainEntry?.intervals || [];
+            const mainScore = scoreFor(currentCategoryId, mainIvs);
+            const extras = entries
+              .filter((e: any) => e.categoryId !== currentCategoryId)
+              .map((e: any) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
+            byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now() };
+            if (mainScore != null) modelScores.push(mainScore);
+          }
+        });
+        partsEnvelope[p.id] = { byModel };
+        partScores.push(modelScores.length ? aggregateParts(modelScores) : null);
+        partPoints.push(p.points ?? 1);
+      });
+      const data = {
+        type: "multi",
+        score: aggregateParts(partScores, partPoints),
+        status: (anyPending ? "pendiente" : "auto") as "pendiente" | "auto",
+        timestamp: Date.now(),
+        parts: partsEnvelope,
+      };
+      if (isGuest) {
+        setGuestResults((prev) => ({ ...prev, [exId]: data }));
+      } else if (user) {
+        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
+        dbUpsertResult(user.id, exId, data);
+      }
+      setLastResult(data);
+      navigate(`/alumno/ejercicio/${ex.id}/correccion`);
+      return;
+    }
+
     // Cuestionario
     if (payload?.type === "cuestionario") {
       const data = { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now() };
@@ -786,9 +859,15 @@ export default function App() {
     // Un alumno no puede entrar a modos de profesor
     if (isStudent && exCtx?.mode !== "student") { navigate("/alumno"); return null; }
     if (!exCtx) return <NotFound to={back} />;
+    // Sesión multiparte (F4, T4.3): el alumno entrega TODAS las partes en una
+    // sola sesión — envoltorio aparte, antes de resolver una parte concreta.
+    // Con una sola parte, ni se monta: sigue el camino de siempre, sin cambios.
+    if (exCtx.mode === "student" && partsOf(exCtx.exercise).length > 1) {
+      const onBackMulti = () => navigate(getLastPanelPath("/alumno"));
+      return <MultiPartSessionView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBackMulti} />;
+    }
     // Autoría por parte (F4, T4.2): grabar/previsualizar apuntan a la parte
-    // de la URL (o la primera si no hay). La entrega del alumno de TODAS las
-    // partes en una sola sesión es MultiPartSessionView (T4.3) — aquí no.
+    // de la URL (o la primera si no hay).
     const baseExercise = (exCtx.mode === "record" || exCtx.mode === "preview")
       ? partToExercise(exCtx.exercise, partsOf(exCtx.exercise).find((p) => p.id === route.params.partId) || partsOf(exCtx.exercise)[0])
       : exCtx.exercise;
