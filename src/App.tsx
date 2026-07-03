@@ -14,7 +14,7 @@ import type { AudioItem } from "./components/modals.js";
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf } from "./lib/domain.js";
+import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
@@ -536,6 +536,12 @@ export default function App() {
     const ex      = freshExercise(exCtx.exercise);
     const exId    = String(ex.id);
     const isGuest = user?.isGuest;
+    // Intentos (F6, T6.3): "Repetir" no debe sobrescribir la entrega anterior
+    // — addAttempt la conserva en `attempts` y expone score = mejor de todos.
+    // Ninguno de los cuatro sitios donde se guarda más abajo es modo "record"
+    // (ese siempre escribe en el ejercicio, no en `results`, y ya ha vuelto
+    // antes de llegar aquí en sus propias ramas).
+    const existingResult = isGuest ? guestResults[exId] : (user ? (results[user.id] || {})[exId] : undefined);
     const activePalette = effectivePaletteId(ex, user?.defaultPalette);
     // Autoría por parte (F4, T4.2): grabar clave (esquema/interactivo) escribe
     // en la parte de la URL cuando el ejercicio es genuinamente multiparte —
@@ -601,13 +607,13 @@ export default function App() {
         partScores.push(modelScores.length ? aggregateParts(modelScores) : null);
         partPoints.push(p.points ?? 1);
       });
-      const data = {
+      const data = addAttempt(existingResult, {
         type: "multi",
         score: aggregateParts(partScores, partPoints),
         status: (anyPending ? "pendiente" : "auto") as "pendiente" | "auto",
         timestamp: Date.now(),
         parts: partsEnvelope,
-      };
+      });
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [exId]: data }));
       } else if (user) {
@@ -624,7 +630,7 @@ export default function App() {
       // Instantánea de las preguntas al entregar (F5, T5.5): la corrección y
       // resultStatusOf la leen en vez de las preguntas vigentes del ejercicio,
       // así una edición posterior del profesor no descoloca entregas pasadas.
-      const data = { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) };
+      const data = addAttempt(existingResult, { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) });
       if (isGuest) {
         setGuestResults((prev) => ({ ...prev, [exId]: data }));
       } else if (user) {
@@ -655,15 +661,19 @@ export default function App() {
       const placementScore = calcSchemaPlacementScore(ex.schemaKey as any, payload.blocks, ex.schemaMargin ?? 3);
       const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
-        // Solo guardar si es un alumno real
+        // Solo guardar si es un alumno real. Intentos (F6, T6.3): la
+        // previsualización del profesor NUNCA se mezcla con el historial real.
+        const savedData = addAttempt(existingResult, data);
         if (isGuest) {
-          setGuestResults((prev) => ({ ...prev, [exId]: data }));
+          setGuestResults((prev) => ({ ...prev, [exId]: savedData }));
         } else if (user) {
-          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
-          dbUpsertResult(user.id, exId, data);
+          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: savedData } }));
+          dbUpsertResult(user.id, exId, savedData);
         }
+        setLastResult(savedData);
+      } else {
+        setLastResult(data);
       }
-      setLastResult(data);
       navigate(payload.mode === "preview"
         ? `/profesor/ejercicio/${ex.id}/correccion`
         : `/alumno/ejercicio/${ex.id}/correccion`);
@@ -709,7 +719,7 @@ export default function App() {
         score:      scoreFor(e.categoryId, e.intervals),
       }));
 
-    const data = {
+    const data = addAttempt(existingResult, {
       categoryId: currentCategoryId,
       intervals:  mainIvs,
       score:      mainScore,
@@ -717,7 +727,7 @@ export default function App() {
       status:     resultStatusOf(null, ex),
       schemaPalette: activePalette,
       timestamp:  Date.now(),
-    };
+    });
 
     if (isGuest) {
       setGuestResults((prev) => ({ ...prev, [exId]: data }));

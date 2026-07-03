@@ -200,6 +200,31 @@ export const resultPartsOf = (result: ExerciseResult | null | undefined): Record
   return { [SINGLE_PART_ID]: { byModel: { [modelId]: result } } };
 };
 
+// ── Intentos (F6, T6.3) ────────────────────────────────────────────────────
+// Lista de intentos de una entrega, más reciente al final. Lectura tolerante:
+// sin `attempts` (entregas de antes de esta fase, o la primera entrega de
+// siempre), el propio result ES el único intento.
+export const attemptsOf = (result: ExerciseResult | null | undefined): ExerciseResult[] =>
+  result?.attempts?.length ? result.attempts : (result ? [result] : []);
+
+// Añade `newAttempt` (el sobre completo que ya construye submitAnswer, sin
+// tocar) al historial de intentos — nunca sobrescribe. El resultado de nivel
+// superior es un espejo del ÚLTIMO intento (mismo type/answers/parts/status/
+// teacherCorrection: todo lector existente que lea esos campos directamente
+// del result sigue funcionando sin cambios) con dos añadidos: `score` pasa a
+// ser el MEJOR de todos los intentos, y `attempts` guarda el historial
+// completo — decisiones cerradas del plan (score = mejor, status = del
+// último). "Repetir" llama a esto en vez de sobrescribir.
+export const addAttempt = (existing: ExerciseResult | null | undefined, newAttempt: ExerciseResult): ExerciseResult => {
+  const attempts = [...attemptsOf(existing), newAttempt];
+  const scores = attempts.map((a) => a?.score).filter((s): s is number => s != null);
+  return {
+    ...newAttempt,
+    score: scores.length ? Math.max(...scores) : null,
+    attempts,
+  };
+};
+
 // Compositores únicos de las partes de un ejercicio, en orden de aparición
 // (F4, T4.5) — con una parte sintetizada, equivale a [exercise.composerName]
 // si lo hay. Las listas usan esto para «Compositor: X» (una parte) frente a

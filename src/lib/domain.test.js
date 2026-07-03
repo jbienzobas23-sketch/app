@@ -3,7 +3,7 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
-  questionsSnapshotOf,
+  questionsSnapshotOf, attemptsOf, addAttempt,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -295,5 +295,56 @@ describe("audioComposers / audioTags", () => {
   it("toleran entrada vacía o nula", () => {
     expect(audioComposers(null)).toEqual([]);
     expect(audioTags(undefined)).toEqual([]);
+  });
+});
+
+describe("attemptsOf", () => {
+  it("sin attempts, el propio result ES el único intento", () => {
+    const r = { score: 80, type: "cuestionario" };
+    expect(attemptsOf(r)).toEqual([r]);
+  });
+  it("con attempts, los devuelve tal cual", () => {
+    const attempts = [{ score: 50 }, { score: 80 }];
+    expect(attemptsOf({ score: 80, attempts })).toBe(attempts);
+  });
+  it("sin resultado, lista vacía", () => {
+    expect(attemptsOf(null)).toEqual([]);
+    expect(attemptsOf(undefined)).toEqual([]);
+  });
+});
+
+describe("addAttempt", () => {
+  it("primera entrega (sin existing previo): el intento ES el resultado, con attempts de 1", () => {
+    const first = { type: "cuestionario", score: 70, status: "auto", timestamp: 100 };
+    const result = addAttempt(null, first);
+    expect(result.score).toBe(70);
+    expect(result.attempts).toEqual([first]);
+    expect(result.type).toBe("cuestionario"); // espejo del último intento
+  });
+  it("repetir: score pasa a ser el MEJOR de todos los intentos", () => {
+    const firstResult = addAttempt(null, { type: "cuestionario", score: 60, status: "auto", timestamp: 100 });
+    const second = { type: "cuestionario", score: 90, status: "auto", timestamp: 200 };
+    const result = addAttempt(firstResult, second);
+    expect(result.score).toBe(90); // el segundo es mejor
+    expect(result.attempts.map((a) => a.score)).toEqual([60, 90]);
+
+    // repetir de nuevo con una nota PEOR: el mejor histórico se conserva
+    const third = { type: "cuestionario", score: 40, status: "auto", timestamp: 300 };
+    const result2 = addAttempt(result, third);
+    expect(result2.score).toBe(90); // sigue siendo el mejor, aunque el último sea peor
+    expect(result2.attempts.map((a) => a.score)).toEqual([60, 90, 40]);
+  });
+  it("status y demás campos son un espejo del ÚLTIMO intento, no del mejor", () => {
+    const firstResult = addAttempt(null, { type: "esquema", score: 90, status: "auto", blocks: [{ id: "a" }] });
+    const second = { type: "esquema", score: 40, status: "pendiente", blocks: [{ id: "b" }] };
+    const result = addAttempt(firstResult, second);
+    expect(result.status).toBe("pendiente"); // del último, no "auto" del mejor
+    expect(result.blocks).toEqual([{ id: "b" }]); // contenido del último intento
+    expect(result.score).toBe(90); // pero la nota vigente sigue siendo la mejor
+  });
+  it("puntuaciones null no rompen el cálculo del mejor", () => {
+    const firstResult = addAttempt(null, { type: "esquema", score: null, status: "pendiente" });
+    const second = { type: "esquema", score: 85, status: "auto" };
+    expect(addAttempt(firstResult, second).score).toBe(85);
   });
 });

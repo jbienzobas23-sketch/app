@@ -7,7 +7,7 @@ import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { categoriesOf, answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf } from "../lib/domain.js";
+import { categoriesOf, answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf, attemptsOf } from "../lib/domain.js";
 import { interactiveDiagnostics, schemaDiagnostics, aggregateParts, gradeShort } from "../lib/scoring.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
@@ -85,6 +85,29 @@ interface CorrectionViewProps {
 function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
+
+  // Intentos (F6, T6.3): con más de un intento, «Mejor X% · Último Y% (↑/↓)».
+  // `result.score` ya es el mejor de todos (addAttempt lo garantiza al
+  // guardar); el "Último" es el score propio del intento más reciente.
+  const attempts = attemptsOf(result as unknown as ExerciseResult);
+  const lastAttemptScore = attempts.length > 0 ? (attempts[attempts.length - 1]?.score ?? null) : null;
+  const prevBestScore = attempts.slice(0, -1).reduce<number | null>((best, a) => (a?.score != null && (best == null || a.score > best) ? a.score : best), null);
+  const attemptTrend = lastAttemptScore != null && prevBestScore != null
+    ? (lastAttemptScore > prevBestScore ? "up" : lastAttemptScore < prevBestScore ? "down" : "same")
+    : null;
+  const attemptBanner = attempts.length > 1 && (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 14, fontSize: 12.5, color: C.muted, flexWrap: "wrap" }}>
+      <span>Intento {attempts.length}</span>
+      <span>·</span>
+      <span>Mejor <strong style={{ color: C.ink }}>{result.score ?? "—"}%</strong></span>
+      <span>·</span>
+      <span>
+        Último <strong style={{ color: C.ink }}>{lastAttemptScore ?? "—"}%</strong>
+        {attemptTrend === "up" && <span style={{ color: C.fnT, fontWeight: 700 }}> ↑</span>}
+        {attemptTrend === "down" && <span style={{ color: C.danger, fontWeight: 700 }}> ↓</span>}
+      </span>
+    </div>
+  );
 
   // Hooks siempre en el mismo orden (reglas de React)
   const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => tc?.levelComments   || {});
@@ -251,6 +274,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
               </div>
             )}
             {extraHeaderContent}
+            {attemptBanner}
 
             {ps != null && (
               <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
@@ -353,6 +377,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
           {extraHeaderContent}
+          {attemptBanner}
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             {ps != null ? (
@@ -479,6 +504,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
               </div>
             )}
             {extraHeaderContent}
+            {attemptBanner}
 
             {sc != null && (
               <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
@@ -641,6 +667,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
           <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
           {extraHeaderContent}
+          {attemptBanner}
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             {tc?.corrected && tc?.totalScore != null ? (() => {
@@ -800,6 +827,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>{backLabel}</button>
         <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
         {extraHeaderContent}
+        {attemptBanner}
         {hasAudio && (
           <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
             togglePlay={togglePlay} onSeek={handleTimelineClick} />
