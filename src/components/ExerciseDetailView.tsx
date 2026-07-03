@@ -30,10 +30,11 @@ interface ExerciseDetailViewProps {
   onDelete: () => void;
   categories: Category[];
   audioLibrary?: AudioItem[];
+  globalMargin?: number;
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories: categoriesProp, audioLibrary = [] }: ExerciseDetailViewProps) {
+export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories: categoriesProp, audioLibrary = [], globalMargin = 1 }: ExerciseDetailViewProps) {
   // Las categorías reales siempre traen `buttons`; lo garantizamos para el formulario.
   const categories = categoriesProp as CatWithButtons[];
   const isCreating = exerciseProp == null;
@@ -96,6 +97,10 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   const [showComposer,              setShowComposer]              = useState(isCreating ? true  : (exercise.showComposer ?? true));
   const [schemaLevels,      setSchemaLevels]      = useState<Set<number>>(
     () => new Set(isCreating ? [1,2,3,4] : ((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]))
+  );
+  const [exMargin,       setExMargin]       = useState<number>(isCreating ? globalMargin : (exercise.margin ?? globalMargin));
+  const [exSchemaMargin, setExSchemaMargin] = useState<number>(
+    isCreating ? 1 : (exercise.schemaMargin ?? Math.min(3, +(0.05 * (exercise.duration || 0)).toFixed(1)))
   );
   const toggleSchemaLevel = (id: number) => setSchemaLevels(prev => {
     const n = new Set(prev);
@@ -208,9 +213,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     if (selectedModels.includes("esquema")) {
       const exLvs = new Set((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
+      const exSchemaMarginDefault = Math.min(3, +(0.05 * (exercise.duration || 0)).toFixed(1));
+      if ((exercise.schemaMargin ?? exSchemaMarginDefault) !== exSchemaMargin) return true;
     }
 
     if (selectedModels.includes("interactivo")) {
+      if ((exercise.margin ?? globalMargin) !== exMargin) return true;
       const exCats = categoriesOf(exercise);
       const exIds  = new Set(exCats.map((m) => m.id));
       if (selectedCategoryIds.size !== exIds.size) return true;
@@ -230,7 +238,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
     if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, globalMargin]);
 
   const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
   const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
@@ -294,6 +302,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
       patch.modes      = undefined;
       patch.answers    = Object.fromEntries(Object.entries(prev).filter(([id]) => keepIds.has(id)));
       if (forceHint) patch.showHint = true;
+      patch.margin = exMargin;
     } else {
       patch.categories = [];
       patch.answers    = {};
@@ -304,7 +313,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     patch.audioFragmentStart  = fragStart    ?? null;
     patch.audioFragmentEnd    = fragEnd      ?? null;
     patch.audioTotalDuration  = totalAudioDuration || null;
-    if (hasEsquema) { patch.listenOnly = listenOnly; patch.immediateSchemaFeedback = immediateSchemaFeedback; patch.schemaLevels = [...schemaLevels]; }
+    if (hasEsquema) { patch.listenOnly = listenOnly; patch.immediateSchemaFeedback = immediateSchemaFeedback; patch.schemaLevels = [...schemaLevels]; patch.schemaMargin = exSchemaMargin; }
     patch.showComposer = showComposer;
     patch.composerName = activeComposer || null;
     if (!audioName && exercise.audioName) {
@@ -556,6 +565,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     );
                   })}
                 </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ ...S.label, marginBottom: 8 }}>Margen de tolerancia: {exMargin}s</label>
+                  <input type="range" min={0} max={3} step={0.5} value={exMargin}
+                    onChange={(e) => setExMargin(Number(e.target.value))}
+                    style={{ width: "100%" }} />
+                </div>
                 <button onClick={guardedOnRecord} style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                   background: recorded === 0 ? C.ink : C.paper2,
@@ -619,6 +634,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                   <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Si no, se mostrará tras la corrección del profesor.</div>
                 </div>
               </label>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ ...S.label, marginBottom: 8 }}>Margen de tolerancia: {exSchemaMargin}s</label>
+              <input type="range" min={0} max={3} step={0.5} value={exSchemaMargin}
+                onChange={(e) => setExSchemaMargin(Number(e.target.value))}
+                style={{ width: "100%" }} />
             </div>
             {(() => {
               const key = (exercise.schemaKey as KeyBlock[] | undefined) ?? [];
