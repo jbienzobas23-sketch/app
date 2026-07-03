@@ -18,23 +18,44 @@ interface DbDeps {
   getClient: () => SupabaseClient | null;
   pendingSavesRef: { current: number };
   onError?: (info: { table: string; message: string }) => void;
+  // Inyectable para tests (F7, T7.4): por defecto espera de verdad; los tests
+  // pasan una versión instantánea para no esperar los 13s reales del backoff.
+  sleep?: (ms: number) => Promise<void>;
 }
 
 type AnyRecord = Record<string, unknown>;
 type WriteResult = { error: { message?: string } | null };
 
-export function createDb({ getClient, pendingSavesRef, onError }: DbDeps) {
-  // Envuelve una escritura: cuenta pendientes, y ante un error lo registra y
-  // avisa (onError) de forma uniforme para TODAS las tablas y operaciones.
+const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Reintento exponencial (F7, T7.4): 1s / 3s / 9s entre intentos — 3 reintentos
+// tras el fallo inicial (4 intentos en total). `pendingSavesRef` sigue contando
+// durante toda la secuencia (no baja hasta el éxito o agotar reintentos), así
+// que el indicador de "guardando" no parpadea a mitad de los reintentos.
+const RETRY_DELAYS_MS = [1000, 3000, 9000];
+
+export function createDb({ getClient, pendingSavesRef, onError, sleep = defaultSleep }: DbDeps) {
+  // Envuelve una escritura: cuenta pendientes, reintenta con backoff ante
+  // fallo, y solo avisa (onError) tras agotar los reintentos — antes cada
+  // fallo (a menudo transitorio: red, RLS en mitad de un refresco de sesión)
+  // disparaba el toast de inmediato.
   const write = async (table: string, run: (sb: SupabaseClient) => PromiseLike<WriteResult>) => {
     const sb = getClient(); if (!sb) return;
     pendingSavesRef.current++;
     try {
-      const { error } = await run(sb);
-      if (error) { console.error(`[${table}] Error al guardar:`, error.message); onError?.({ table, message: error.message ?? "error" }); }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error(`[${table}] Error al guardar:`, message); onError?.({ table, message });
+      let lastMessage = "error";
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        try {
+          const { error } = await run(sb);
+          if (!error) return;
+          lastMessage = error.message ?? "error";
+        } catch (e) {
+          lastMessage = e instanceof Error ? e.message : String(e);
+        }
+        if (attempt < RETRY_DELAYS_MS.length) await sleep(RETRY_DELAYS_MS[attempt]);
+      }
+      console.error(`[${table}] Error al guardar (tras reintentos):`, lastMessage);
+      onError?.({ table, message: lastMessage });
     } finally {
       pendingSavesRef.current--;
     }
