@@ -853,8 +853,15 @@ interface TeacherDashProps {
   onDeleteAudio: (id: string) => void;
   tab?: string;
   onTab?: (t: string) => void;
+  cursoId?: string | null;
+  unidadId?: string | null;
+  onNavigateCourses?: (cursoId?: string | null, unidadId?: string | null) => void;
   detailExId?: ExId | "new" | null;
   onSelectExercise?: (id: ExId | "new" | null) => void;
+  viewingStudentId?: string | null;
+  viewingExId?: ExId | null;
+  onViewStudentAnswer?: (studentId: string, exId: ExId) => void;
+  onBackFromAnswer?: () => void;
 }
 
 export function TeacherDash({
@@ -871,7 +878,9 @@ export function TeacherDash({
   groups = [], onAddGroup, onUpdateGroup, onDeleteGroup,
   onSaveCorrection,
   audioLibrary = [], onAddAudio, onUpdateAudio, onDeleteAudio,
-  tab = "exercises", onTab, detailExId = null, onSelectExercise,
+  tab = "exercises", onTab, cursoId = null, unidadId = null, onNavigateCourses,
+  detailExId = null, onSelectExercise,
+  viewingStudentId = null, viewingExId = null, onViewStudentAnswer, onBackFromAnswer,
 }: TeacherDashProps) {
   const isAdmin = currentUser?.role === "admin";
   const isMobile = useIsMobile();
@@ -890,8 +899,19 @@ export function TeacherDash({
   // Detalle de ejercicio controlado por la URL ("new" para creación)
   const selectedExerciseId = detailExId;
   const setSelectedExerciseId = onSelectExercise || (() => {});
-  // Para que el profesor vea la respuesta detallada de un alumno en un ejercicio
-  const [viewingAnswer, setViewingAnswer] = useState<{ student: User; exercise: Exercise; result: ExerciseResult } | null>(null);
+  // Respuesta de un alumno en un ejercicio, derivada de la URL (T3.4) en vez
+  // de estado local: recargar o compartir el enlace conserva la pantalla,
+  // porque students/exercises/results vienen del backend, no de memoria efímera.
+  const viewingAnswer: { student: User; exercise: Exercise; result: ExerciseResult } | null =
+    viewingStudentId != null && viewingExId != null
+      ? (() => {
+          const student  = students.find((s) => s.id === viewingStudentId);
+          const exercise = exercises.find((e) => String(e.id) === String(viewingExId));
+          const result   = (results[viewingStudentId] || {})[String(viewingExId)];
+          return student && exercise && result ? { student, exercise, result } : null;
+        })()
+      : null;
+  const backFromAnswer = onBackFromAnswer || (() => {});
 
   // Modal state
   const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
@@ -934,7 +954,7 @@ export function TeacherDash({
     return (
       <div style={S.app}>
         <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => setViewingAnswer(null)} style={{ ...S.btn, fontSize: 12, padding: "5px 12px" }}>← Volver a alumnos</button>
+          <button onClick={backFromAnswer} style={{ ...S.btn, fontSize: 12, padding: "5px 12px" }}>← Volver a alumnos</button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <span style={{ fontSize: 12, color: C.muted }}>Respuesta de </span>
             <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{student.displayName}</span>
@@ -945,7 +965,7 @@ export function TeacherDash({
           exercise={freshVaPal}
           result={freshResult}
           margin={margin}
-          onBack={() => setViewingAnswer(null)}
+          onBack={backFromAnswer}
           backLabel="← Volver a alumnos"
           isTeacherMode={true}
           student={student}
@@ -1063,6 +1083,9 @@ export function TeacherDash({
             onRemoveExFromUnit={onRemoveExerciseFromUnit}
             onSelectExercise={setSelectedExerciseId}
             askConfirm={askConfirm}
+            cursoId={cursoId}
+            unidadId={unidadId}
+            onNavigate={onNavigateCourses || (() => {})}
           />
         )}
 
@@ -1073,7 +1096,7 @@ export function TeacherDash({
             onAddStudent={() => { setAddingUserRole("student"); setShowAddUser(true); }}
             onResetCred={(s) => { setResetCredTarget(s); setShowResetCred(true); }}
             onRemove={onRemoveUser} askConfirm={askConfirm}
-            onViewAnswer={(student, exercise, result) => setViewingAnswer({ student, exercise, result })}
+            onViewAnswer={(student, exercise) => onViewStudentAnswer?.(student.id, exercise.id)}
             onEditGroup={(g) => setEditingGroup(g === null ? null : g)}
             onDeleteGroup={onDeleteGroup}
           />
