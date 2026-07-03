@@ -5,7 +5,7 @@ import { partSlotIndex, phraseSlotIndex } from "./palette.js";
 
 export interface Interval { start: number; end: number; fn: string; }
 export interface SchemaBlock { id?: string; level: number; start: number; end: number; label?: string; }
-export interface Question { id: string; type?: string; correctOptionId?: string | null; }
+export interface Question { id: string; type?: string; correctOptionId?: string | null; points?: number; }
 
 export const getAt = (intervals: Interval[], t: number): string | null => {
   for (const iv of intervals) if (t >= iv.start && t < iv.end) return iv.fn;
@@ -39,6 +39,10 @@ export const calcScore = (teacherAns: Interval[], studentAns: Interval[], durati
   return tot > 0 ? Math.round((ok / tot) * 100) : 0;
 };
 
+// Ponderado por points (F5, T5.4): cada pregunta test pesa `points` (defecto 1)
+// en la nota — sin points en ninguna, es exactamente el reparto igualitario
+// de antes (todas pesan 1). No confundir con aggregateParts (media de partes);
+// esto pondera preguntas dentro de UN cuestionario.
 export const calcQuestionnaireScore = (
   questions: Question[] | null | undefined,
   answers: Record<string, string> | null | undefined,
@@ -46,8 +50,10 @@ export const calcQuestionnaireScore = (
   const testQs = (questions || []).filter((q) => q.type === "test" && q.correctOptionId);
   if (testQs.length === 0) return null;
   const ans = (answers || {}) as Record<string, string>;
-  const correct = testQs.filter((q) => ans[q.id] === q.correctOptionId).length;
-  return Math.round((correct / testQs.length) * 100);
+  const totalPoints = testQs.reduce((sum, q) => sum + (q.points ?? 1), 0);
+  if (totalPoints <= 0) return null;
+  const earnedPoints = testQs.reduce((sum, q) => sum + (ans[q.id] === q.correctOptionId ? (q.points ?? 1) : 0), 0);
+  return Math.round((earnedPoints / totalPoints) * 100);
 };
 
 export const calcSchemaPlacementScore = (

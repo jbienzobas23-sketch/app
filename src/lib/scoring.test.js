@@ -95,6 +95,23 @@ describe("calcQuestionnaireScore", () => {
     const qs3 = [q("a", "A"), q("b", "B"), q("c", "C")];
     expect(calcQuestionnaireScore(qs3, { a: "A", b: "B", c: "X" })).toBe(67); // 66.66 → 67
   });
+
+  // F5, T5.4 — ponderación por points
+  it("sin points en ninguna, pesan igual (comportamiento de siempre)", () => {
+    const qs = [q("a", "A"), q("b", "B"), q("c", "C")];
+    expect(calcQuestionnaireScore(qs, { a: "A", b: "X", c: "X" })).toBe(33); // 1/3 → 33
+  });
+  it("una pregunta con más points pesa más en la nota", () => {
+    const qs = [{ ...q("a", "A"), points: 3 }, q("b", "B")];
+    // a (3 pts) correcta, b (1 pt) incorrecta → 3/4 = 75%
+    expect(calcQuestionnaireScore(qs, { a: "A", b: "X" })).toBe(75);
+    // al revés: a incorrecta, b correcta → 1/4 = 25%
+    expect(calcQuestionnaireScore(qs, { a: "X", b: "B" })).toBe(25);
+  });
+  it("points=0 en todas las preguntas → null (nada que repartir)", () => {
+    const qs = [{ ...q("a", "A"), points: 0 }];
+    expect(calcQuestionnaireScore(qs, { a: "A" })).toBeNull();
+  });
 });
 
 describe("calcSchemaPlacementScore", () => {

@@ -661,6 +661,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
     { id: "A", text: "" }, { id: "B", text: "" }, { id: "C", text: "" },
   ]);
   const [correctOptionId, setCorrectOptionId] = useState(initial?.correctOptionId || "A");
+  const [points,          setPoints]          = useState<number>(initial?.points ?? 1);
 
   const updateOpt = (i: number, txt: string) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, text: txt } : o));
   const addOpt = () => {
@@ -692,6 +693,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
       options:    type === "test" ? options.map((o) => ({ ...o, text: (o.text ?? "").trim() })) : [],
       correctOptionId: type === "test" ? correctOptionId : null,
       explanation: explanation.trim() || undefined,
+      points:     type === "test" ? points : undefined,
     });
   };
 
@@ -739,6 +741,13 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
 
       {type === "test" && (
         <>
+          <label style={S.label}>Peso en la nota</label>
+          <div style={{ ...S.row, gap: 8, alignItems: "center", marginBottom: 14 }}>
+            <input type="number" min={1} max={20} step={1} style={{ ...S.input, width: 80 }}
+              value={points} onChange={(e) => setPoints(Math.max(1, parseInt(e.target.value, 10) || 1))} />
+            <span style={{ fontSize: 11, color: C.muted }}>Puntos — por defecto 1; súbelo para preguntas que valgan más.</span>
+          </div>
+
           <label style={S.label}>Opciones (marca la correcta)</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
             {options.map((opt, i) => {

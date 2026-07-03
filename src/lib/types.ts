@@ -38,6 +38,9 @@ export interface Question {
   // entregar (alumno y profesor); en desarrollo, solo al profesor — sirve de
   // pauta de corrección, no de respuesta que el alumno pueda ver antes de hora.
   explanation?: string;
+  // Peso de la pregunta en la nota del cuestionario (F5, T5.4) — defecto 1;
+  // ver calcQuestionnaireScore en scoring.ts.
+  points?: number;
   [k: string]: unknown;
 }
 
