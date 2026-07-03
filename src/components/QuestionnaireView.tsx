@@ -1,6 +1,6 @@
 // ═══ QUESTIONNAIREVIEW (CUESTIONARIO) ════════════════════════════════════════
 // Vista del alumno para ejercicios tipo cuestionario. Extraída de App.jsx (Fase 2).
-import { useState, useRef, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
@@ -57,11 +57,26 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
 
-  const selectQuestion = (q: QuizQuestion) => { setLockedQuestion(q); setExpandedId(q.id); seekTo(q.audioStart); };
+  const selectQuestion = (q: QuizQuestion) => {
+    setLockedQuestion(q);
+    setExpandedId(q.id);
+    if (playing) seekTo(q.audioStart); else playFrom(q.audioStart);
+  };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
-  // playFrom queda disponible si más adelante se quiere un botón "escuchar este fragmento" desde la card de pregunta.
-   
-  const _playFromAvailable = playFrom;
+
+  // Espacio = Play/Pausa (excepto si hay un input/textarea/button con foco) — mismo guard que QuestionManagerView.
+  const togglePlayRef = useRef(togglePlay);
+  useEffect(() => { togglePlayRef.current = togglePlay; });
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === " " && !["INPUT", "TEXTAREA", "BUTTON"].includes((e.target as HTMLElement).tagName)) {
+        e.preventDefault();
+        togglePlayRef.current();
+      }
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, []);
 
   const answeredCount = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== "").length;
 
@@ -103,7 +118,8 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
 
         <SessionHint modelId="cuestionario" />
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
+        <section onMouseDown={(e) => e.stopPropagation()}
+          style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 14px 12px", marginBottom: 12 }}>
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
