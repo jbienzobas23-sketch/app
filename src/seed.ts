@@ -61,6 +61,31 @@ export const INIT_EXERCISES: Exercise[] = [
       },
     ],
   },
+  // Ejercicio demo multiparte (F4, T4.5) — el caso canónico del plan: tres
+  // cadencias distintas, cada una con su propio audio y compositor, resueltas
+  // en una sola sesión con una sola entrega (ver plan_ejercicios_multiparte.md).
+  {
+    id: 5, title: "Tres cadencias comparadas", duration: 0,
+    audioUrl: null, audioName: null, showHint: false, model: "interactivo",
+    categories: [DEFAULT_CATEGORY], answers: {},
+    parts: [
+      {
+        id: "p1", title: "Cadencia auténtica", composerName: "Haydn", audioUrl: null, duration: 14,
+        answers: { [DEFAULT_CATEGORY.id]: [{ fn: "T", start: 0, end: 4 }, { fn: "D", start: 4, end: 8 }, { fn: "T", start: 8, end: 14 }] },
+        points: 1,
+      },
+      {
+        id: "p2", title: "Cadencia plagal", composerName: "Bach", audioUrl: null, duration: 12,
+        answers: { [DEFAULT_CATEGORY.id]: [{ fn: "S", start: 0, end: 6 }, { fn: "T", start: 6, end: 12 }] },
+        points: 1,
+      },
+      {
+        id: "p3", title: "Cadencia rota", composerName: "Beethoven", audioUrl: null, duration: 16,
+        answers: { [DEFAULT_CATEGORY.id]: [{ fn: "D", start: 0, end: 8 }, { fn: "S", start: 8, end: 16 }] },
+        points: 1,
+      },
+    ],
+  },
 ];
 
 // ─── Biblioteca de audios inicial (datos de demostración) ───────────────────
