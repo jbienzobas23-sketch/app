@@ -8,7 +8,7 @@ import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
-import { categoriesOf, modelOf, modelsOf, answerStats, questionsOf, audioComposers, audioTags, resultStatusOf } from "../lib/domain.js";
+import { categoriesOf, modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
@@ -48,12 +48,10 @@ interface TeacherExerciseRowProps {
 export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName }: TeacherExerciseRowProps) {
   const [open, setOpen] = useState(false);
   const meta    = modelMeta(ex);
-  const isQuiz  = modelOf(ex) === "cuestionario";
-  const isSchema= modelOf(ex) === "esquema";
-  const exQs    = questionsOf(ex);
+  const hasQuiz = modelsOf(ex).includes("cuestionario");
+  const exQsN   = questionsCountOf(ex);
   const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
-  const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
-  const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+  const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
 
   return (
@@ -69,9 +67,9 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
-            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
+            {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
             {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
@@ -100,12 +98,10 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
   const [open, setOpen]   = useState(false);
   const [hover, setHover] = useState(false);
   const meta    = modelMeta(ex);
-  const isQuiz  = modelOf(ex) === "cuestionario";
-  const isSchema= modelOf(ex) === "esquema";
-  const exQs    = questionsOf(ex);
+  const hasQuiz = modelsOf(ex).includes("cuestionario");
+  const exQsN   = questionsCountOf(ex);
   const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
-  const { recorded, total } = (isQuiz || isSchema) ? { recorded: 0, total: 0 } : answerStats(ex);
-  const keyReady = isQuiz ? exQs.length > 0 : isSchema ? true : (recorded === total && total > 0);
+  const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
 
   // Alto mínimo de la cabecera → rejilla regular (placa + título + estado).
@@ -125,9 +121,9 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
-            {isQuiz ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
-              : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
+            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
+            {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
             {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />

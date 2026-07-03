@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelOf, answerStats, questionsOf, courseUnitList, unitExList } from "../lib/domain.js";
+import { modelsOf, courseUnitList, unitExList, keyReadyOf, durationOf, questionsCountOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
@@ -60,19 +60,12 @@ interface CoursesCallbacks {
 // — Helpers de forma/progreso, conscientes del rol —
 // courseUnitList / unitExList viven en lib/domain.ts (comparan ids normalizados
 // a texto para tolerar ids de ejercicio numéricos vs. exerciseIds de texto).
-// ¿La clave del ejercicio está lista? (misma lógica que el acordeón anterior)
-function exKeyReady(ex: Exercise): boolean {
-  const isQuiz = modelOf(ex) === "cuestionario";
-  const exQs   = questionsOf(ex);
-  const { recorded, total } = isQuiz ? { recorded: 0, total: 0 } : answerStats(ex);
-  return isQuiz ? exQs.length > 0 : (recorded === total && total > 0);
-}
 // Progreso de una unidad → { num, total }. Profesor: claves listas. Alumno: hechos.
 function unitProgress(unit: Unit, exercises: Exercise[], role: Role, results: ResultsMap): UnitStats {
   const exs = unitExList(unit, exercises, role);
   const num = role === "student"
     ? exs.filter((e) => results?.[String(e.id)] != null).length
-    : exs.filter(exKeyReady).length;
+    : exs.filter(keyReadyOf).length;
   return { num, total: exs.length };
 }
 // Progreso agregado de un curso → { num, total, units }.
@@ -219,9 +212,9 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
 export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
   const [open, setOpen]   = useState(false);
   const meta     = modelMeta(ex);
-  const isQuiz   = modelOf(ex) === "cuestionario";
-  const exQs     = questionsOf(ex);
-  const keyReady = exKeyReady(ex);
+  const hasQuiz  = modelsOf(ex).includes("cuestionario");
+  const exQsN    = questionsCountOf(ex);
+  const keyReady = keyReadyOf(ex);
   return (
     <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: isMobile ? 10 : 14, overflow: "hidden" }}>
       <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
@@ -235,8 +228,8 @@ export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemove
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
-            {isQuiz && <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>}
+            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
