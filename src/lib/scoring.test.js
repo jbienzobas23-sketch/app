@@ -65,6 +65,13 @@ describe("calcScore", () => {
     const s = [{ fn: "T", start: 2, end: 6 }];
     expect(calcScore(t, s, 8, 2)).toBeGreaterThanOrEqual(calcScore(t, s, 8, 0));
   });
+  it("dos ejercicios con márgenes distintos puntúan distinto la misma respuesta", () => {
+    const t = [{ fn: "T", start: 0, end: 4 }, { fn: "D", start: 4, end: 8 }];
+    const s = [{ fn: "T", start: 1.5, end: 5.5 }, { fn: "D", start: 5.5, end: 8 }];
+    const strict = calcScore(t, s, 8, 0.5); // margen del ejercicio A
+    const loose  = calcScore(t, s, 8, 2);   // margen del ejercicio B
+    expect(loose).toBeGreaterThan(strict);
+  });
 });
 
 describe("calcQuestionnaireScore", () => {
@@ -109,5 +116,11 @@ describe("calcSchemaPlacementScore", () => {
   it("distinto nivel no empareja", () => {
     const sb = [{ level: 3, start: 0, end: 4 }, { level: 4, start: 4, end: 8 }];
     expect(calcSchemaPlacementScore(kb, sb, 3)).toBe(0);
+  });
+  it("dos ejercicios con márgenes distintos puntúan distinto el mismo esquema", () => {
+    const sb = [{ level: 1, start: 2, end: 6 }, { level: 2, start: 6, end: 10 }]; // desplazado +2
+    const strict = calcSchemaPlacementScore(kb, sb, 1); // margen del ejercicio A
+    const loose  = calcSchemaPlacementScore(kb, sb, 3); // margen del ejercicio B
+    expect(loose).toBeGreaterThan(strict);
   });
 });
