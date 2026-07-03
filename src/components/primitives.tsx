@@ -13,7 +13,7 @@ interface ModalShellProps { children: ReactNode; width?: number; align?: "center
 interface ConfirmModalProps { message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; }
 interface ErrorMsgProps { children?: ReactNode; style?: CSSProperties; }
 interface TabBarProps { tabs: Tab[]; value: string; onChange: (id: string) => void; variant?: "primary"|"secondary"; }
-interface ScoreBadgeProps { score?: number | null; suffix?: string; emptyLabel?: string; }
+interface ScoreBadgeProps { score?: number | null; suffix?: string; emptyLabel?: string; status?: "auto" | "pendiente" | "corregido" | null; }
 interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; }
 interface CircleButtonProps { onClick?: () => void; disabled?: boolean; title?: string; children: ReactNode; size?: number; primary?: boolean; fontSize?: number; }
 interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: ReactNode; cancelLabel?: string; }
@@ -138,11 +138,19 @@ export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarPro
   });
 }
 
-// Badge de puntuación con color según rango. Usado en dashboards.
-export function ScoreBadge({ score, suffix = "%", emptyLabel = "—" }: ScoreBadgeProps) {
+// Badge de puntuación con color según rango. Usado en dashboards. Con `status`,
+// unifica las tres variantes del contrato de corrección (F1): "pendiente" no
+// puede mostrar una nota (aún no hay una fórmula fiable para ese modelo — ver
+// resultStatusOf), así que se sustituye por una insignia ámbar con texto;
+// "corregido" añade un ✓ textual junto a la nota (nunca solo color, por la
+// regla de daltonismo del proyecto).
+export function ScoreBadge({ score, suffix = "%", emptyLabel = "—", status = null }: ScoreBadgeProps) {
+  if (status === "pendiente") {
+    return <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800" }}>Pendiente</span>;
+  }
   return (
     <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score) }}>
-      {score == null ? emptyLabel : `${score}${suffix}`}
+      {score == null ? emptyLabel : `${score}${suffix}${status === "corregido" ? " ✓" : ""}`}
     </span>
   );
 }
