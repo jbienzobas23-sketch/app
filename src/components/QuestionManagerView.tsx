@@ -253,6 +253,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             initial={isNewQ ? null : (editingQ as QuizQuestion)}
             defaultStart={isNewQ ? (editingQ as { defaultStart: number }).defaultStart : undefined}
             audioDuration={dur}
+            audioUrl={exercise.audioUrl}
             onSave={(q: Question) => {
               const qq = q as QuizQuestion;
               if (isNewQ) setQuestions((prev) => [...prev, qq]);

@@ -10,6 +10,7 @@ import { modelOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
+import { FragmentRangeSelector } from "./session.js";
 
 // ── Tipos locales compartidos por los modales ────────────────────────────────
 // Usuario (perfil) — campos consumidos por los formularios de cuenta.
@@ -650,7 +651,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
 }
 
 // Editor de pregunta (test o desarrollo)
-export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; onSave: (q: Question) => void; onClose: () => void }) {
+export function QuestionEditorModal({ initial, defaultStart, audioDuration, audioUrl = null, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; audioUrl?: string | null; onSave: (q: Question) => void; onClose: () => void }) {
   const [text,            setText]            = useState(initial?.text || "");
   const [type,            setType]            = useState(initial?.type || "test");
   const [explanation,     setExplanation]     = useState(initial?.explanation || "");
@@ -718,17 +719,22 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, onSa
         value={text} onChange={(e) => setText(e.target.value)}
         placeholder="¿Qué función armónica predomina en este fragmento?" autoFocus />
 
-      <div style={{ ...S.row, gap: 10, marginBottom: 14 }}>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>Inicio (s)</label>
-          <input type="number" min={0} max={audioDuration} step={0.1} style={S.input}
-            value={audioStart} onChange={(e) => setAudioStart(parseFloat(e.target.value) || 0)} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>Fin (s)</label>
-          <input type="number" min={0} max={audioDuration} step={0.1} style={S.input}
-            value={audioEnd} onChange={(e) => setAudioEnd(parseFloat(e.target.value) || 0)} />
-        </div>
+      <label style={S.label}>Fragmento de audio</label>
+      <div style={{ marginBottom: 14 }}>
+        <FragmentRangeSelector
+          totalDuration={audioDuration}
+          start={audioStart}
+          end={audioEnd}
+          onChange={({ start, end }) => { setAudioStart(start); setAudioEnd(end); }}
+          onClear={() => { setAudioStart(0); setAudioEnd(audioDuration); }}
+          onDefine={() => {}}
+          audioUrl={audioUrl}
+        />
+        {!audioUrl && (
+          <p style={{ fontSize: 11, color: C.muted, margin: "-4px 0 0", lineHeight: 1.5 }}>
+            Este ejercicio aún no tiene audio — arrastra los bordes para fijar el fragmento; podrás escucharlo en cuanto lo subas.
+          </p>
+        )}
       </div>
 
       {type === "test" && (
