@@ -7,8 +7,9 @@ import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { categoriesOf, answerFor, btnOf, questionsOf, partsOf, partToExercise, modelsOf } from "../lib/domain.js";
-import { interactiveDiagnostics, schemaDiagnostics } from "../lib/scoring.js";
+import { categoriesOf, answerFor, btnOf, questionsOf, partsOf, partToExercise, modelsOf, resultPartsOf } from "../lib/domain.js";
+import { interactiveDiagnostics, schemaDiagnostics, aggregateParts } from "../lib/scoring.js";
+import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "./primitives.jsx";
 
@@ -61,9 +62,19 @@ interface CorrectionViewProps {
   isTeacherMode?: boolean;
   student?: CorrectionStudent | null;
   onSaveCorrection?: SaveCorrection | null;
+  // Contenido extra bajo el título (F4, T4.4): el navegador de chips de parte
+  // + nota agregada que añade el envoltorio multiparte, más abajo en este
+  // mismo archivo. null en el uso normal (una parte) — cero cambio visual.
+  extraHeaderContent?: React.ReactNode;
 }
 
-export function CorrectionView({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }: CorrectionViewProps) {
+// Corrección de UNA parte con UN modelo — es literalmente el componente de
+// corrección de antes de F4 (T4.1-T4.3), sin ningún cambio interno. El
+// envoltorio multiparte (más abajo) la reutiliza tal cual una vez por parte
+// (y por modelo, en partes híbridas), proyectando el ejercicio y desglosando
+// el sobre compuesto en resultados planos — así un ejercicio de una sola
+// parte se corrige exactamente como siempre (mismo árbol de render).
+function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null, extraHeaderContent = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
 
@@ -89,59 +100,6 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     setActiveFragmentQId(q.id);
     playFrom(q.audioStart ?? 0);
   };
-
-  // Sesión multiparte (F4, T4.3) — vista de corrección interina: nota agregada
-  // + lista de partes con su nota por modelo. El navegador de partes con la
-  // rama completa de cada modelo (audio, comparación, corrección manual por
-  // parte) es T4.4; esto evita mostrar una pantalla rota mientras tanto.
-  if (result.type === "multi") {
-    const parts = partsOf(exercise);
-    const resultParts = (result as { parts?: Record<string, { byModel?: Record<string, { score?: number | null }> }> }).parts || {};
-    const sc  = result.score ?? null;
-    const col = scoreColor(sc);
-    return (
-      <div style={S.app}>
-        <div style={S.page}>
-          <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
-          <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
-          {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
-
-          {sc != null && (
-            <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
-              <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Nota agregada de {parts.length} partes</div>
-            </div>
-          )}
-
-          {parts.map((p, i) => {
-            const projected = partToExercise(exercise, p);
-            const pModels   = modelsOf(projected);
-            const byModel   = resultParts[p.id]?.byModel || {};
-            return (
-              <div key={p.id} style={{ ...S.card, marginBottom: 12 }}>
-                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                  <span style={{ ...S.badge, background: C.line, color: C.muted }}>Parte {i + 1}</span>
-                  {p.title && <span style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 13, color: C.ink }}>{p.title}</span>}
-                  {p.composerName && <span style={{ color: C.muted, fontSize: 12 }}>— {p.composerName}</span>}
-                </div>
-                {pModels.map((m) => {
-                  const mScore = byModel[m]?.score ?? null;
-                  return (
-                    <div key={m} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.ink2, padding: "3px 0" }}>
-                      <span style={{ textTransform: "capitalize" }}>{m}</span>
-                      <span style={{ fontWeight: 700, color: mScore != null ? scoreColor(mScore) : C.muted }}>
-                        {mScore != null ? `${mScore}%` : "pendiente de corrección"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
 
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
@@ -277,6 +235,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
             <button onClick={onBack} style={{ ...S.btn, marginBottom: 20, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
             <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
             {student && <p style={{ color: C.muted, fontSize: 13, margin: "0 0 20px" }}>Alumno: <strong>{student.displayName}</strong></p>}
+            {extraHeaderContent}
 
             {ps != null && (
               <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
@@ -371,6 +330,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
         <div style={S.page}>
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
+          {extraHeaderContent}
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             {ps != null ? (
@@ -475,6 +435,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
             <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
             <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
             {student && <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>Alumno: <strong>{student.name}</strong></p>}
+            {extraHeaderContent}
 
             {sc != null && (
               <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
@@ -601,6 +562,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
         <div style={S.page}>
           <button onClick={onBack} style={{ ...S.btn, marginBottom: 24, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
+          {extraHeaderContent}
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
             {tc?.corrected && tc?.totalScore != null ? (() => {
@@ -734,6 +696,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
       <div style={S.page}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>{backLabel}</button>
         <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
+        {extraHeaderContent}
         {hasAudio && (
           <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
             togglePlay={togglePlay} onSeek={handleTimelineClick} />
@@ -853,4 +816,187 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
       </div>
     </div>
   );
+}
+
+// Nota/estado efectivos de una parte+modelo: la corrección manual (si existe
+// y está marcada `corrected`) sustituye a la nota automática — mismo criterio
+// que ya aplicaba saveCorrection a nivel de ejercicio (T1), ahora por modelo.
+function effectiveModelResult(
+  raw: CorrectionResult | undefined,
+  corr: TeacherCorrection | undefined,
+): { score: number | null; status: "auto" | "pendiente" | "corregido" } {
+  if (corr?.corrected) {
+    let score = raw?.score ?? (raw as { placementScore?: number | null } | undefined)?.placementScore ?? null;
+    if (corr.totalScore != null) {
+      const n = Number(corr.totalScore);
+      if (!Number.isNaN(n)) score = n <= 10 ? n * 10 : n;
+    }
+    return { score, status: "corregido" };
+  }
+  return {
+    score: raw?.score ?? (raw as { placementScore?: number | null } | undefined)?.placementScore ?? null,
+    status: (raw?.status as "auto" | "pendiente" | "corregido" | undefined) ?? "auto",
+  };
+}
+
+// ═══ ENVOLTORIO MULTIPARTE (F4, T4.4) ════════════════════════════════════════
+// Con más de una parte: navegador de chips (nota agregada arriba, mini-nota
+// por parte en cada chip) — cada parte renderiza su rama existente SIN
+// CAMBIOS vía CorrectionViewSingle, alimentada por el ejercicio proyectado
+// (partToExercise) y el resultado plano de esa parte/modelo, desglosados del
+// sobre compuesto con resultPartsOf (tolerante: también envuelve un resultado
+// plano heredado como una única parte, si algún día hiciera falta). Solo la
+// parte activa está montada — mismo criterio de LRU-1 que MultiPartSessionView
+// (T4.3): un único useAudioPlayer vivo a la vez, sin cachés de audio nuevas.
+// teacherCorrection.parts[partId][modelId] anida la forma manual de cada
+// modelo tal cual la produce CorrectionViewSingle — sin tocarla.
+function MultiPartCorrectionShell({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }: CorrectionViewProps) {
+  const parts = partsOf(exercise);
+  const resultParts = resultPartsOf(result);
+  const teacherPartsCorrection = ((result.teacherCorrection as { parts?: Record<string, Record<string, TeacherCorrection>> } | undefined)?.parts) || {};
+
+  const [activeIdx, setActiveIdx] = useState(() => {
+    const n = parseInt(parseHashQuery().parte || "1", 10);
+    return Number.isFinite(n) && n >= 1 && n <= parts.length ? n - 1 : 0;
+  });
+  const activePart = parts[activeIdx] || parts[0];
+  const goToPart = (idx: number) => { setActiveIdx(idx); setHashQuery({ parte: String(idx + 1) }); };
+
+  // Agregado de UNA parte: media de sus modelos (mismo criterio que la nota
+  // de ejercicio agrega sus partes — aggregateParts, sin pesos por modelo).
+  const partAggregate = (partId: string) => {
+    const p = parts.find((x) => x.id === partId);
+    if (!p) return { score: null, pending: false };
+    const projected = partToExercise(exercise, p);
+    const pModels = modelsOf(projected);
+    const results = pModels.map((m) => effectiveModelResult(resultParts[partId]?.byModel?.[m], teacherPartsCorrection[partId]?.[m]));
+    const scores = results.map((r) => r.score).filter((s): s is number => s != null);
+    return { score: scores.length ? aggregateParts(scores) : null, pending: results.some((r) => r.status === "pendiente") };
+  };
+
+  const partAggregates = parts.map((p) => partAggregate(p.id));
+  const overallScore  = aggregateParts(partAggregates.map((a) => a.score), parts.map((p) => p.points ?? 1));
+  const overallPending = partAggregates.some((a) => a.pending);
+  const col = scoreColor(overallScore);
+
+  // Guarda la corrección de UN modelo de la parte activa: fusiona sobre
+  // teacherCorrection.parts (sin pisar el resto de partes/modelos ya
+  // corregidos) y recalcula la nota/estado agregados del ejercicio entero —
+  // "saveCorrection recalcula score/status agregados" (plan, T4.4).
+  const saveForModel = (modelId: string) => (studentId: string | undefined, exerciseId: Exercise["id"], correction: TeacherCorrection) => {
+    const mergedParts = {
+      ...teacherPartsCorrection,
+      [activePart.id]: { ...(teacherPartsCorrection[activePart.id] || {}), [modelId]: { ...correction, corrected: true } },
+    };
+    let anyPending = false;
+    const partScores = parts.map((p) => {
+      const projected = partToExercise(exercise, p);
+      const pModels = modelsOf(projected);
+      const scores = pModels.map((m) => {
+        const r = effectiveModelResult(resultParts[p.id]?.byModel?.[m], mergedParts[p.id]?.[m]);
+        if (r.status === "pendiente") anyPending = true;
+        return r.score;
+      }).filter((s): s is number => s != null);
+      return scores.length ? aggregateParts(scores) : null;
+    });
+    onSaveCorrection?.(studentId, exerciseId, {
+      parts: mergedParts,
+      totalScore: aggregateParts(partScores, parts.map((p) => p.points ?? 1)),
+      status: anyPending ? "pendiente" : "corregido",
+    } as unknown as TeacherCorrection);
+  };
+
+  const chips = (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+      {parts.map((p, i) => {
+        const agg = partAggregates[i];
+        const isActive = i === activeIdx;
+        const label = agg.pending ? "pendiente" : agg.score != null ? `${agg.score}%` : "—";
+        return (
+          <button key={p.id} type="button" onClick={() => goToPart(i)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 999,
+              border: `1.5px solid ${isActive ? C.ink : C.line}`,
+              background: isActive ? C.ink : "transparent",
+              color: isActive ? C.paper : C.ink2,
+              fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+            }}>
+            <span>{i + 1}</span>
+            <span style={{ fontWeight: 600, opacity: 0.85 }}>{p.title || `Parte ${i + 1}`}</span>
+            <span style={{ fontSize: 10.5, opacity: 0.75 }}>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const extraHeaderContent = (
+    <>
+      {overallScore != null && (
+        <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{overallScore}%</div>
+          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
+            Nota agregada de {parts.length} partes{overallPending ? " · con partes pendientes de corrección" : ""}
+          </div>
+        </div>
+      )}
+      {chips}
+    </>
+  );
+
+  const projected = partToExercise(exercise, activePart);
+  const pModels = modelsOf(projected);
+  const modelsWithResult = pModels.filter((m) => resultParts[activePart.id]?.byModel?.[m]);
+
+  if (modelsWithResult.length === 0) {
+    return (
+      <div style={S.app}>
+        <div style={S.page}>
+          <button onClick={onBack} style={{ ...S.btn, marginBottom: 20, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+          <h1 style={{ ...S.h1, marginBottom: 4 }}>Corrección: {exercise.title}</h1>
+          {student && <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Alumno: <strong>{student.displayName || student.name}</strong></p>}
+          {extraHeaderContent}
+          <p style={{ color: C.muted, fontSize: 13 }}>Esta parte todavía no tiene entrega.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {modelsWithResult.map((m, i) => {
+        const raw  = resultParts[activePart.id]!.byModel[m];
+        const corr = teacherPartsCorrection[activePart.id]?.[m];
+        const flatResult: CorrectionResult = { ...raw, type: (raw.type as string | undefined) ?? m, teacherCorrection: corr };
+        return (
+          <CorrectionViewSingle
+            key={m}
+            exercise={projected}
+            result={flatResult}
+            margin={margin}
+            onBack={onBack}
+            backLabel={backLabel}
+            isTeacherMode={isTeacherMode}
+            student={student}
+            onSaveCorrection={isTeacherMode ? saveForModel(m) : null}
+            // El navegador de chips + nota agregada solo se inserta una vez —
+            // en el primer modelo de la parte activa (el caso común, una
+            // parte con un solo modelo, no repite nada; una parte híbrida
+            // muestra el navegador junto al primer modelo y el resto debajo).
+            extraHeaderContent={i === 0 ? extraHeaderContent : null}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+// ═══ CORRECTIONVIEW (punto de entrada) ═══════════════════════════════════════
+// Con una parte, delega tal cual en CorrectionViewSingle — un ejercicio
+// antiguo (o cualquiera de una sola parte) se corrige exactamente como
+// siempre. Con más de una parte, monta el envoltorio de arriba.
+export function CorrectionView(props: CorrectionViewProps) {
+  const parts = partsOf(props.exercise);
+  if (parts.length > 1) return <MultiPartCorrectionShell {...props} />;
+  return <CorrectionViewSingle {...props} />;
 }

@@ -291,7 +291,11 @@ export default function App() {
     const sid = studentId ?? "";
     const eid = String(exerciseId ?? "");
     const existing = (results[sid] || {})[eid] || {};
-    const updated: any = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: "corregido" };
+    // status: "corregido" salvo que la corrección multiparte (F4, T4.4) traiga
+    // uno explícito — con partes aún sin corregir, sigue "pendiente" aunque
+    // esta parte concreta ya se haya guardado. El resto de llamadas (una sola
+    // parte) nunca traen `status`, así que su comportamiento no cambia.
+    const updated: any = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: correction?.status || "corregido" };
     // Nota normalizada a escala 0-100 (la que consume ScoreBadge). totalScore
     // puede llegar en 0-10 (correcciones anteriores a T1.2, o inputs aún sin
     // migrar) — el mismo umbral tolerante que usa CorrectionView al mostrarla.
