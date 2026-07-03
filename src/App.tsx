@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase.js";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult, UserProfile } from "./lib/types.js";
 import type { AudioItem } from "./components/modals.js";
 
@@ -97,8 +98,6 @@ interface SubmitPayload extends ModelAnswerPayload {
 export default function App() {
   useInjectFonts();
 
-  // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
-  const supabaseRef = useRef<SupabaseClient | null>(null);
   // Contador de escrituras en vuelo hacia Supabase.
   const pendingSavesRef = useRef(0);
 
@@ -151,8 +150,7 @@ export default function App() {
   // montar (anon — con RLS devuelve poco o nada) y de nuevo TRAS el login (con la
   // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
   // que el login decida el flujo sin esperar al re-render.
-  const loadData = async (sb: SupabaseClient | null): Promise<{ users: UserProfile[] }> => {
-    if (!sb) return { users };
+  const loadData = async (sb: SupabaseClient): Promise<{ users: UserProfile[] }> => {
     const [exRes, userRes, catRes, courseRes, unitRes, resultRes, settingsRes, audioRes, groupRes] = await Promise.all([
       sb.from("fa_exercises").select("*"),
       sb.from("fa_users").select("*"),
@@ -197,39 +195,26 @@ export default function App() {
     return { users: loadedUsers || users };
   };
 
-  // ─── Carga inicial desde Supabase (import dinámico) ─────────────────────
-  // En la web, el import resuelve y carga datos reales.
-  // En el visor de artefactos de Claude, el import falla silenciosamente y
-  // la app arranca en modo "en memoria" con los datos semilla (INIT_EXERCISES).
+  // ─── Carga inicial desde Supabase ────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
-        // Intentar cargar el cliente de Supabase dinámicamente
-        try {
-          const mod = await import("./supabase.js");
-          supabaseRef.current = mod.supabase;
-          // Detectar sesión desde magic link de recuperación de PIN. OJO: el login
-          // normal (Fase 1) también crea una sesión de Supabase Auth con email
-          // sintético `${username}@fa.local`; esa NO es de recuperación. Solo lo es
-          // una sesión cuyo email es el correo real (magic link de recuperación).
-          const { data: { session: existingSession } } = await mod.supabase.auth.getSession();
-          const sEmail = existingSession?.user?.email || "";
-          if (existingSession && !sEmail.endsWith("@fa.local")) {
-            setResetSession(existingSession);
-            window.history.replaceState(null, "", "#/");
-          }
-        } catch {
-          // Entorno de previsualización: sin backend — modo en memoria.
-          // El `finally` de abajo marca dbReady; basta con salir aquí.
-          return;
+        // Detectar sesión desde magic link de recuperación de PIN. OJO: el login
+        // normal (Fase 1) también crea una sesión de Supabase Auth con email
+        // sintético `${username}@fa.local`; esa NO es de recuperación. Solo lo es
+        // una sesión cuyo email es el correo real (magic link de recuperación).
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        const sEmail = existingSession?.user?.email || "";
+        if (existingSession && !sEmail.endsWith("@fa.local")) {
+          setResetSession(existingSession);
+          window.history.replaceState(null, "", "#/");
         }
 
-        const sb = supabaseRef.current;
-        await loadData(sb);
+        await loadData(supabase);
 
         // ¿Existe ya un admin? (primer arranque) — vía RPC, porque con RLS anon no
         // puede leer fa_users.
-        try { const { data: ha } = await sb.rpc("has_admin"); setServerHasAdmin(ha === true); } catch { /* ignora */ }
+        try { const { data: ha } = await supabase.rpc("has_admin"); setServerHasAdmin(ha === true); } catch { /* ignora */ }
       } catch (e) {
         console.error("Error cargando datos de Supabase:", e);
       } finally {
@@ -270,7 +255,7 @@ export default function App() {
     dbUpsertAudio, dbDeleteAudio,
     dbUpsertGroup, dbDeleteGroup,
   } = useMemo(() => createDb({
-    getClient: () => supabaseRef.current,
+    getClient: () => supabase,
     pendingSavesRef,
     onError: () => setSaveError("No se pudieron guardar los cambios en el servidor. Puede que se pierdan al recargar — prueba a cerrar sesión y volver a entrar."),
   }), []);
@@ -355,7 +340,7 @@ export default function App() {
     setUser(adminProfile as UserProfile);
     setServerHasAdmin(true);
     navigate("/profesor");
-    if (supabaseRef.current) loadData(supabaseRef.current);
+    loadData(supabase);
   };
 
   // ─── Exercises ───────────────────────────────────────────────────────────
@@ -559,8 +544,8 @@ export default function App() {
     // Con RLS, la carga anónima del montaje vino vacía: recargar ahora con la
     // sesión. loadData devuelve los usuarios para decidir el flujo del alumno.
     let loaded = { users };
-    if (supabaseRef.current && !profile.isGuest) {
-      try { loaded = await loadData(supabaseRef.current); } catch { /* mantiene el estado actual */ }
+    if (!profile.isGuest) {
+      try { loaded = await loadData(supabase); } catch { /* mantiene el estado actual */ }
     }
     const dest = redirectAfterLogin.current;
     redirectAfterLogin.current = null;
@@ -796,12 +781,9 @@ export default function App() {
   }
 
   // Setup inicial: aún no hay admin
-  // Primer arranque (mostrar Setup) SOLO si el servidor confirma que no hay admin.
-  // Con backend nos fiamos del RPC has_admin (anon no puede leer fa_users por RLS);
-  // en modo en memoria (sin backend) usamos el estado local con los datos semilla.
-  const noAdmin = supabaseRef.current
-    ? serverHasAdmin === false
-    : !(users || []).some((u) => u.role === "admin");
+  // Primer arranque (mostrar Setup) SOLO si el servidor confirma que no hay admin
+  // (anon no puede leer fa_users por RLS, de ahí el RPC has_admin).
+  const noAdmin = serverHasAdmin === false;
   if (noAdmin) return <SetupView onSetup={handleSetup} />;
 
   // Selección de profesor para alumno (al primer login o desde "Cambiar profesor")
@@ -827,14 +809,12 @@ export default function App() {
           supabaseSession={resetSession}
           onReset={async (updatedUser) => {
             updateUser(updatedUser);
-            const sb = supabaseRef.current;
-            if (sb) await sb.auth.signOut();
+            await supabase.auth.signOut();
             setResetSession(null);
             navigate("/");
           }}
           onBack={async () => {
-            const sb = supabaseRef.current;
-            if (sb) await sb.auth.signOut();
+            await supabase.auth.signOut();
             setResetSession(null);
             navigate("/");
           }}
@@ -866,7 +846,6 @@ export default function App() {
       return (
         <ForgotPinView
           users={users}
-          supabaseRef={supabaseRef}
           onBack={() => setShowForgotPin(false)}
         />
       );

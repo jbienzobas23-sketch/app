@@ -24,7 +24,7 @@ interface LoginViewProps {
 interface HomeViewProps { onTeacher: () => void; onStudent: () => void; }
 // ForgotPin/ResetPin reciben props heredadas de una API anterior que ya no
 // usan internamente; se aceptan como opcionales para no romper a los llamadores.
-interface ForgotPinViewProps { onBack: () => void; users?: unknown[]; supabaseRef?: { current: unknown }; }
+interface ForgotPinViewProps { onBack: () => void; users?: unknown[]; }
 interface ResetPinViewProps { onBack: () => void; users?: unknown[]; supabaseSession?: unknown; onReset?: (u: unknown) => void | Promise<void>; }
 interface TeacherPickerViewProps {
   teachers: Teacher[]; currentTeacherId?: string | null;
