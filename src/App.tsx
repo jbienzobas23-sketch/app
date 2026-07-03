@@ -53,7 +53,7 @@ const SchemaExerciseView = lazy(() => import("./components/SchemaExerciseView.js
 
 // Fallback mientras se descarga un chunk diferido. Pantalla completa, sobria.
 const lazyFallback = (
-  <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: C.muted, fontSize: 14 }}>
+  <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100dvh", color: C.muted, fontSize: 14 }}>
     Cargando…
   </div>
 );

@@ -15,6 +15,11 @@ export function useInjectFonts(): void {
         "*,*::before,*::after{box-sizing:border-box}"
         // Salvaguarda anti-desbordamiento horizontal en móvil.
         + "html,body{max-width:100%;overflow-x:hidden}"
+        // Fondo papel bajo todo (M0.7): sin esto, el hueco entre capas (fallback
+        // de Suspense, remontaje al alternar modelo/parte, overscroll de iOS)
+        // se ve blanco puro en vez del fondo de la app — un pestañeo visible.
+        + "html,body{background:#f8f8f6}"
+        + "#root{min-height:100dvh;background:#f8f8f6}"
         + "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faHintIn{from{opacity:0;max-height:0;margin-bottom:0}to{opacity:1;max-height:120px}}"

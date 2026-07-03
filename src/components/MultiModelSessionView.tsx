@@ -2,6 +2,7 @@
 // Wrapper para ejercicios con dos modelos: gestiona la alternancia y comparte el
 // audio decodificado entre las vistas. Extraída de App.jsx (Fase 2).
 import { useState, useEffect, useRef, lazy, Suspense, type ReactNode } from "react";
+import { C } from "../theme/tokens.js";
 import { modelsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import type { Exercise } from "../lib/types.js";
@@ -28,7 +29,7 @@ interface Props {
 // Vista de esquema diferida (code-splitting, Fase 6): ~2k líneas que no hacen
 // falta hasta que se abre un ejercicio de ese modelo.
 const SchemaExerciseView = lazy(() => import("./SchemaExerciseView.js").then((m) => ({ default: m.SchemaExerciseView })));
-const schemaFallback = <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#b0b0a8", fontSize: 14 }}>Cargando…</div>;
+const schemaFallback = <div style={{ minHeight: "100dvh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 14 }}>Cargando…</div>;
 
 export function MultiModelSessionView({ exercise, mode, onSubmit, onBack, initialDraft = null, onDraftChange, extraToggleNode = null }: Props) {
   const models = modelsOf(exercise);
