@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
-  audioComposers, audioTags, courseUnitList, unitExList,
+  audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -93,6 +93,29 @@ describe("courseUnitList", () => {
     const course = { id: "c1", unitIds: ["u2", "u1"] };
     expect(courseUnitList(course, units, "teacher").map((u) => u.name)).toEqual(["B", "A"]);
     expect(courseUnitList(course, units, "student").map((u) => u.name)).toEqual(["A"]);
+  });
+});
+
+describe("resultStatusOf", () => {
+  it("corregido si el profesor ya corrigió, sin importar el modelo", () => {
+    expect(resultStatusOf({ teacherCorrection: { corrected: true } }, { model: "esquema" })).toBe("corregido");
+    expect(resultStatusOf({ teacherCorrection: { corrected: true } }, { model: "interactivo" })).toBe("corregido");
+  });
+  it("pendiente si el ejercicio incluye esquema", () => {
+    expect(resultStatusOf({}, { model: "esquema" })).toBe("pendiente");
+    expect(resultStatusOf({}, { models: ["esquema", "cuestionario"] })).toBe("pendiente");
+  });
+  it("pendiente si el cuestionario tiene alguna pregunta de desarrollo", () => {
+    const exercise = { model: "cuestionario", questions: [{ id: "q1", type: "test" }, { id: "q2", type: "desarrollo" }] };
+    expect(resultStatusOf({}, exercise)).toBe("pendiente");
+  });
+  it("auto si el cuestionario es solo tipo test", () => {
+    const exercise = { model: "cuestionario", questions: [{ id: "q1", type: "test" }] };
+    expect(resultStatusOf({}, exercise)).toBe("auto");
+  });
+  it("auto por defecto (interactivo, sin corrección)", () => {
+    expect(resultStatusOf({}, { model: "interactivo" })).toBe("auto");
+    expect(resultStatusOf(null, {})).toBe("auto");
   });
 });
 

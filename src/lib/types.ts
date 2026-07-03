@@ -55,6 +55,10 @@ export interface Exercise {
   audioFragmentStart?: number;
   audioFragmentEnd?: number | null;
   waveformData?: number[] | null;
+  // Tolerancias propias del ejercicio; si faltan, se usa el margen global
+  // (interactivo) o ±3s fijo (esquema) — ver calcScore/calcSchemaPlacementScore.
+  margin?: number;
+  schemaMargin?: number;
   // Campos de presentación — usados en tarjetas y cabeceras de sesión
   composerName?: string;
   showComposer?: boolean;
@@ -64,6 +68,7 @@ export interface Exercise {
 // Resultado de un ejercicio (respuesta del alumno almacenada en Supabase)
 export interface ExerciseResult {
   score?: number | null;
+  status?: "auto" | "pendiente" | "corregido";
   teacherCorrection?: { corrected?: boolean; [k: string]: unknown };
   [k: string]: unknown;
 }

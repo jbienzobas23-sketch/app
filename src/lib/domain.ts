@@ -3,7 +3,7 @@
 // y heredado `mode`/`answer`), modelos y combos, y listas del almacén de audios.
 // Extraídos de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { DEFAULT_CATEGORY } from "../seed.js";
-import type { Exercise, Category, Button, Question, Course, Unit, Role } from "./types.js";
+import type { Exercise, Category, Button, Question, Course, Unit, Role, ExerciseResult } from "./types.js";
 
 export const DEFAULT_MODEL_ID = "interactivo";
 
@@ -78,6 +78,18 @@ export const unitExList = (unit: Unit | null | undefined, exercises: Exercise[],
 
 export const btnOf       = (category: { buttons: Button[] }, id: string): Button => category.buttons.find((b) => b.id === id) || category.buttons[0];
 export const questionsOf = (exercise?: Exercise | null): Question[] => (Array.isArray(exercise?.questions) ? exercise.questions : []);
+
+// Estado vigente de una entrega. "Pendiente" cubre los modelos que no se
+// pueden autocorregir con una fórmula (esquema siempre, cuestionario si
+// tiene alguna pregunta de desarrollo) — hasta que el profesor los revisa
+// manualmente, mostrar una nota sería mostrar un cero engañoso.
+export const resultStatusOf = (result: ExerciseResult | null | undefined, exercise: Exercise | null | undefined): "auto" | "pendiente" | "corregido" => {
+  if (result?.teacherCorrection?.corrected) return "corregido";
+  const models = modelsOf(exercise);
+  if (models.includes("esquema")) return "pendiente";
+  if (models.includes("cuestionario") && questionsOf(exercise).some((q) => q.type === "desarrollo")) return "pendiente";
+  return "auto";
+};
 
 // Listas únicas y ordenadas de compositores / etiquetas del almacén de audios.
 // Centralizadas aquí porque se usaban (con ligeras inconsistencias) en varias
