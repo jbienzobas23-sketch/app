@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAt, resolveOverlap, calcScore, calcQuestionnaireScore, calcSchemaPlacementScore,
-  interactiveDiagnostics, schemaDiagnostics, aggregateParts,
+  interactiveDiagnostics, schemaDiagnostics, aggregateParts, gradeShort,
 } from "./scoring.js";
 
 // Tests de caracterización: fijan el comportamiento ACTUAL para detectar
@@ -111,6 +111,46 @@ describe("calcQuestionnaireScore", () => {
   it("points=0 en todas las preguntas → null (nada que repartir)", () => {
     const qs = [{ ...q("a", "A"), points: 0 }];
     expect(calcQuestionnaireScore(qs, { a: "A" })).toBeNull();
+  });
+
+  // F5, T5.6 — tipo "corta" entra en la nota junto con test
+  it("las preguntas 'corta' cuentan como autocorregibles, junto a test", () => {
+    const qs = [q("a", "A"), { id: "b", type: "corta", accepted: ["Semicadencia"] }];
+    expect(calcQuestionnaireScore(qs, { a: "A", b: "semicadencia" })).toBe(100);
+    expect(calcQuestionnaireScore(qs, { a: "A", b: "otra cosa" })).toBe(50);
+  });
+  it("desarrollo nunca entra en la nota automática, aunque tenga points", () => {
+    const qs = [q("a", "A"), { id: "b", type: "desarrollo", points: 5 }];
+    expect(calcQuestionnaireScore(qs, { a: "A", b: "cualquier cosa" })).toBe(100);
+  });
+});
+
+describe("gradeShort", () => {
+  it("ignora mayúsculas, tildes y espacios sobrantes", () => {
+    expect(gradeShort("Semicadencia", ["semicadencia"])).toBe(true);
+    expect(gradeShort("  SEMICADENCIA  ", ["semicadencia"])).toBe(true);
+    expect(gradeShort("Función", ["funcion"])).toBe(true);
+    expect(gradeShort("cadencia   rota", ["Cadencia Rota"])).toBe(true);
+  });
+  it("acepta cualquiera de varias grafías válidas", () => {
+    const accepted = ["V/V", "quinta de la quinta", "dominante de la dominante"];
+    expect(gradeShort("v/v", accepted)).toBe(true);
+    expect(gradeShort(" Quinta de la Quinta ", accepted)).toBe(true);
+    expect(gradeShort("Dominante de la Dominante", accepted)).toBe(true);
+    expect(gradeShort("subdominante", accepted)).toBe(false);
+  });
+  it("compases y cifrados con barras/números — exacto tras normalizar espacios", () => {
+    expect(gradeShort("6/8", ["6/8"])).toBe(true);
+    expect(gradeShort(" 6 / 8 ", ["6/8"])).toBe(false); // los espacios internos SÍ importan (cambian el término)
+    expect(gradeShort("6/8", ["6 / 8"])).toBe(false);
+  });
+  it("sin respuesta o sin aceptadas, nunca es correcta", () => {
+    expect(gradeShort("", ["algo"])).toBe(false);
+    expect(gradeShort("   ", ["algo"])).toBe(false);
+    expect(gradeShort(null, ["algo"])).toBe(false);
+    expect(gradeShort(undefined, ["algo"])).toBe(false);
+    expect(gradeShort("algo", [])).toBe(false);
+    expect(gradeShort("algo", null)).toBe(false);
   });
 });
 

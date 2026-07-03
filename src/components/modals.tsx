@@ -662,6 +662,8 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
   ]);
   const [correctOptionId, setCorrectOptionId] = useState(initial?.correctOptionId || "A");
   const [points,          setPoints]          = useState<number>(initial?.points ?? 1);
+  const [acceptedText,    setAcceptedText]    = useState((initial?.accepted || []).join("\n"));
+  const accepted = acceptedText.split("\n").map((s) => s.trim()).filter(Boolean);
 
   const updateOpt = (i: number, txt: string) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, text: txt } : o));
   const addOpt = () => {
@@ -680,7 +682,8 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
   const canSave = Boolean(
     text.trim() &&
     audioEnd > audioStart &&
-    (type !== "test" || (options.every((o) => (o.text ?? "").trim()) && correctOptionId)));
+    (type !== "test" || (options.every((o) => (o.text ?? "").trim()) && correctOptionId)) &&
+    (type !== "corta" || accepted.length > 0));
 
   const handleSave = () => {
     if (!canSave) return;
@@ -693,7 +696,8 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
       options:    type === "test" ? options.map((o) => ({ ...o, text: (o.text ?? "").trim() })) : [],
       correctOptionId: type === "test" ? correctOptionId : null,
       explanation: explanation.trim() || undefined,
-      points:     type === "test" ? points : undefined,
+      points:     type === "test" || type === "corta" ? points : undefined,
+      accepted:   type === "corta" ? accepted : undefined,
     });
   };
 
@@ -703,7 +707,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
 
       <label style={S.label}>Tipo</label>
       <div style={{ ...S.row, gap: 8, marginBottom: 14 }}>
-        {[{ id: "test", label: "Tipo test" }, { id: "desarrollo", label: "Desarrollo" }].map((opt) => (
+        {[{ id: "test", label: "Tipo test" }, { id: "corta", label: "Respuesta corta" }, { id: "desarrollo", label: "Desarrollo" }].map((opt) => (
           <button key={opt.id} type="button" onClick={() => setType(opt.id)}
             style={{
               ...S.btn, flex: 1, fontSize: 12,
@@ -739,7 +743,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
         )}
       </div>
 
-      {type === "test" && (
+      {(type === "test" || type === "corta") && (
         <>
           <label style={S.label}>Peso en la nota</label>
           <div style={{ ...S.row, gap: 8, alignItems: "center", marginBottom: 14 }}>
@@ -747,7 +751,24 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
               value={points} onChange={(e) => setPoints(Math.max(1, parseInt(e.target.value, 10) || 1))} />
             <span style={{ fontSize: 11, color: C.muted }}>Puntos — por defecto 1; súbelo para preguntas que valgan más.</span>
           </div>
+        </>
+      )}
 
+      {type === "corta" && (
+        <>
+          <label style={S.label}>Respuestas aceptadas (una por línea)</label>
+          <textarea style={{ ...S.input, marginBottom: 6, minHeight: 70, resize: "vertical", fontFamily: FONT_SANS }}
+            value={acceptedText} onChange={(e) => setAcceptedText(e.target.value)}
+            placeholder={"Semicadencia\nCadencia suspensiva"} />
+          <p style={{ fontSize: 11, color: C.muted, margin: "0 0 18px", lineHeight: 1.5 }}>
+            Cualquiera de estas grafías se acepta como correcta — no distingue mayúsculas, tildes ni espacios sobrantes.
+            {accepted.length > 0 && ` Ahora mismo: ${accepted.join(" · ")}`}
+          </p>
+        </>
+      )}
+
+      {type === "test" && (
+        <>
           <label style={S.label}>Opciones (marca la correcta)</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
             {options.map((opt, i) => {
@@ -786,8 +807,8 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
         value={explanation} onChange={(e) => setExplanation(e.target.value)}
         placeholder="Por qué es esa la respuesta correcta…" />
       <p style={{ fontSize: 11, color: C.muted, margin: "0 0 18px", lineHeight: 1.5 }}>
-        {type === "test"
-          ? "En preguntas test, la verá el alumno en la corrección, junto a la respuesta correcta."
+        {type !== "desarrollo"
+          ? "En preguntas test y de respuesta corta, la verá el alumno en la corrección, junto a la respuesta correcta."
           : "En preguntas de desarrollo, solo la ves tú — te sirve de pauta al corregir."}
       </p>
 

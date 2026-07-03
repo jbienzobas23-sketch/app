@@ -41,6 +41,10 @@ export interface Question {
   // Peso de la pregunta en la nota del cuestionario (F5, T5.4) — defecto 1;
   // ver calcQuestionnaireScore en scoring.ts.
   points?: number;
+  // Respuestas aceptadas para el tipo "corta" (F5, T5.6) — una o varias
+  // grafías válidas; se comparan con gradeShort (scoring.ts), que normaliza
+  // mayúsculas/tildes/espacios antes de comparar.
+  accepted?: string[];
   [k: string]: unknown;
 }
 

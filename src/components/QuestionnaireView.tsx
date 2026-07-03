@@ -191,7 +191,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
                     {answered ? "✓" : idx + 1}
                   </span>
                   <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
-                    {q.type === "test" ? "Opción múltiple" : "Respuesta abierta"} · {fmt(q.audioStart)}–{fmt(q.audioEnd)}
+                    {q.type === "test" ? "Opción múltiple" : q.type === "corta" ? "Respuesta corta" : "Respuesta abierta"} · {fmt(q.audioStart)}–{fmt(q.audioEnd)}
                   </span>
                   <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
@@ -216,6 +216,13 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
                           );
                         })}
                       </div>
+                    )}
+                    {q.type === "corta" && (
+                      <input type="text" style={{ ...S.input, fontSize: 14 }}
+                        placeholder="Escribe tu respuesta…"
+                        value={answers[q.id] || ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        onClick={(e) => e.stopPropagation()} />
                     )}
                     {q.type === "desarrollo" && (
                       <textarea style={{ ...S.input, minHeight: 96, resize: "vertical", lineHeight: 1.5, fontSize: 14 }}

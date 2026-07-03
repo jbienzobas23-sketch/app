@@ -248,13 +248,13 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
               <div style={{ flex: "1 1 200px", minWidth: 0 }}>
                 <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
-                  <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
+                  <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
                   <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
                   {q.type === "test" && (q.points ?? 1) !== 1 && (
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
                   )}
                 </div>
-                <div style={{ fontSize: 14, color: C.ink, marginBottom: q.type === "test" ? 6 : 0 }}>{q.text}</div>
+                <div style={{ fontSize: 14, color: C.ink, marginBottom: q.type === "desarrollo" ? 0 : 6 }}>{q.text}</div>
                 {q.type === "test" && (
                   <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
                     {(q.options ?? []).map((opt) => (
@@ -267,6 +267,11 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                         {opt.id}) {opt.text}{opt.id === q.correctOptionId ? " ✓" : ""}
                       </span>
                     ))}
+                  </div>
+                )}
+                {q.type === "corta" && (
+                  <div style={{ fontSize: 12, color: C.muted }}>
+                    Aceptadas: {(q.accepted ?? []).join(" · ") || "—"}
                   </div>
                 )}
               </div>

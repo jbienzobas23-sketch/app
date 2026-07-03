@@ -5,7 +5,7 @@ import { partSlotIndex, phraseSlotIndex } from "./palette.js";
 
 export interface Interval { start: number; end: number; fn: string; }
 export interface SchemaBlock { id?: string; level: number; start: number; end: number; label?: string; }
-export interface Question { id: string; type?: string; correctOptionId?: string | null; points?: number; }
+export interface Question { id: string; type?: string; correctOptionId?: string | null; points?: number; accepted?: string[]; }
 
 export const getAt = (intervals: Interval[], t: number): string | null => {
   for (const iv of intervals) if (t >= iv.start && t < iv.end) return iv.fn;
@@ -39,20 +39,44 @@ export const calcScore = (teacherAns: Interval[], studentAns: Interval[], durati
   return tot > 0 ? Math.round((ok / tot) * 100) : 0;
 };
 
-// Ponderado por points (F5, T5.4): cada pregunta test pesa `points` (defecto 1)
-// en la nota — sin points en ninguna, es exactamente el reparto igualitario
-// de antes (todas pesan 1). No confundir con aggregateParts (media de partes);
-// esto pondera preguntas dentro de UN cuestionario.
+// Rango Unicode de marcas diacríticas combinantes (U+0300–U+036F): lo que
+// `normalize("NFD")` separa de una vocal acentuada ("á" → "a" + marca). Se
+// construye con fromCharCode para no depender de escapes \uXXXX en el fuente.
+const DIACRITIC_MARKS_RE = new RegExp(`[${String.fromCharCode(0x0300)}-${String.fromCharCode(0x036f)}]`, "g");
+
+// Normaliza una respuesta corta para comparar sin distinguir mayúsculas,
+// tildes/diacríticos ni espacios sobrantes (F5, T5.6): "Semicadencia",
+// " semicadencia ", "SEMICADENCIA" son la misma respuesta; "V/V" y "6/8" no
+// llevan tildes pero sí se benefician del recorte de espacios y minúsculas.
+const normalizeShort = (s: string): string =>
+  s.trim().toLowerCase().normalize("NFD").replace(DIACRITIC_MARKS_RE, "").replace(/\s+/g, " ").trim();
+
+// Corrector de respuesta corta: ¿coincide (normalizada) con alguna aceptada?
+export const gradeShort = (answer: string | null | undefined, accepted: string[] | null | undefined): boolean => {
+  if (!answer?.trim() || !accepted?.length) return false;
+  const norm = normalizeShort(answer);
+  return accepted.some((a) => normalizeShort(a) === norm);
+};
+
+// Ponderado por points (F5, T5.4): cada pregunta autocorregible (test o corta)
+// pesa `points` (defecto 1) en la nota — sin points en ninguna, es exactamente
+// el reparto igualitario de antes (todas pesan 1). Desarrollo no entra aquí
+// (se corrige a mano). No confundir con aggregateParts (media de partes); esto
+// pondera preguntas dentro de UN cuestionario.
 export const calcQuestionnaireScore = (
   questions: Question[] | null | undefined,
   answers: Record<string, string> | null | undefined,
 ): number | null => {
-  const testQs = (questions || []).filter((q) => q.type === "test" && q.correctOptionId);
-  if (testQs.length === 0) return null;
+  const gradableQs = (questions || []).filter((q) =>
+    (q.type === "test" && q.correctOptionId) || (q.type === "corta" && q.accepted?.length));
+  if (gradableQs.length === 0) return null;
   const ans = (answers || {}) as Record<string, string>;
-  const totalPoints = testQs.reduce((sum, q) => sum + (q.points ?? 1), 0);
+  const totalPoints = gradableQs.reduce((sum, q) => sum + (q.points ?? 1), 0);
   if (totalPoints <= 0) return null;
-  const earnedPoints = testQs.reduce((sum, q) => sum + (ans[q.id] === q.correctOptionId ? (q.points ?? 1) : 0), 0);
+  const earnedPoints = gradableQs.reduce((sum, q) => {
+    const correct = q.type === "corta" ? gradeShort(ans[q.id], q.accepted) : ans[q.id] === q.correctOptionId;
+    return sum + (correct ? (q.points ?? 1) : 0);
+  }, 0);
   return Math.round((earnedPoints / totalPoints) * 100);
 };
 
