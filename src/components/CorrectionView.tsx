@@ -42,6 +42,15 @@ type SaveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"]
 // Valor de los inputs de puntuación: vacío ("") o número/cadena del campo.
 type ScoreInput = string | number;
 
+// Antes de este cambio la nota manual del profesor se editaba en 0–10; ahora
+// se edita y se muestra en 0–100 (la escala que consume scoreColor/ScoreBadge
+// en el resto de la app). Las correcciones guardadas en la escala antigua se
+// leen tolerantemente: un totalScore <= 10 se interpreta como 0–10 y se
+// multiplica por 10 tanto al mostrarlo como al precargarlo en el input de
+// edición.
+const normalizeScore100 = (v: number | null | undefined): number | null =>
+  v == null ? null : (v <= 10 ? v * 10 : v);
+
 interface SchemaPlayheadProps { timeRef: { current: number }; duration: number; }
 
 // Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
@@ -87,11 +96,11 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => tc?.levelComments   || {});
   const [blkComments,  setBlkComments]  = useState<Record<string, string>>(() => tc?.blockComments   || {});
   const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
-  const [schemaScore,  setSchemaScore]  = useState<ScoreInput>(tc?.totalScore ?? "");
+  const [schemaScore,  setSchemaScore]  = useState<ScoreInput>(() => normalizeScore100(tc?.totalScore) ?? "");
   const [showBlkForm,  setShowBlkForm]  = useState(false);
   const [qComments,    setQComments]    = useState<Record<string, string>>(() => tc?.questionComments || {});
   const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
-  const [quizScore,    setQuizScore]    = useState<ScoreInput>(tc?.totalScore ?? "");
+  const [quizScore,    setQuizScore]    = useState<ScoreInput>(() => normalizeScore100(tc?.totalScore) ?? "");
 
   // Audio — siempre incondicional (reglas de hooks)
   const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
@@ -102,6 +111,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     const schemaKey   = (exercise.schemaKey as SchemaBlock[] | undefined) || [];
     const hasKey      = schemaKey.length > 0;
     const ps          = result.placementScore ?? null;
+    const effSchemaMargin = (exercise.schemaMargin as number | undefined) ?? 3;
     const studentPalette = result.schemaPalette || SCHEMA_PALETTE_DEFAULT;   // paleta elegida por el alumno
     const keyPalette     = exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT;  // paleta de la clave (profesor)
     const schemaLevels = exercise.schemaLevels as number[] | undefined;
@@ -215,7 +225,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
 
             {ps != null && (
               <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Colocación automática (margen ±3 s)</div>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Colocación automática (margen ±{effSchemaMargin} s)</div>
                 <div style={{ fontSize: 48, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
                 <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>de bloques dentro del margen</div>
               </div>
@@ -281,9 +291,9 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
               </div>
 
               <div style={{ marginBottom: 18 }}>
-                <label style={S.label}>Puntuación total (0–10, opcional)</label>
-                <input type="number" min={0} max={10} step={0.5} value={schemaScore}
-                  onChange={(e) => setSchemaScore(e.target.value)} placeholder="Ej: 7.5"
+                <label style={S.label}>Puntuación total % (opcional)</label>
+                <input type="number" min={0} max={100} step={5} value={schemaScore}
+                  onChange={(e) => setSchemaScore(e.target.value)} placeholder={ps != null ? String(ps) : "Ej: 75"}
                   style={{ ...S.input, width: 120 }} />
               </div>
 
@@ -309,7 +319,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
             {ps != null ? (
               <>
                 <div style={{ fontSize: 56, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{ps}%</div>
-                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>de bloques colocados correctamente (margen ±3 s)</div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>de bloques colocados correctamente (margen ±{effSchemaMargin} s)</div>
               </>
             ) : (
               <div style={{ color: C.muted, lineHeight: 1.6 }}>
@@ -336,12 +346,15 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
           {tc?.corrected && (
             <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.35)`, marginTop: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>Corrección del profesor</div>
-              {tc.totalScore != null && (
-                <div style={{ textAlign: "center", marginBottom: 14 }}>
-                  <span style={{ fontSize: 48, fontWeight: 900, color: C.quiz, lineHeight: 1 }}>{tc.totalScore}</span>
-                  <span style={{ fontSize: 18, color: C.quiz }}>/10</span>
-                </div>
-              )}
+              {tc.totalScore != null && (() => {
+                const pct100 = normalizeScore100(tc.totalScore);
+                return (
+                  <div style={{ textAlign: "center", marginBottom: 14 }}>
+                    <span style={{ fontSize: 48, fontWeight: 900, color: scoreColor(pct100), lineHeight: 1 }}>{pct100}</span>
+                    <span style={{ fontSize: 18, color: scoreColor(pct100) }}>%</span>
+                  </div>
+                );
+              })()}
               {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
                 <div key={lv.id} style={{ marginBottom: 10, padding: "10px 12px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: lv.color, marginBottom: 4 }}>{lv.sub}</div>
@@ -430,25 +443,37 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                   <div style={{ fontSize: 14, color: C.ink, marginBottom: 12 }}>{q.text}</div>
 
                   {q.type === "test" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {(q.options ?? []).map((opt) => {
-                        const isPick       = opt.id === studentAnswer;
-                        const isCorrectOpt = opt.id === q.correctOptionId;
-                        return (
-                          <div key={opt.id} style={{
-                            ...S.row, gap: 10, padding: "8px 12px", borderRadius: 8,
-                            background: isCorrectOpt ? "rgba(63,155,91,0.10)" : isPick && !isCorrectOpt ? "rgba(184,74,58,0.10)" : C.paper2,
-                            border:     `1.5px solid ${isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.line}`,
-                            color:      isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.muted,
-                          }}>
-                            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, minWidth: 20 }}>{opt.id}</span>
-                            <span style={{ flex: 1, fontSize: 13 }}>{opt.text}</span>
-                            {isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>✓ Correcta</span>}
-                            {isPick && !isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>Resp. alumno</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {(q.options ?? []).map((opt) => {
+                          const isPick       = opt.id === studentAnswer;
+                          const isCorrectOpt = opt.id === q.correctOptionId;
+                          return (
+                            <div key={opt.id} style={{
+                              ...S.row, gap: 10, padding: "8px 12px", borderRadius: 8,
+                              background: isCorrectOpt ? "rgba(63,155,91,0.10)" : isPick && !isCorrectOpt ? "rgba(184,74,58,0.10)" : C.paper2,
+                              border:     `1.5px solid ${isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.line}`,
+                              color:      isCorrectOpt ? C.fnT : isPick && !isCorrectOpt ? C.danger : C.muted,
+                            }}>
+                              <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, minWidth: 20 }}>{opt.id}</span>
+                              <span style={{ flex: 1, fontSize: 13 }}>{opt.text}</span>
+                              {isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>✓ Correcta</span>}
+                              {isPick && !isCorrectOpt && <span style={{ fontSize: 11, fontWeight: 700 }}>Resp. alumno</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario del profesor (opcional):</div>
+                        <textarea
+                          value={qComments[q.id] || ""}
+                          onChange={(e) => setQComments((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                          placeholder="Escribe un comentario para esta respuesta..."
+                          rows={2}
+                          style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </>
                   )}
 
                   {q.type === "desarrollo" && (
@@ -471,33 +496,31 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
               );
             })}
 
-            {devQs.length > 0 && (
-              <div style={{ ...S.card, marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 12 }}>Corrección global</div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario global:</div>
-                <textarea
-                  value={quizGlobal}
-                  onChange={(e) => setQuizGlobal(e.target.value)}
-                  placeholder="Comentario general sobre el cuestionario..."
-                  rows={3}
-                  style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box", marginBottom: 12 }}
+            <div style={{ ...S.card, marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 12 }}>Corrección global</div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>Comentario global:</div>
+              <textarea
+                value={quizGlobal}
+                onChange={(e) => setQuizGlobal(e.target.value)}
+                placeholder="Comentario general sobre el cuestionario..."
+                rows={3}
+                style={{ width: "100%", fontFamily: "Outfit, sans-serif", fontSize: 13, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box", marginBottom: 12 }}
+              />
+              <div style={{ ...S.row, gap: 12, alignItems: "center" }}>
+                <label style={{ fontSize: 13, color: C.muted }}>Puntuación total %:</label>
+                <input
+                  type="number" min={0} max={100} step={5}
+                  value={quizScore}
+                  onChange={(e) => setQuizScore(e.target.value)}
+                  placeholder={sc != null ? String(sc) : undefined}
+                  style={{ width: 80, fontFamily: "Outfit, sans-serif", fontSize: 14, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 10px", color: C.ink, textAlign: "center" }}
                 />
-                <div style={{ ...S.row, gap: 12, alignItems: "center" }}>
-                  <label style={{ fontSize: 13, color: C.muted }}>Puntuación total (0–10):</label>
-                  <input
-                    type="number" min={0} max={10} step={0.5}
-                    value={quizScore}
-                    onChange={(e) => setQuizScore(e.target.value)}
-                    style={{ width: 80, fontFamily: "Outfit, sans-serif", fontSize: 14, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 10px", color: C.ink, textAlign: "center" }}
-                  />
-                </div>
               </div>
-            )}
+            </div>
 
             <button
               onClick={handleSaveQuiz}
-              disabled={devQs.length === 0}
-              style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, marginBottom: 8, opacity: devQs.length === 0 ? 0.4 : 1 }}
+              style={{ ...S.btnPrimary, width: "100%", padding: 14, borderRadius: 12, marginBottom: 8 }}
             >
               {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
             </button>
@@ -515,13 +538,16 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
           <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
 
           <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-            {tc?.corrected && tc?.totalScore != null ? (
-              <>
-                <div style={{ fontSize: 64, fontWeight: 900, color: scoreColor(tc.totalScore * 10), lineHeight: 1 }}>{tc.totalScore}<span style={{ fontSize: 28 }}>/10</span></div>
-                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Puntuación del profesor</div>
-                {sc != null && <div style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>{correctN} de {testQs.length} preguntas test correctas ({sc}% automático)</div>}
-              </>
-            ) : sc != null ? (
+            {tc?.corrected && tc?.totalScore != null ? (() => {
+              const pct100 = normalizeScore100(tc.totalScore);
+              return (
+                <>
+                  <div style={{ fontSize: 64, fontWeight: 900, color: scoreColor(pct100), lineHeight: 1 }}>{pct100}%</div>
+                  <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Puntuación del profesor</div>
+                  {sc != null && <div style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>{correctN} de {testQs.length} preguntas test correctas ({sc}% automático)</div>}
+                </>
+              );
+            })() : sc != null ? (
               <>
                 <div style={{ fontSize: 64, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
                 <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>{correctN} de {testQs.length} {testQs.length === 1 ? "pregunta" : "preguntas"} correctas</div>
@@ -576,6 +602,12 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                         </div>
                       );
                     })}
+                    {teacherComment && (
+                      <div style={{ marginTop: 10, background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor:</div>
+                        <div style={{ fontSize: 13, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{teacherComment}</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -620,6 +652,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   const studentAns       = result.intervals;
   const sc               = result.score;
   const col              = scoreColor(sc);
+  const effMargin        = (exercise.margin as number | undefined) ?? margin;
   const pct = (t: number) => `${(t / dur) * 100}%`;
 
   return (
@@ -640,7 +673,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
           ) : (
             <>
               <div style={{ fontSize: 64, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
-              <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>de acierto · margen ±{margin}s</div>
+              <div style={{ color: C.muted, fontSize: 14, marginTop: 4 }}>de acierto · margen ±{effMargin}s</div>
               <div style={{ fontSize: 14, marginTop: 12, color: col }}>
                 {sc >= 80 ? "Excelente análisis armónico." : sc >= 50 ? "Bien, pero hay margen de mejora." : "Sigue practicando."}
               </div>
@@ -667,7 +700,7 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
 
         {sc != null && (
           <div style={S.card}>
-            <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Comparación visual (margen ±{margin}s aplicado)</div>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Comparación visual (margen ±{effMargin}s aplicado)</div>
             <div style={{ fontSize: 11, ...S.row, gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
               {exCategory.buttons.map((b) => (
                 <span key={b.id} style={{ ...S.row, gap: 4 }}>
