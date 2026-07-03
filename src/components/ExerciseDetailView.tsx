@@ -1,18 +1,20 @@
 // ═══ EXERCISEDETAILVIEW (CREACIÓN/EDICIÓN DE EJERCICIO) ══════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
 import { useState, useRef, useMemo } from "react";
-import type { Exercise, Category, Button } from "../lib/types.js";
+import type { Exercise, Category, Button, Part } from "../lib/types.js";
 import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../lib/audio.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, modelsOf, answerFor, answerStats, questionsOf } from "../lib/domain.js";
+import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, modelsOf, answerFor, answerStats, questionsOf, partsOf, partKeyReadyOf } from "../lib/domain.js";
 import { MODEL_META } from "../lib/modelMeta.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { ConfirmModal, AudioWaveIcon, CtaButton } from "./primitives.jsx";
 import { FragmentRangeSelector } from "./session.js";
 import { AudioLibraryPickerModal, type AudioItem } from "./modals.js";
+
+const MAX_PARTS = 8;
 
 // Categoría con botones garantizados (las que llegan por props siempre los tienen).
 type CatWithButtons = Category & { buttons: Button[] };
@@ -22,9 +24,12 @@ interface KeyBlock { level: number; start: number; end: number; label?: string; 
 interface ExerciseDetailViewProps {
   exercise: Exercise | null;
   onBack: () => void;
-  onRecord: (ex: Exercise) => void;
-  onPreview?: (ex: Exercise) => void;
-  onManageQuestions?: (ex: Exercise) => void;
+  // partId (F4, T4.2): cuando se llama desde una tarjeta de parte, apunta la
+  // acción a esa parte en vez de a la primera (el padre construye la ruta
+  // /profesor/ejercicio/:id/parte/:pid/…).
+  onRecord: (ex: Exercise, partId?: string) => void;
+  onPreview?: (ex: Exercise, partId?: string) => void;
+  onManageQuestions?: (ex: Exercise, partId?: string) => void;
   onUpdate: (patch: Record<string, unknown>) => void;
   onCreate: (ex: Record<string, unknown>) => void;
   onDelete: () => void;
@@ -107,6 +112,72 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     if (n.has(id)) { if (n.size > 1) n.delete(id); } else n.add(id);
     return n;
   });
+
+  // ── Partes (F4, T4.2) ───────────────────────────────────────────────────────
+  // Mientras el ejercicio tiene una sola parte, la UI de arriba (Audio,
+  // Fragmento) es idéntica a hoy y opera sobre los campos planos de siempre.
+  // "+ Añadir audio" activa este modo: parts.length > 0 en vez de una sola
+  // parte implícita. El contenido de la clave (answers/schemaKey/questions)
+  // de cada parte NUNCA se edita aquí — se graba en una pantalla aparte
+  // (grabar/preguntas) que persiste al momento vía updatePart; este estado
+  // solo gestiona la estructura (audio, compositor, peso, orden).
+  const initialParts = useMemo<Part[]>(
+    () => (!isCreating && partsOf(exercise).length > 1) ? partsOf(exercise) : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [parts, setParts] = useState<Part[]>(initialParts);
+  const isMultiPart = parts.length > 0;
+  const [libraryPickerForPart, setLibraryPickerForPart] = useState<string | null>(null);
+  const [confirmDeletePart,    setConfirmDeletePart]    = useState<string | null>(null);
+
+  const addMultiPart = () => {
+    const part1: Part = {
+      id: "p1",
+      audioUrl: audioUrl ?? undefined, audioName: audioName ?? undefined,
+      duration: effDuration,
+      audioFragmentStart: fragStart ?? undefined, audioFragmentEnd: fragEnd ?? undefined,
+      audioTotalDuration: totalAudioDuration ?? undefined, waveformData: waveformData ?? undefined,
+      answers: exercise.answers as Record<string, unknown[]> | undefined,
+      schemaKey: exercise.schemaKey as unknown[] | undefined,
+      questions: exercise.questions,
+      composerName: activeComposer || undefined,
+      points: 1,
+    };
+    const part2: Part = { id: `p${Date.now()}`, points: 1 };
+    setParts([part1, part2]);
+  };
+  const updatePartField = (partId: string, patch: Partial<Part>) =>
+    setParts((prev) => prev.map((p) => (p.id === partId ? { ...p, ...patch } : p)));
+  const movePart = (partId: string, dir: -1 | 1) =>
+    setParts((prev) => {
+      const idx = prev.findIndex((p) => p.id === partId);
+      const swapIdx = idx + dir;
+      if (idx < 0 || swapIdx < 0 || swapIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  const duplicatePart = (partId: string) =>
+    setParts((prev) => {
+      if (prev.length >= MAX_PARTS) return prev;
+      const idx = prev.findIndex((p) => p.id === partId);
+      if (idx < 0) return prev;
+      const clone: Part = { ...prev[idx], id: `p${Date.now()}` };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+  const removePart = (partId: string) =>
+    setParts((prev) => (prev.length > 1 ? prev.filter((p) => p.id !== partId) : prev));
+  const pickAudioForPart = (partId: string, audio: AudioItem) => {
+    updatePartField(partId, {
+      audioUrl: audio.url ?? null, audioName: audio.title ?? null,
+      duration: audio.duration ?? undefined, audioTotalDuration: audio.duration ?? undefined,
+      waveformData: undefined, audioFragmentStart: undefined, audioFragmentEnd: undefined,
+    });
+    setLibraryPickerForPart(null);
+  };
 
   const toggleCategory = (id: string) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
@@ -201,12 +272,18 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   // Detección de cambios (solo en edición)
   const isDirty = useMemo(() => {
     if (isCreating) return false;
+    if (isMultiPart && JSON.stringify(parts) !== JSON.stringify(initialParts)) return true;
     if (title.trim() !== exercise.title) return true;
     // Comparar array de modelos
     const exModelsArr = modelsOf(exercise);
     if (selectedModels.join(",") !== exModelsArr.join(",")) return true;
+    // Los campos de audio/fragmento de abajo solo son la fuente de verdad
+    // cuando NO estamos en modo multiparte (allí la fuente es `parts`, ya
+    // comparado arriba).
+    if (!isMultiPart) {
     if (audioUrl !== (exercise.audioUrl || null)) return true;
     if (!audioName && exercise.audioName) return true;
+    }
     if (selectedModels.includes("esquema") && (exercise.listenOnly ?? false) !== listenOnly) return true;
     if (selectedModels.includes("esquema") && (exercise.immediateSchemaFeedback ?? false) !== immediateSchemaFeedback) return true;
     if ((exercise.showComposer ?? true) !== showComposer) return true;
@@ -231,16 +308,20 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
         for (const bid of selBtns) if (!exBtnIds.has(bid)) return true;
       }
     }
-    if (!hasExistingAudio && !exercise.audioName) {
-      const manual = parseInt(manualDuration) || 0;
-      if (manual !== exercise.duration) return true;
+    if (!isMultiPart) {
+      if (!hasExistingAudio && !exercise.audioName) {
+        const manual = parseInt(manualDuration) || 0;
+        if (manual !== exercise.duration) return true;
+      }
+      if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
+      if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     }
-    if ((fragStart ?? null) !== (exercise.audioFragmentStart ?? null)) return true;
-    if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, globalMargin]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, globalMargin, isMultiPart, parts, initialParts]);
 
-  const canSave = title.trim().length > 0 && effDuration > 0 && (isCreating || isDirty);
+  // En multiparte la duración vive por parte, no en effDuration (congelado en
+  // los campos planos de la parte 1 desde que se activó el modo multiparte).
+  const canSave = title.trim().length > 0 && (isMultiPart || effDuration > 0) && (isCreating || isDirty);
   const SEC = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 };
 
   // Guardia de cambios sin guardar: las salidas que abandonan la vista (volver,
@@ -252,6 +333,10 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   const guardedOnRecord           = guardIfDirty(() => onRecord(exercise));
   const guardedOnPreview          = onPreview ? guardIfDirty(() => onPreview(exercise)) : undefined;
   const guardedOnManageOrRecord   = guardIfDirty(() => (onManageQuestions || onRecord)(exercise));
+  // Variantes por parte (tarjetas de la sección Partes).
+  const guardedOnRecordPart   = (partId: string) => guardIfDirty(() => onRecord(exercise, partId))();
+  const guardedOnPreviewPart  = (partId: string) => onPreview && guardIfDirty(() => onPreview(exercise, partId))();
+  const guardedOnQuestionsPart = (partId: string) => guardIfDirty(() => (onManageQuestions || onRecord)(exercise, partId))();
 
   const handleSave = () => {
     if (!canSave) return;
@@ -294,29 +379,39 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
       return;
     }
 
-    const patch: Record<string, unknown> = { title: title.trim(), duration: effDuration, model, models: selectedModels };
+    const patch: Record<string, unknown> = { title: title.trim(), model, models: selectedModels };
+    if (isMultiPart) {
+      // La duración y el audio viven por parte; no se tocan los campos planos
+      // (quedan vestigiales — partToExercise siempre los sustituye por los de
+      // la parte activa).
+      patch.parts = parts;
+    } else {
+      patch.duration = effDuration;
+    }
     if (hasInteractivo) {
       const keepIds = new Set(safe.map((m) => m.id));
       const prev    = exercise.answers || {};
       patch.categories = safe;
       patch.modes      = undefined;
-      patch.answers    = Object.fromEntries(Object.entries(prev).filter(([id]) => keepIds.has(id)));
+      if (!isMultiPart) patch.answers = Object.fromEntries(Object.entries(prev).filter(([id]) => keepIds.has(id)));
       if (forceHint) patch.showHint = true;
       patch.margin = exMargin;
     } else {
       patch.categories = [];
-      patch.answers    = {};
+      if (!isMultiPart) patch.answers = {};
     }
-    patch.audioUrl            = audioUrl     || null;
-    patch.audioName           = audioName    || null;
-    patch.waveformData        = waveformData || null;
-    patch.audioFragmentStart  = fragStart    ?? null;
-    patch.audioFragmentEnd    = fragEnd      ?? null;
-    patch.audioTotalDuration  = totalAudioDuration || null;
+    if (!isMultiPart) {
+      patch.audioUrl            = audioUrl     || null;
+      patch.audioName           = audioName    || null;
+      patch.waveformData        = waveformData || null;
+      patch.audioFragmentStart  = fragStart    ?? null;
+      patch.audioFragmentEnd    = fragEnd      ?? null;
+      patch.audioTotalDuration  = totalAudioDuration || null;
+    }
     if (hasEsquema) { patch.listenOnly = listenOnly; patch.immediateSchemaFeedback = immediateSchemaFeedback; patch.schemaLevels = [...schemaLevels]; patch.schemaMargin = exSchemaMargin; }
     patch.showComposer = showComposer;
-    patch.composerName = activeComposer || null;
-    if (!audioName && exercise.audioName) {
+    if (!isMultiPart) patch.composerName = activeComposer || null;
+    if (!isMultiPart && !audioName && exercise.audioName) {
       patch.audioUrl = null; patch.audioName = null; patch.waveformData = null;
       patch.audioFragmentStart = null; patch.audioFragmentEnd = null;
     }
@@ -352,6 +447,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
           <input style={{ ...S.input, marginBottom: 14, fontSize: 15, fontWeight: 500 }}
             value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: Coral nº 4 – Bach" />
 
+          {isMultiPart ? (
+            <div style={{ padding: "10px 12px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12.5, color: C.ink2, lineHeight: 1.5 }}>
+              Ejercicio multiparte · {parts.length} audios. El audio, el fragmento y la clave de cada uno se gestionan en la sección «Partes» de abajo.
+            </div>
+          ) : (
+          <>
           <label style={S.label}>Audio</label>
           {hasExistingAudio ? (
             /* Fila única cuando ya hay audio */
@@ -433,6 +534,14 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                 </p>
               )}
             </div>
+          )}
+          </>
+          )}
+          {!isCreating && !isMultiPart && (
+            <button type="button" onClick={addMultiPart}
+              style={{ ...S.btn, marginTop: 14, width: "100%", fontSize: 12.5, padding: "8px 12px" }}>
+              + Añadir audio (ejercicio multiparte)
+            </button>
           )}
         </section>
 
@@ -541,8 +650,135 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
           )}
         </section>
 
+        {/* ══ 2b. PARTES (multiparte, F4) ═══════════════════════════════════════ */}
+        {isMultiPart && (
+          <section style={SEC}>
+            <p style={{ ...SECTION_STYLE, margin: "0 0 4px" }}>Partes</p>
+            <p style={{ fontSize: 11.5, color: C.muted, margin: "0 0 14px", lineHeight: 1.5 }}>
+              Cada parte tiene su propio audio y su propia clave; el alumno las resuelve todas en una sola sesión con una sola entrega.
+            </p>
+            {parts.map((part, idx) => {
+              const partHasAudio = !!part.audioUrl;
+              const partTotalDur = part.audioTotalDuration || part.duration || 0;
+              const partFragStart = part.audioFragmentStart ?? null;
+              const partFragEnd   = part.audioFragmentEnd ?? null;
+              return (
+                <div key={part.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 10, background: C.paper2 }}>
+                  <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Parte {idx + 1}</span>
+                    <div style={{ ...S.row, gap: 4 }}>
+                      <button type="button" disabled={idx === 0} onClick={() => movePart(part.id, -1)} title="Subir"
+                        style={{ ...S.btn, padding: "3px 8px", fontSize: 12, opacity: idx === 0 ? 0.35 : 1 }}>↑</button>
+                      <button type="button" disabled={idx === parts.length - 1} onClick={() => movePart(part.id, 1)} title="Bajar"
+                        style={{ ...S.btn, padding: "3px 8px", fontSize: 12, opacity: idx === parts.length - 1 ? 0.35 : 1 }}>↓</button>
+                      <button type="button" disabled={parts.length >= MAX_PARTS} onClick={() => duplicatePart(part.id)} title="Duplicar"
+                        style={{ ...S.btn, padding: "3px 8px", fontSize: 12, opacity: parts.length >= MAX_PARTS ? 0.35 : 1 }}>⧉</button>
+                      <button type="button" disabled={parts.length <= 1} onClick={() => setConfirmDeletePart(part.id)} title="Eliminar parte"
+                        style={{ ...S.btnDanger, padding: "3px 8px", fontSize: 12, opacity: parts.length <= 1 ? 0.35 : 1 }}>✕</button>
+                    </div>
+                  </div>
+
+                  <label style={S.label}>Audio</label>
+                  {partHasAudio ? (
+                    <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8 }}>
+                      <AudioWaveIcon size={14} color={C.ink2} />
+                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{part.audioName}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(partTotalDur)}</span>
+                      {audioLibrary.length > 0 && (
+                        <button type="button" onClick={() => setLibraryPickerForPart(part.id)} style={{ ...S.btn, padding: "2px 8px", fontSize: 11, flexShrink: 0 }}>Cambiar</button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ ...S.row, gap: 8, marginBottom: 8 }}>
+                      {audioLibrary.length > 0 && (
+                        <button type="button" onClick={() => setLibraryPickerForPart(part.id)}
+                          style={{ ...S.btn, padding: "7px 10px", fontSize: 12.5, flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                          <AudioWaveIcon size={12} color="#555" /> Almacén
+                        </button>
+                      )}
+                      <input type="url" style={{ ...S.input, fontSize: 12.5 }}
+                        placeholder="O pega una URL de audio"
+                        onChange={(e) => {
+                          const url = e.target.value.trim();
+                          updatePartField(part.id, {
+                            audioUrl: url || null,
+                            audioName: url ? (url.split("/").pop()?.split("?")[0] || "audio") : null,
+                          });
+                        }} />
+                    </div>
+                  )}
+
+                  {partHasAudio && partTotalDur > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <FragmentRangeSelector
+                        totalDuration={partTotalDur}
+                        start={partFragStart}
+                        end={partFragEnd}
+                        onChange={({ start, end }: { start: number; end: number }) => updatePartField(part.id, { audioFragmentStart: start, audioFragmentEnd: end })}
+                        onClear={() => updatePartField(part.id, { audioFragmentStart: undefined, audioFragmentEnd: undefined })}
+                        onDefine={() => updatePartField(part.id, { audioFragmentStart: 0, audioFragmentEnd: partTotalDur })}
+                        audioUrl={part.audioUrl}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ ...S.row, gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 160px" }}>
+                      <label style={{ ...S.label, margin: "0 0 4px" }}>Compositor (opcional)</label>
+                      <input style={{ ...S.input, fontSize: 12.5 }} value={part.composerName || ""}
+                        onChange={(e) => updatePartField(part.id, { composerName: e.target.value || undefined })}
+                        placeholder="Ej: Bach" />
+                    </div>
+                    <div style={{ width: 90 }}>
+                      <label style={{ ...S.label, margin: "0 0 4px" }}>Peso</label>
+                      <input type="number" min={1} step={1} style={{ ...S.input, fontSize: 12.5 }}
+                        value={part.points ?? 1}
+                        onChange={(e) => updatePartField(part.id, { points: Math.max(1, parseInt(e.target.value) || 1) })} />
+                    </div>
+                  </div>
+
+                  <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {selectedModels.map((m) => {
+                      const ready = partKeyReadyOf(exercise, part, [m]);
+                      const label = m === "interactivo" ? "Clave" : m === "esquema" ? "Esquema" : "Preguntas";
+                      return (
+                        <span key={m} style={{ ...S.badge, background: ready ? "rgba(63,155,91,0.12)" : C.paper, color: ready ? C.fnT : C.muted, border: `1px solid ${ready ? "rgba(63,155,91,0.3)" : C.line}` }}>
+                          {label} {ready ? "✓" : "—"}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {(selectedModels.includes("interactivo") || selectedModels.includes("esquema")) && (
+                      <button type="button" onClick={() => guardedOnRecordPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
+                        Grabar clave
+                      </button>
+                    )}
+                    {selectedModels.includes("cuestionario") && (
+                      <button type="button" onClick={() => guardedOnQuestionsPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
+                        Preguntas
+                      </button>
+                    )}
+                    {onPreview && (
+                      <button type="button" onClick={() => guardedOnPreviewPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
+                        Previsualizar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <button type="button" disabled={parts.length >= MAX_PARTS}
+              onClick={() => setParts((prev) => prev.length < MAX_PARTS ? [...prev, { id: `p${Date.now()}`, points: 1 }] : prev)}
+              style={{ ...S.btn, width: "100%", fontSize: 12.5, padding: "8px 12px", opacity: parts.length >= MAX_PARTS ? 0.5 : 1 }}>
+              {parts.length >= MAX_PARTS ? `Máximo ${MAX_PARTS} partes` : "+ Añadir otra parte"}
+            </button>
+          </section>
+        )}
+
         {/* ══ 3. CLAVE DE CORRECCIÓN (interactivo) ════════════════════════════ */}
-        {selectedModels.includes("interactivo") && (
+        {selectedModels.includes("interactivo") && !isMultiPart && (
           <section style={SEC}>
             <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Clave de corrección</p>
             {isCreating ? (
@@ -587,7 +823,10 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
         )}
 
         {/* ══ 4. ESQUEMA FORMAL ═══════════════════════════════════════════════ */}
-        {selectedModels.includes("esquema") && !isCreating && (
+        {/* En multiparte, niveles/listenOnly/margen quedan congelados a su
+            último valor de un solo audio — editables reduciendo temporalmente
+            a una parte. La clave se graba por parte en la sección Partes. */}
+        {selectedModels.includes("esquema") && !isCreating && !isMultiPart && (
           <section style={SEC}>
             <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Esquema formal</p>
             <div style={{ background: `${C.fnD}10`, border: `1px solid ${C.fnD}30`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
@@ -713,7 +952,8 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
         )}
 
         {/* ══ 5. PREGUNTAS (cuestionario) ══════════════════════════════════════ */}
-        {selectedModels.includes("cuestionario") && !isCreating && (
+        {/* En multiparte, las preguntas se gestionan por parte (sección Partes). */}
+        {selectedModels.includes("cuestionario") && !isCreating && !isMultiPart && (
           <section style={SEC}>
             <p style={{ ...SECTION_STYLE, margin: "0 0 14px" }}>Preguntas</p>
             <div style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: exQs.length > 0 ? "rgba(47,111,184,0.07)" : C.paper2, border: `1px solid ${exQs.length > 0 ? "rgba(47,111,184,0.22)" : C.line}`, marginBottom: 14 }}>
@@ -794,6 +1034,18 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
           library={audioLibrary}
           onPick={handlePickFromLibrary}
           onClose={() => setShowLibraryPicker(false)} />
+      )}
+      {libraryPickerForPart && (
+        <AudioLibraryPickerModal
+          library={audioLibrary}
+          onPick={(audio) => pickAudioForPart(libraryPickerForPart, audio)}
+          onClose={() => setLibraryPickerForPart(null)} />
+      )}
+      {confirmDeletePart && (
+        <ConfirmModal
+          message={`¿Eliminar la parte ${parts.findIndex((p) => p.id === confirmDeletePart) + 1}?\n\nSe perderá su audio y su clave si ya la tenía.`}
+          onConfirm={() => { removePart(confirmDeletePart); setConfirmDeletePart(null); }}
+          onCancel={() => setConfirmDeletePart(null)} />
       )}
     </div>
   );
