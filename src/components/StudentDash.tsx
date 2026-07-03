@@ -13,7 +13,8 @@ import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
-interface StudentUser { id: string; teacherId?: string; displayName: string; isGuest?: boolean; defaultPalette?: string; [k: string]: unknown; }
+// Exportado para que App.tsx tipe su cast de UserProfile (F7, T7.2).
+export interface StudentUser { id: string; teacherId?: string; displayName: string; isGuest?: boolean; defaultPalette?: string; [k: string]: unknown; }
 interface CourseItem { id: string; hidden?: boolean; visibility?: string; visibilityGroupId?: string | null; ownerId?: string; [k: string]: unknown; }
 interface GroupItem { id: string; studentIds?: string[]; [k: string]: unknown; }
 interface StudentDashProps {

@@ -111,6 +111,9 @@ export interface Exercise {
 export interface ExerciseResult {
   score?: number | null;
   status?: "auto" | "pendiente" | "corregido";
+  // Paleta con la que el alumno vio los bloques al entregar — todos los
+  // submitAnswer la escriben; se muestra tal cual en la corrección (F7, T7.2).
+  schemaPalette?: string;
   teacherCorrection?: { corrected?: boolean; [k: string]: unknown };
   // Momento de la entrega (Date.now()) — usado para ordenar la cola de
   // pendientes por fecha descendente (F6, T6.1).
@@ -149,6 +152,24 @@ export interface Group {
   id: string;
   name?: string;
   studentIds?: string[];
+  [k: string]: unknown;
+}
+
+// Perfil de usuario (profesor/alumno/admin) tal como vive en fa_users.data.
+// Campos conocidos tipados + índice abierto (mismo patrón permisivo que el
+// resto de este fichero) — consolida los `User`/`StudentUser` locales que
+// coexistían en teacher.tsx y StudentDash.tsx (F7, T7.2).
+export interface UserProfile {
+  id: string;
+  displayName?: string;
+  username?: string;
+  role?: string;
+  credType?: string;
+  teacherId?: string;
+  createdBy?: string;
+  defaultPalette?: string;
+  isGuest?: boolean;
+  recoveryEmail?: string;
   [k: string]: unknown;
 }
 

@@ -14,8 +14,15 @@ import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "./primitives.jsx";
 
 // ── Tipos locales de corrección ──────────────────────────────────────────────
-interface TeacherCorrection {
+// TeacherCorrection se exporta para que App.tsx tipe saveCorrection sin `any`
+// (F7, T7.2) — sigue siendo el mismo tipo permisivo (índice abierto), solo
+// visible fuera de este módulo.
+export interface TeacherCorrection {
   corrected?: boolean;
+  // Solo la presente en corrección multiparte (T4.4): con partes aún sin
+  // corregir, el sobre sigue "pendiente" aunque esta parte concreta ya se
+  // haya guardado.
+  status?: "pendiente" | "corregido";
   levelComments?: Record<string, string>;
   blockComments?: Record<string, string>;
   questionComments?: Record<string, string>;

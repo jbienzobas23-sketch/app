@@ -7,9 +7,12 @@ import { Overline, FieldLabel, TextInput, ErrorMsg, CtaButton, CredentialInput, 
 import { login, logout, createUser, requestPinReset, resetPin } from "../auth/authClient.js";
 
 // ── Interfaces de props ──────────────────────────────────────────────────────
+// AuthUser/Teacher se exportan para que App.tsx tipe sus casts de UserProfile
+// (F7, T7.2) — el mismo cruce de frontera que ya asumían estos tipos (perfiles
+// reales siempre traen username/displayName; solo los invitados no).
 type AuthProfile = Record<string, unknown>;
-type AuthUser = { username: string; role: string; credType?: string; [k: string]: unknown };
-type Teacher = { id: string; displayName: string; username: string; [k: string]: unknown };
+export type AuthUser = { username: string; role: string; credType?: string; [k: string]: unknown };
+export type Teacher = { id: string; displayName: string; username: string; [k: string]: unknown };
 
 interface SetupViewProps { onSetup: (profile: AuthProfile) => void; }
 interface LoginViewProps {

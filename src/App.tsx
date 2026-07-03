@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "./lib/types.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Exercise, Category, Course, Unit, Group, ExerciseResult, UserProfile } from "./lib/types.js";
 import type { AudioItem } from "./components/modals.js";
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -16,8 +17,9 @@ import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
-import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts } from "./lib/scoring.js";
+import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, type Interval, type SchemaBlock } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
+import type { TeacherCorrection } from "./components/CorrectionView.js";
 
 
 
@@ -28,12 +30,14 @@ import { useInjectFonts } from "./theme/fonts.js";
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
+import type { AuthUser, Teacher } from "./components/auth.js";
 import { RecoveryEmailModal } from "./components/modals.jsx";
 
 import { ExerciseView } from "./components/ExerciseView.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
 import { StudentDash } from "./components/StudentDash.jsx";
+import type { StudentUser } from "./components/StudentDash.js";
 import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
 import { MultiPartSessionView } from "./components/MultiPartSessionView.jsx";
 
@@ -69,18 +73,38 @@ function SaveErrorToast({ message, onClose }: { message: string | null; onClose:
   );
 }
 
+// Payload que entregan las vistas de sesión al entregar un ejercicio (F7,
+// T7.2 — antes `any` en submitAnswer). `entries`/`intervals` son el formato
+// "en bruto" del interactivo, igual en modo una-parte que dentro de cada
+// `parts[partId].byModel[modelo]` del multiparte — de ahí que
+// ModelAnswerPayload cubra los cuatro modelos con campos todos opcionales.
+interface AnswerEntry { categoryId: string; intervals: Interval[]; }
+interface ModelAnswerPayload {
+  answers?: Record<string, string>;
+  blocks?: SchemaBlock[];
+  schemaPalette?: string;
+  entries?: AnswerEntry[];
+  currentCategoryId?: string;
+}
+interface SubmitPayload extends ModelAnswerPayload {
+  type?: string;
+  mode?: string;
+  score?: number | null;
+  parts?: Record<string, { byModel?: Record<string, ModelAnswerPayload> }>;
+}
+
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
   useInjectFonts();
 
   // Ref al cliente Supabase — se carga dinámicamente; null en el visor de artefactos
-  const supabaseRef = useRef<any>(null);
+  const supabaseRef = useRef<SupabaseClient | null>(null);
   // Contador de escrituras en vuelo hacia Supabase.
   const pendingSavesRef = useRef(0);
 
   // Estado global
   const [exercises,    setExercises]    = useState<Exercise[]>(INIT_EXERCISES as Exercise[]);
-  const [users,        setUsers]        = useState<any[]>([]);
+  const [users,        setUsers]        = useState<UserProfile[]>([]);
   const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [margin,       setMargin]       = useState(1);
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
@@ -90,7 +114,7 @@ export default function App() {
   const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
 
   const [dbReady, setDbReady] = useState(false);
-  const [user,    setUser]    = useState<any | null>(null);
+  const [user,    setUser]    = useState<UserProfile | null>(null);
   // Mensaje de error de guardado (persistencia). null = sin error.
   const [saveError, setSaveError] = useState<string | null>(null);
   // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
@@ -100,13 +124,15 @@ export default function App() {
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
-  const [lastResult,   setLastResult]     = useState<any>(null);
+  const [lastResult,   setLastResult]     = useState<ExerciseResult | null>(null);
   const [guestResults, setGuestResults]   = useState<Record<string, ExerciseResult>>({});
   const redirectAfterLogin = useRef<string | null>(null);   // enlace profundo a recuperar tras login
 
-  const [pendingLoginUser, setPendingLoginUser] = useState<any | null>(null); // alumno esperando configurar correo de recuperación
+  const [pendingLoginUser, setPendingLoginUser] = useState<UserProfile | null>(null); // alumno esperando configurar correo de recuperación
   const [showForgotPin,    setShowForgotPin]    = useState(false);
-  const [resetSession,     setResetSession]     = useState<any>(null);  // sesión Supabase Auth desde magic link
+  // Sesión de Supabase Auth desde magic link — solo se reenvía a ResetPinView
+  // (que la tipa `unknown`), nunca se lee su forma aquí.
+  const [resetSession,     setResetSession]     = useState<unknown>(null);
 
   // Ejercicio referenciado por la URL (reconstruido desde el id)
   const routeExercise = useMemo(() => {
@@ -125,7 +151,7 @@ export default function App() {
   // montar (anon — con RLS devuelve poco o nada) y de nuevo TRAS el login (con la
   // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
   // que el login decida el flujo sin esperar al re-render.
-  const loadData = async (sb: any) => {
+  const loadData = async (sb: SupabaseClient | null): Promise<{ users: UserProfile[] }> => {
     if (!sb) return { users };
     const [exRes, userRes, catRes, courseRes, unitRes, resultRes, settingsRes, audioRes, groupRes] = await Promise.all([
       sb.from("fa_exercises").select("*"),
@@ -142,28 +168,30 @@ export default function App() {
     // haya fallado — incluida la lista vacía. Antes un `if (data?.length)`
     // dejaba las semillas (INIT_EXERCISES, etc.) puestas cuando el servidor
     // respondía [], colando datos de ejemplo en un despliegue real vacío.
-    const loadedUsers = userRes.data?.length ? userRes.data.map((r: any) => r.data) : null;
-    if (!exRes.error)     setExercises((exRes.data ?? []).map((r: any) => r.data));
+    // Sin tipos generados de Supabase, `.data` de cada tabla es `any[] | null`
+    // — los `.map`/`.filter` de abajo heredan ese `any` sin anotarlo aparte.
+    const loadedUsers: UserProfile[] | null = userRes.data?.length ? userRes.data.map((r) => r.data) : null;
+    if (!exRes.error)     setExercises((exRes.data ?? []).map((r) => r.data));
     if (loadedUsers)      setUsers(loadedUsers);
     if (!catRes.error) {
-      const cats = (catRes.data ?? []).map((r: any) => r.data);
-      if (!cats.find((c: any) => c.id === "default")) setCategories([DEFAULT_CATEGORY as Category, ...cats]);
+      const cats = (catRes.data ?? []).map((r) => r.data);
+      if (!cats.find((c) => c.id === "default")) setCategories([DEFAULT_CATEGORY as Category, ...cats]);
       else setCategories(cats);
     }
-    if (!courseRes.error) setCourses((courseRes.data ?? []).map((r: any) => r.data));
-    if (!unitRes.error)   setUnits((unitRes.data ?? []).map((r: any) => r.data));
-    if (!audioRes.error)  setAudioLibrary((audioRes.data ?? []).map((r: any) => r.data));
-    if (!groupRes.error)  setGroups((groupRes.data ?? []).map((r: any) => r.data));
+    if (!courseRes.error) setCourses((courseRes.data ?? []).map((r) => r.data));
+    if (!unitRes.error)   setUnits((unitRes.data ?? []).map((r) => r.data));
+    if (!audioRes.error)  setAudioLibrary((audioRes.data ?? []).map((r) => r.data));
+    if (!groupRes.error)  setGroups((groupRes.data ?? []).map((r) => r.data));
     if (!resultRes.error) {
       const byUser: Record<string, Record<string, ExerciseResult>> = {};
-      (resultRes.data ?? []).forEach((row: any) => {
+      (resultRes.data ?? []).forEach((row) => {
         if (!byUser[row.user_id]) byUser[row.user_id] = {};
         byUser[row.user_id][row.exercise_id] = row.data;
       });
       setResults(byUser);
     }
     if (settingsRes.data?.length) {
-      const m = settingsRes.data.find((s: any) => s.key === "margin");
+      const m = settingsRes.data.find((s) => s.key === "margin");
       if (m?.value != null) setMargin(Number(m.value));
     }
     return { users: loadedUsers || users };
@@ -255,9 +283,13 @@ export default function App() {
   }, [saveError]);
 
   // ─── Users ───────────────────────────────────────────────────────────────
-  const addUser = (newUser: any) => {
-    setUsers((prev) => [...prev, newUser]);
-    dbUpsertUser(newUser);
+  // El perfil llega desde AddUserModal (onSave: (profile: unknown) => void) —
+  // el servidor lo devuelve sin tipar; se confía en su forma (mismo patrón que
+  // `as AuthProfile` en auth.tsx) tras cruzar esa frontera.
+  const addUser = (newUser: unknown) => {
+    const profile = newUser as UserProfile;
+    setUsers((prev) => [...prev, profile]);
+    dbUpsertUser(profile);
   };
 
   const removeUser = (userId: string) => {
@@ -275,14 +307,15 @@ export default function App() {
     dbDeleteResultsForUser(userId);
   };
 
-  const updateUser = (updatedUser: any) => {
-    setUsers((prev) => prev.map((u) => u.id === updatedUser.id ? updatedUser : u));
-    if (user?.id === updatedUser.id) setUser(updatedUser);
-    dbUpsertUser(updatedUser);
+  const updateUser = (updatedUser: unknown) => {
+    const profile = updatedUser as UserProfile;
+    setUsers((prev) => prev.map((u) => u.id === profile.id ? profile : u));
+    if (user?.id === profile.id) setUser(profile);
+    dbUpsertUser(profile);
   };
 
   // ─── Correction save ─────────────────────────────────────────────────────
-  const saveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"], correction: any) => {
+  const saveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"], correction: TeacherCorrection) => {
     // El objeto a persistir se calcula ANTES de setState (a partir del estado
     // actual en el closure). Antes se asignaba dentro del updater de setResults
     // y se leía justo después; como React ejecuta ese updater en la fase de
@@ -295,11 +328,14 @@ export default function App() {
     // uno explícito — con partes aún sin corregir, sigue "pendiente" aunque
     // esta parte concreta ya se haya guardado. El resto de llamadas (una sola
     // parte) nunca traen `status`, así que su comportamiento no cambia.
-    const updated: any = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: correction?.status || "corregido" };
+    const updated: ExerciseResult = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: correction?.status || "corregido" };
     // Nota normalizada a escala 0-100 (la que consume ScoreBadge). totalScore
     // puede llegar en 0-10 (correcciones anteriores a T1.2, o inputs aún sin
     // migrar) — el mismo umbral tolerante que usa CorrectionView al mostrarla.
-    if (correction?.totalScore != null && correction.totalScore !== "") {
+    // CorrectionView siempre envía number|null (nunca "") — TeacherCorrection
+    // lo tipa así (F7, T7.2); el `!== ""` que había aquí era una comprobación
+    // muerta sobre ese contrato ya garantizado por el tipo.
+    if (correction?.totalScore != null) {
       const raw = Number(correction.totalScore);
       if (!Number.isNaN(raw)) updated.score = raw <= 10 ? raw * 10 : raw;
     }
@@ -313,19 +349,22 @@ export default function App() {
   const deleteGroup = (id: string) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
 
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
-  const handleSetup = (adminProfile: any) => {
+  const handleSetup = (adminProfile: unknown) => {
     // El admin ya está creado en el servidor (create-user) y con sesión iniciada
     // (login) desde SetupView. Solo reflejamos el estado y entramos.
-    setUser(adminProfile);
+    setUser(adminProfile as UserProfile);
     setServerHasAdmin(true);
     navigate("/profesor");
     if (supabaseRef.current) loadData(supabaseRef.current);
   };
 
   // ─── Exercises ───────────────────────────────────────────────────────────
-  const addExercise = (newEx: any) => {
-    setExercises((prev) => [...prev, newEx]);
-    dbUpsertExercise(newEx);
+  // `onAdd` (teacher.tsx) entrega `Record<string, unknown>` — el mismo cruce de
+  // frontera que en Users: se confía en su forma tras el cast.
+  const addExercise = (newEx: Record<string, unknown>) => {
+    const ex = newEx as Exercise;
+    setExercises((prev) => [...prev, ex]);
+    dbUpsertExercise(ex);
   };
 
   const updateExercise = (id: Exercise["id"], patch: Record<string, unknown>) => {
@@ -481,7 +520,7 @@ export default function App() {
     const exId = String(ex.id);
     const stored = user?.isGuest
       ? guestResults[exId]
-      : (results[user?.id] || {})[exId];
+      : (user ? (results[user.id] || {})[exId] : undefined);
     if (!stored) return;
     setLastResult(stored);
     navigate(`/alumno/ejercicio/${ex.id}/correccion`);
@@ -510,20 +549,24 @@ export default function App() {
   };
 
 
-  // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación
-  const completeLogin = async (u: any) => {
-    setUser(u);
+  // Finalizar el login una vez que el alumno ya tiene (o ha saltado) el correo de recuperación.
+  // `u` llega tanto de LoginView (AuthProfile = Record<string, unknown>, servidor
+  // sin tipar) como del propio estado ya tipado (flujo de correo de recuperación)
+  // — `unknown` acepta ambos sin forzar un cast en las llamadas.
+  const completeLogin = async (u: unknown) => {
+    const profile = u as UserProfile;
+    setUser(profile);
     // Con RLS, la carga anónima del montaje vino vacía: recargar ahora con la
     // sesión. loadData devuelve los usuarios para decidir el flujo del alumno.
     let loaded = { users };
-    if (supabaseRef.current && !u.isGuest) {
+    if (supabaseRef.current && !profile.isGuest) {
       try { loaded = await loadData(supabaseRef.current); } catch { /* mantiene el estado actual */ }
     }
     const dest = redirectAfterLogin.current;
     redirectAfterLogin.current = null;
-    if (u.role === "student") {
-      const hasTeacher = (loaded.users || []).some((x: any) => x.role === "teacher" && x.id === u.teacherId);
-      if (!u.teacherId || !hasTeacher) { navigate("/alumno/elegir-profesor", { replace: true }); return; }
+    if (profile.role === "student") {
+      const hasTeacher = (loaded.users || []).some((x) => x.role === "teacher" && x.id === profile.teacherId);
+      if (!profile.teacherId || !hasTeacher) { navigate("/alumno/elegir-profesor", { replace: true }); return; }
       navigate(dest && dest.startsWith("/alumno") ? dest : "/alumno");
     } else {
       navigate(dest && dest.startsWith("/profesor") ? dest : "/profesor");
@@ -531,7 +574,11 @@ export default function App() {
   };
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
-  const submitAnswer = (payload: any) => {
+  // Recibe `unknown` porque cada vista de sesión (ExerciseView, Questionnaire-
+  // View, SchemaExerciseView, MultiPart/MultiModelSessionView) tiene su propio
+  // tipo de onSubmit — SubmitPayload es la forma común que asume el cuerpo.
+  const submitAnswer = (rawPayload: unknown) => {
+    const payload = rawPayload as SubmitPayload;
     if (!exCtx) return;
     const ex      = freshExercise(exCtx.exercise);
     const exId    = String(ex.id);
@@ -566,16 +613,16 @@ export default function App() {
       const parts = partsOf(ex);
       const partScores: Array<number | null> = [];
       const partPoints: number[] = [];
-      const partsEnvelope: Record<string, { byModel: Record<string, any> }> = {};
+      const partsEnvelope: Record<string, { byModel: Record<string, unknown> }> = {};
       let anyPending = false;
       parts.forEach((p) => {
         const partPayload = payload.parts?.[p.id];
         const projected = partToExercise(ex, p);
         const pModels = modelsOf(projected);
-        const byModel: Record<string, any> = {};
+        const byModel: Record<string, unknown> = {};
         const modelScores: number[] = [];
         pModels.forEach((m) => {
-          const raw = partPayload?.byModel?.[m] || {};
+          const raw: ModelAnswerPayload = partPayload?.byModel?.[m] || {};
           const status = resultStatusOf(null, projected);
           if (status === "pendiente") anyPending = true;
           if (m === "cuestionario") {
@@ -583,22 +630,22 @@ export default function App() {
             byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
             if (score != null) modelScores.push(score);
           } else if (m === "esquema") {
-            const score = calcSchemaPlacementScore(projected.schemaKey as any, raw.blocks || [], projected.schemaMargin ?? 3);
+            const score = calcSchemaPlacementScore(projected.schemaKey as SchemaBlock[], raw.blocks || [], projected.schemaMargin ?? 3);
             byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
             if (score != null) modelScores.push(score);
           } else {
             const entries = raw.entries || [];
             const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
-            const scoreFor = (categoryId: string, intervals: any[]) => {
-              const key = answerFor(projected, categoryId) as any[];
+            const scoreFor = (categoryId: string, intervals: Interval[]) => {
+              const key = answerFor(projected, categoryId) as Interval[];
               return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? margin) : null;
             };
-            const mainEntry = entries.find((e: any) => e.categoryId === currentCategoryId) || entries[0];
+            const mainEntry = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
             const mainIvs   = mainEntry?.intervals || [];
             const mainScore = scoreFor(currentCategoryId, mainIvs);
             const extras = entries
-              .filter((e: any) => e.categoryId !== currentCategoryId)
-              .map((e: any) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
+              .filter((e) => e.categoryId !== currentCategoryId)
+              .map((e) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
             byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now() };
             if (mainScore != null) modelScores.push(mainScore);
           }
@@ -658,7 +705,7 @@ export default function App() {
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey as any, payload.blocks, ex.schemaMargin ?? 3);
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], payload.blocks || [], ex.schemaMargin ?? 3);
       const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real. Intentos (F6, T6.3): la
@@ -684,8 +731,8 @@ export default function App() {
     const entries          = payload.entries || [];
     const currentCategoryId = payload.currentCategoryId || entries[0]?.categoryId || "default";
 
-    const scoreFor = (categoryId: string, intervals: any[]) => {
-      const key = answerFor(ex, categoryId) as any[];
+    const scoreFor = (categoryId: string, intervals: Interval[]) => {
+      const key = answerFor(ex, categoryId) as Interval[];
       if (!key.length) return null;
       return calcScore(key, intervals, ex.duration as number, ex.margin ?? margin);
     };
@@ -694,12 +741,12 @@ export default function App() {
       // Guardar como clave del profesor
       if (isMultiPart) {
         const activePart = recordParts.find((p) => p.id === recordPartId);
-        const patchAnswers: Record<string, any> = { ...(activePart?.answers || {}) };
-        entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
+        const patchAnswers: Record<string, Interval[]> = { ...(activePart?.answers || {}) } as Record<string, Interval[]>;
+        entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
         updateExercise(ex.id, { parts: updatePart(ex, recordPartId, { answers: patchAnswers }).parts });
       } else {
-        const patchAnswers: Record<string, any> = { ...(ex.answers || {}) };
-        entries.forEach(({ categoryId, intervals }: any) => { patchAnswers[categoryId] = intervals; });
+        const patchAnswers: Record<string, Interval[]> = { ...(ex.answers || {}) } as Record<string, Interval[]>;
+        entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
         updateExercise(ex.id, { answers: patchAnswers });
       }
       navigate(getLastPanelPath("/profesor"));
@@ -707,13 +754,13 @@ export default function App() {
     }
 
     // Modo alumno: el "principal" es el currentCategoryId
-    const mainEntry  = entries.find((e: any) => e.categoryId === currentCategoryId) || entries[0];
+    const mainEntry  = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
     const mainIvs    = mainEntry?.intervals || [];
     const mainScore  = scoreFor(currentCategoryId, mainIvs);
 
     const extras = entries
-      .filter((e: any) => e.categoryId !== currentCategoryId)
-      .map((e: any) => ({
+      .filter((e) => e.categoryId !== currentCategoryId)
+      .map((e) => ({
         categoryId: e.categoryId,
         intervals:  e.intervals,
         score:      scoreFor(e.categoryId, e.intervals),
@@ -762,7 +809,7 @@ export default function App() {
     const teacherList = (users || []).filter((u) => u.role === "teacher");
     return (
       <TeacherPickerView
-        teachers={teacherList}
+        teachers={teacherList as unknown as Teacher[]}
         currentTeacherId={user.teacherId}
         onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); navigate("/alumno"); }}
         onLogout={() => { setUser(null); navigate("/"); }}
@@ -825,7 +872,7 @@ export default function App() {
       );
     }
 
-    const finishLogin = (u: any) => {
+    const finishLogin = (u: unknown) => {
       // El correo de recuperación ahora vive en fa_user_secrets (servidor), no en
       // el perfil público; el antiguo prompt de configuración se reintroducirá con
       // una función de servidor (Fase 1, pendiente). Por ahora, login directo.
@@ -838,7 +885,7 @@ export default function App() {
         <LoginView
           roleLabel={labels[loginRole]}
           filterRole={loginRole}
-          users={users}
+          users={users as unknown as AuthUser[]}
           onLogin={finishLogin}
           onBack={() => navigate("/")}
           onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : undefined}
@@ -978,7 +1025,7 @@ export default function App() {
       <>
       <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
       <StudentDash
-        user={user}
+        user={user as unknown as StudentUser}
         exercises={visibleExercises}
         results={userResults}
         courses={courses}
