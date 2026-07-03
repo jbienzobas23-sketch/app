@@ -1,6 +1,8 @@
 // ═══ SCHEMAEXERCISEVIEW (MODELO ESQUEMA) ═════════════════════════════════════
 // Vista de sesión del modelo Esquema (timeline de bloques, repeticiones, paletas).
-// Extraída de App.jsx (Fase 2). TODO: subdividir en sub-componentes + useSchemaEditor.
+// Extraída de App.jsx (Fase 2). Troceo en curso (F7, T7.1): el zoom/pinch/scroll
+// vive en useSchemaZoom; quedan por extraer useSchemaEditor, RepeatBand y
+// SchemaTimeline.
 import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
@@ -11,6 +13,7 @@ import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, 
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFromPalette, phraseColorFromPalette, schemaBlockColor, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
+import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
@@ -80,11 +83,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const schemaMarksRef = useRef<number[]>([]);
   schemaMarksRef.current = schemaMarks;
 
-  // ── Zoom y desplazamiento horizontal del esquema ─────────────────────────
-  const [schemaZoom,       setSchemaZoom]       = useState(1);
-  const [schemaScrollFrac, setSchemaScrollFrac] = useState(0);
-  const schemaOuterRef = useRef<HTMLDivElement | null>(null);
-  const pinchRef       = useRef<any>(null);
+  // ── Zoom y desplazamiento horizontal del esquema (F7, T7.1) ──────────────
+  const {
+    schemaZoom, schemaScrollFrac, schemaOuterRef,
+    handleSchemaPinchStart, handleSchemaPinchMove, handleSchemaPinchEnd,
+    handleScrollbarTrackDown,
+  } = useSchemaZoom();
 
   // ── Modo de vista: "completa" (edición secuencial, sin doble altura)
   //               | "resumida" (doble altura, solo lectura)
@@ -175,31 +179,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     setRulerW(el.getBoundingClientRect().width);
     const ro = new ResizeObserver(([e]) => setRulerW(e.contentRect.width));
     ro.observe(el); return () => ro.disconnect();
-  }, []);
-
-  // ── Rueda del ratón → zoom (listener no-pasivo para poder preventDefault) ──
-  useEffect(() => {
-    const outer = schemaOuterRef.current; if (!outer) return;
-    const handler = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect    = outer.getBoundingClientRect();
-      const curFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const factor  = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      setSchemaZoom(prevZoom => {
-        const nextZoom = Math.min(8, Math.max(1, prevZoom * factor));
-        if (nextZoom !== prevZoom) {
-          setSchemaScrollFrac(prevSf => {
-            if (nextZoom === 1) return 0;
-            const newSf = (((prevSf * (prevZoom - 1)) + curFrac) * (nextZoom / prevZoom) - curFrac) / (nextZoom - 1);
-            return Math.max(0, Math.min(1, newSf));
-          });
-        }
-        return nextZoom;
-      });
-    };
-    outer.addEventListener('wheel', handler, { passive: false });
-    return () => outer.removeEventListener('wheel', handler);
-   
   }, []);
 
   // ── Guardar repeticiones desde el modal ─────────────────────────────────
@@ -1296,49 +1275,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         );
       })}
     </>);
-  };
-
-  // ── Pinch-to-zoom (móvil) ─────────────────────────────────────────────────
-  const handleSchemaPinchStart = (e: any) => {
-    if (e.touches.length !== 2) return;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    pinchRef.current = { dist: Math.hypot(dx, dy), zoom: schemaZoom, sf: schemaScrollFrac };
-  };
-  const handleSchemaPinchMove = (e: any) => {
-    if (e.touches.length !== 2 || !pinchRef.current) return;
-    const dx  = e.touches[0].clientX - e.touches[1].clientX;
-    const dy  = e.touches[0].clientY - e.touches[1].clientY;
-    const newZoom = Math.min(8, Math.max(1, pinchRef.current.zoom * (Math.hypot(dx, dy) / pinchRef.current.dist)));
-    setSchemaZoom(newZoom);
-    if (e.cancelable) e.preventDefault();
-  };
-  const handleSchemaPinchEnd = () => { pinchRef.current = null; };
-
-  // ── Drag de la barra de scroll personalizada ──────────────────────────────
-  // El drag es RELATIVO: el desplazamiento es proporcional al movimiento del ratón/dedo,
-  // sin saltar a la posición absoluta del clic.
-  const handleScrollbarTrackDown = (e: any) => {
-    e.preventDefault();
-    const track   = e.currentTarget;
-    const startX  = e.touches?.[0]?.clientX ?? e.clientX;
-    const startSf = schemaScrollFrac;
-    const move = (ev: any) => {
-      const rect     = track.getBoundingClientRect();
-      const x        = ev.touches?.[0]?.clientX ?? ev.clientX;
-      const deltaX   = x - startX;
-      const deltaFrac = deltaX / rect.width;
-      // El thumb ocupa 1/zoom del track; el rango de movimiento del thumb es (1 - 1/zoom)
-      const thumbRange = 1 - 1 / Math.max(1, schemaZoom);
-      const newSf    = thumbRange > 0 ? startSf + deltaFrac / thumbRange : 0;
-      setSchemaScrollFrac(Math.max(0, Math.min(1, newSf)));
-    };
-    const up = () => {
-      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
-      window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up);
-    };
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-    window.addEventListener('touchmove', move, { passive: false }); window.addEventListener('touchend', up);
   };
 
   const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps, schemaPalette });
