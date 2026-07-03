@@ -5,8 +5,9 @@
 // Interactivo (onda, verde) · Cuestionario (lista, azul) · Esquema (bloques, ámbar).
 import type { CSSProperties } from "react";
 import type { Exercise } from "../lib/types.js";
-import { modelOf } from "../lib/domain.js";
+import { modelOf, partsOf } from "../lib/domain.js";
 import { MODEL_META } from "../lib/modelMeta.js";
+import { C, FONT_SANS } from "../theme/tokens.js";
 
 interface IconProps { model: string; plateSize: number; }
 
@@ -62,6 +63,21 @@ export function TypePlate({ model, size = 36, radius = 10, style }: PlateProps) 
 }
 
 // Conveniencia: placa a partir del ejercicio (usa su modelo principal).
-export function ExercisePlate({ ex, size, radius, style }: { ex: Exercise; size?: number; radius?: number; style?: CSSProperties }) {
-  return <TypePlate model={modelOf(ex)} size={size} radius={radius} style={style} />;
+// Multiparte (F4, T4.5): insignia «×N» textual en la esquina — el número de
+// partes va siempre acompañado del texto (nunca solo un color) y se repite,
+// en detalle, en el MetaItem de Duración de cada tarjeta.
+export function ExercisePlate({ ex, size = 36, radius, style }: { ex: Exercise; size?: number; radius?: number; style?: CSSProperties }) {
+  const plate = <TypePlate model={modelOf(ex)} size={size} radius={radius} style={style} />;
+  const partsN = partsOf(ex).length;
+  if (partsN <= 1) return plate;
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      {plate}
+      <span style={{
+        position: "absolute", bottom: -4, right: -4,
+        background: C.ink, color: C.paper, fontFamily: FONT_SANS, fontSize: Math.max(9, Math.round(size * 0.26)),
+        fontWeight: 700, lineHeight: 1, padding: "2px 4px", borderRadius: 999, border: `1.5px solid ${C.paper}`,
+      }}>×{partsN}</span>
+    </div>
+  );
 }

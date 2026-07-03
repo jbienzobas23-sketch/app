@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelsOf, courseUnitList, unitExList, keyReadyOf, durationOf, questionsCountOf } from "../lib/domain.js";
+import { modelsOf, courseUnitList, unitExList, keyReadyOf, durationOf, questionsCountOf, partsOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { fmt } from "../lib/ids.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
@@ -215,6 +215,9 @@ export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemove
   const hasQuiz  = modelsOf(ex).includes("cuestionario");
   const exQsN    = questionsCountOf(ex);
   const keyReady = keyReadyOf(ex);
+  // Multiparte (F4, T4.5): «3 audios · 4:32» en vez de solo la duración total.
+  const partsN     = partsOf(ex).length;
+  const isMultiPart = partsN > 1;
   return (
     <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: isMobile ? 10 : 14, overflow: "hidden" }}>
       <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
@@ -228,7 +231,7 @@ export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemove
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
             {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />

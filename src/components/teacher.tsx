@@ -8,7 +8,7 @@ import { C, F, S, FONT_SANS, FONT_MONO, SECTION_STYLE } from "../theme/tokens.js
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
-import { categoriesOf, modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf } from "../lib/domain.js";
+import { categoriesOf, modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf, partsOf, composersOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
@@ -53,6 +53,12 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
   const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
+  // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
+  // difieren entre partes; con una parte, el `composerName` de siempre (viene
+  // resuelto del audio de biblioteca, no cambia).
+  const partsN     = partsOf(ex).length;
+  const isMultiPart = partsN > 1;
+  const composers  = isMultiPart ? composersOf(ex) : (composerName ? [composerName] : []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
@@ -67,10 +73,14 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
             {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
             {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
+            {composers.length > 0 && (
+              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
+                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
+              </MetaItem>
+            )}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
@@ -103,6 +113,12 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
   const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
   const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
+  // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
+  // difieren entre partes; con una parte, el `composerName` de siempre (viene
+  // resuelto del audio de biblioteca, no cambia).
+  const partsN     = partsOf(ex).length;
+  const isMultiPart = partsN > 1;
+  const composers  = isMultiPart ? composersOf(ex) : (composerName ? [composerName] : []);
 
   // Alto mínimo de la cabecera → rejilla regular (placa + título + estado).
   const HEAD_H = 76;
@@ -121,10 +137,14 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
             <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{fmt(durationOf(ex))}</MetaItem>
+            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
             {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
             {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {composerName && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{composerName}</span></MetaItem>}
+            {composers.length > 0 && (
+              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
+                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
+              </MetaItem>
+            )}
             <MetaItem label="Clave de corrección">
               <StatusCircle done={keyReady} size={13} />
               <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>

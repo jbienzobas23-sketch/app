@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, F } from "../theme/tokens.js";
 import { MODEL_META, modelMeta } from "../lib/modelMeta.js";
-import { modelOf, modelsOf, questionsOf, categoriesOf, resultStatusOf } from "../lib/domain.js";
+import { modelOf, modelsOf, categoriesOf, resultStatusOf, partsOf, durationOf, questionsCountOf, composersOf } from "../lib/domain.js";
 import { fmt } from "../lib/ids.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { Chevron, MetaItem, CategoryDots, ScoreBadge } from "./primitives.jsx";
@@ -78,13 +78,17 @@ export function ExerciseCard({ ex, result, onOpen, onViewCorrection }: ExerciseR
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
   const isQuiz    = modelOf(ex) === "cuestionario";
-  const exQs      = questionsOf(ex);
+  const exQsN     = questionsCountOf(ex);
   const cats      = categoriesOf(ex);
   const allBtns   = cats.flatMap((c) => c.buttons || []);
   const isDone    = result != null;
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
-  const showComposer = Boolean(ex.composerName && ex.showComposer !== false);
+  // Multiparte (F4, T4.5): «3 audios · 4:32» (durationOf suma las partes) y
+  // «Compositores: varios» cuando difieren entre partes; con una parte,
+  // idéntico a como se mostraba antes (ex.composerName + su opt-out).
+  const partsN    = partsOf(ex).length;
+  const composers = ex.showComposer !== false ? composersOf(ex) : [];
   // Alto mínimo de la cabecera → rejilla regular (placa + título + estado).
   const HEAD_H = 76;
 
@@ -107,11 +111,15 @@ export function ExerciseCard({ ex, result, onOpen, onViewCorrection }: ExerciseR
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
               {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
             </MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
+            <MetaItem label="Duración">{partsN > 1 ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
             {isQuiz
-              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              ? <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>
               : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {showComposer && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{ex.composerName}</span></MetaItem>}
+            {composers.length > 0 && (
+              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
+                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
+              </MetaItem>
+            )}
             {isDone && (
               <MetaItem label="Resultado">
                 <ScoreBadge score={score} status={resultStatusOf(result, ex)} />
@@ -146,13 +154,17 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection, compact = fa
   const meta      = modelMeta(ex);
   const exModels  = modelsOf(ex);
   const isQuiz    = modelOf(ex) === "cuestionario";
-  const exQs      = questionsOf(ex);
+  const exQsN     = questionsCountOf(ex);
   const cats      = categoriesOf(ex);
   const allBtns   = cats.flatMap((c) => c.buttons || []);
   const isDone    = result != null;
   const score     = result?.score ?? null;
   const isCorrected = result?.teacherCorrection?.corrected;
-  const showComposer = Boolean(ex.composerName && ex.showComposer !== false);
+  // Multiparte (F4, T4.5): «3 audios · 4:32» (durationOf suma las partes) y
+  // «Compositores: varios» cuando difieren entre partes; con una parte,
+  // idéntico a como se mostraba antes (ex.composerName + su opt-out).
+  const partsN    = partsOf(ex).length;
+  const composers = ex.showComposer !== false ? composersOf(ex) : [];
   // Variante compacta (móvil): placa/título/medidas menores y título a una línea.
   const titleStyle: CSSProperties = compact
     ? { flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 16, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
@@ -177,11 +189,15 @@ export function ExerciseRow({ ex, result, onOpen, onViewCorrection, compact = fa
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
               {exModels.length > 1 ? exModels.map(m => MODEL_META[m]?.label).join(" + ") : meta.label}
             </MetaItem>
-            <MetaItem label="Duración">{fmt(ex.duration ?? 0)}</MetaItem>
+            <MetaItem label="Duración">{partsN > 1 ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
             {isQuiz
-              ? <MetaItem label="Preguntas">{exQs.length || "—"}</MetaItem>
+              ? <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>
               : allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {showComposer && <MetaItem label="Compositor"><span style={{ fontStyle: "italic" }}>{ex.composerName}</span></MetaItem>}
+            {composers.length > 0 && (
+              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
+                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
+              </MetaItem>
+            )}
             {isDone && (
               <MetaItem label="Resultado">
                 <ScoreBadge score={score} status={resultStatusOf(result, ex)} />
