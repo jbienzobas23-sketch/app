@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo v3 — Editor por pantallas (depurado)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f8f8f6; --card:#fff; --border:#e6e6e3; --border2:#d8d8d4;
+  --ink:#1a1a1a; --ink2:#555; --muted:#8a8a82; --label:#767670;
+  --ok:#4c7a4c; --warn:#a07a1f; --danger:#b4534b;
+  --mInt:#5e7d5a; --mQuiz:#5b7a99; --mSch:#8a6a8a;
+  --serif:'Cormorant Garamond',Georgia,serif; --ui:'Outfit',system-ui,sans-serif;
+  --r:12px; --shadow:0 1px 2px rgba(26,26,26,.05),0 4px 14px rgba(26,26,26,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#ececea;font-family:var(--ui);color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font-family:var(--ui);cursor:pointer;background:none;border:none;color:inherit}
+input{font-family:var(--ui);color:var(--ink)}
+:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(85,85,85,.45);border-radius:6px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+.demobar{background:#1f1f1e;color:#d8d8d4;font-size:11.5px;padding:8px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:60}
+.demobar .tag{letter-spacing:1.2px;text-transform:uppercase;font-weight:600;font-size:9.5px;color:#8a8a82}
+.seg{display:inline-flex;border:1px solid #3a3a38;border-radius:8px;overflow:hidden}
+.seg button{padding:5px 10px;font-size:11px;color:#b9b9b3}
+.seg button.on{background:#f8f8f6;color:#1a1a1a;font-weight:600}
+
+#stage.force{overflow:hidden;padding:14px 0 8px 14px}
+#stage.force #app{width:1200px;transform-origin:top left;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.18)}
+#app{background:var(--paper);min-height:78vh}
+
+/* ── Topbar ── */
+.topbar{position:sticky;top:0;z-index:40;background:rgba(248,248,246,.93);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:12px}
+#stage.force .topbar{position:static}
+.back{font-size:13px;color:var(--ink2);padding:6px 8px;border-radius:8px;white-space:nowrap}
+.back:hover{background:#fff}
+.tb-mid{flex:1;min-width:0}
+.overline{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--label);font-weight:600}
+.estlink{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;text-decoration:underline;text-decoration-color:var(--border2);text-underline-offset:2px}
+.tb-title{font-family:var(--serif);font-weight:700;font-size:19px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;max-width:100%}
+.tb-title:hover{text-decoration:underline;text-decoration-color:var(--border2);text-underline-offset:3px}
+.ph{color:#b7b7b0;font-style:italic}
+.btn{border:1px solid var(--border2);background:#fff;border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:600;transition:background .12s}
+.btn:hover{background:#f2f2ef}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.primary:disabled{background:#c9c9c4;border-color:#c9c9c4;cursor:default}
+.btn.icon{padding:8px 10px;font-size:15px;line-height:1}
+.btn.sm{padding:6px 11px;font-size:12px;border-radius:8px}
+.btn.ok{border-color:#cfe0cf;color:var(--ok);background:#f7faf7}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#e0b13d;margin-left:6px;vertical-align:middle}
+
+/* ── Marco ── */
+.frame{max-width:1220px;margin:0 auto;padding:12px 14px 96px}
+@media(min-width:900px){ .frame{display:grid;grid-template-columns:290px minmax(0,1fr);gap:22px;align-items:start;padding-bottom:40px}
+  .bottombar{display:none!important} .rail{position:sticky;top:72px} .hsteps{display:none} }
+#stage.force .frame{display:grid;grid-template-columns:290px minmax(0,1fr);gap:22px;align-items:start;padding-bottom:40px}
+#stage.force .bottombar{display:none!important}
+#stage.force .hsteps{display:none}
+
+/* ── Resumen: solo escritorio ── */
+#railCard{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+@media(max-width:899px){ #railCard{display:none} }
+#stage.force #railCard{display:block}
+.estado{border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:600;display:flex;gap:7px;align-items:flex-start;border:1px solid;line-height:1.35}
+.estado.ok{background:#eef4ee;border-color:#cfe0cf;color:var(--ok)}
+.estado.warn{background:#faf4e4;border-color:#e8dcb8;color:var(--warn)}
+#railCard .estado{margin:11px 11px 5px;border-radius:9px}
+.steps{padding:7px}
+.strow{display:flex;gap:11px;align-items:center;width:100%;text-align:left;padding:9px 9px;border-radius:9px;position:relative}
+.strow:hover{background:#f6f6f3}
+.strow.cur{background:#f2f2ef}
+.strow.cur::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--ink)}
+.snum{width:24px;height:24px;border-radius:50%;border:1.5px solid #cfcfca;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#9a9a93;flex:none;background:#fff}
+.strow.done .snum{background:#eef4ee;border-color:#9dbb9d;color:var(--ok)}
+.strow.warn .snum{background:#faf4e4;border-color:#d9c98e;color:var(--warn)}
+.strow.cur .snum{border-color:var(--ink);color:var(--ink)}
+.sl{flex:1;min-width:0}
+.sl b{display:block;font-size:13px;font-weight:600;color:var(--ink)}
+.sl span{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+
+/* ── Stepper horizontal (móvil): única navegación ── */
+.hsteps{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none}
+.hsteps::-webkit-scrollbar{display:none}
+.hstep{display:flex;gap:7px;align-items:center;border:1px solid var(--border2);background:#fff;border-radius:999px;padding:6px 11px 6px 7px;font-size:11.5px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.hstep .snum{width:20px;height:20px;font-size:10.5px}
+.hstep.cur{background:var(--ink);border-color:var(--ink);color:#fff}
+.hstep.cur .snum{background:transparent;border-color:#fff;color:#fff}
+.hstep.done:not(.cur) .snum{background:#eef4ee;border-color:#9dbb9d;color:var(--ok)}
+.hstep.warn:not(.cur) .snum{background:#faf4e4;border-color:#d9c98e;color:var(--warn)}
+
+/* ── Contenido ── */
+.stephead{margin:4px 2px 14px}
+.stephead .overline{display:block;margin-bottom:2px}
+.stephead h1{font-family:var(--serif);font-weight:700;font-size:25px}
+.stephead p{font-size:12.5px;color:var(--muted);margin-top:3px;max-width:560px;line-height:1.5}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px}
+.flabel{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:var(--label);font-weight:600;display:block;margin-bottom:5px}
+.inp{width:100%;border:1px solid var(--border2);border-radius:9px;padding:9px 12px;font-size:13.5px;background:#fff}
+.inp.big{font-family:var(--serif);font-weight:700;font-size:22px;padding:10px 12px}
+.field{margin-bottom:15px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px dashed var(--border)}
+.row:last-child{border-bottom:none}
+.rl{font-size:13px}.rd{font-size:11px;color:var(--muted);margin-top:2px}
+.mini{font-size:11.5px;color:var(--muted)}
+.switch{width:38px;height:22px;border-radius:999px;background:#d6d6d1;position:relative;flex:none;transition:background .15s}
+.switch::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s}
+.switch.on{background:var(--ok)} .switch.on::after{left:18px}
+.tagchips{display:flex;gap:6px;flex-wrap:wrap}
+.tchip{font-size:11.5px;border:1px solid var(--border2);border-radius:999px;padding:4px 10px;background:#fbfbf9;color:var(--ink2)}
+
+/* Paso 2 */
+.mcards{display:grid;gap:12px}
+@media(min-width:900px){ .mcards{grid-template-columns:repeat(3,1fr)} }
+#stage.force .mcards{grid-template-columns:repeat(3,1fr)}
+.mcard{border:1.5px solid var(--border2);border-radius:var(--r);background:#fff;padding:15px;text-align:left;transition:border-color .12s}
+.mcard:hover{border-color:#b9b9b3}
+.mcard .sw{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:7px;border:1px solid rgba(0,0,0,.15);vertical-align:-1px}
+.mcard[data-m="interactivo"] .sw{background:var(--mInt)}
+.mcard[data-m="cuestionario"] .sw{background:var(--mQuiz)}
+.mcard[data-m="esquema"] .sw{background:var(--mSch)}
+.mcard h3{font-size:14.5px;font-weight:700;display:flex;align-items:center}
+.mcard p{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px;min-height:52px}
+.mcard .st{margin-top:10px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#9a9a93}
+.mcard.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink) inset}
+.mcard.on .st{color:var(--ok)}
+.note{font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5}
+
+/* Paso 3: selector segmentado de partes */
+.pseg{display:inline-flex;border:1px solid var(--border2);border-radius:10px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+.pseg button{min-width:38px;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink2);border-left:1px solid var(--border)}
+.pseg button:first-child{border-left:none}
+.pseg button.on{background:var(--ink);color:#fff}
+.pseg button.plus{color:var(--muted);font-size:15px}
+.shrow{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:4px 2px 14px}
+.shrow .stephead{margin:0}
+.add{border:1.5px dashed var(--border2);border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;color:var(--ink2);width:100%;margin-top:6px}
+.add:hover{border-color:#b9b9b3;background:#fdfdfc}
+.wave{display:flex;align-items:flex-end;gap:2px;height:76px;background:#fbfbf9;border:1px solid var(--border);border-radius:9px;padding:8px 10px;position:relative;overflow:hidden;margin:4px 0 14px}
+.wave i{flex:1;background:#cfcfc9;border-radius:1px;min-width:2px}
+.frag{position:absolute;top:0;bottom:0;background:rgba(94,125,90,.13);border-left:2px solid var(--mInt);border-right:2px solid var(--mInt)}
+.fraglab{position:absolute;top:4px;left:7px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--mInt);font-weight:700}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.grid2c{display:grid;gap:12px;margin-top:14px}
+@media(min-width:640px){ .grid2c{grid-template-columns:1fr 1fr} }
+.mtempty{border:1.5px dashed var(--border2);border-radius:var(--r);padding:30px 18px;text-align:center;background:#fcfcfb}
+.mtempty h3{font-family:var(--serif);font-weight:700;font-size:20px;margin-bottom:6px}
+.mtempty p{font-size:12.5px;color:var(--muted);max-width:360px;margin:0 auto 14px;line-height:1.5}
+
+/* Paso 4: matriz */
+.matrix{width:100%;border-collapse:separate;border-spacing:0}
+.matrix th{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--label);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+.matrix th .sw{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:6px;border:1px solid rgba(0,0,0,.12)}
+.matrix td{padding:10px;border-bottom:1px dashed var(--border);vertical-align:middle}
+.matrix tr:last-child td{border-bottom:none}
+.mcell{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid;white-space:nowrap}
+.chip.ok{color:var(--ok);border-color:#cfe0cf;background:#f3f8f3}
+.chip.miss{color:var(--warn);border-color:#e8dcb8;background:#fbf6e7}
+.kcards .panel{margin-bottom:10px}
+@media(min-width:900px){ .kcards{display:none} }
+@media(max-width:899px){ .ktable{display:none} }
+#stage.force .kcards{display:none} #stage.force .ktable{display:block}
+.optbox{margin-top:16px}
+.range{width:100%;max-width:340px}
+.radios label{display:flex;gap:9px;align-items:flex-start;padding:6px 0;font-size:12.5px;color:var(--ink2);cursor:pointer}
+.radios input{margin-top:2px;accent-color:#1a1a1a}
+
+/* Paso 5: por excepciones */
+.rev{display:grid;gap:16px;max-width:920px}
+@media(min-width:900px){ .rev{grid-template-columns:minmax(0,1fr) 340px;align-items:start} }
+#stage.force .rev{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.faltas{list-style:none;margin-top:10px}
+.faltas li button{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:9px 6px;border-radius:9px;font-size:13px;color:var(--ink2)}
+.faltas li button:hover{background:#f6f6f3}
+.ck{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none;border:1.5px solid #cfcfca;background:#fff;color:#9a9a93}
+.faltas .go{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
+.okline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink2);padding:6px 2px}
+.okline .ok{color:var(--ok);font-weight:700}
+
+/* Menú, pie, toasts */
+.mwrap{position:relative}
+.menu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.14);min-width:200px;z-index:50;padding:5px;display:none}
+.mwrap.open .menu{display:block}
+.menu button{display:block;width:100%;text-align:left;padding:8px 10px;font-size:12.5px;border-radius:7px}
+.menu button:hover{background:#f4f4f1}
+.menu button.danger{color:var(--danger)}
+.menu button.armed{background:#faf0ef;color:var(--danger);font-weight:700}
+.menu hr{border:none;border-top:1px solid var(--border);margin:4px 6px}
+.stepfoot{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:10px}
+@media(max-width:899px){ .stepfoot{display:none} }
+#stage.force .stepfoot{display:flex}
+.bottombar{position:fixed;left:0;right:0;bottom:0;z-index:45;background:rgba(255,255,255,.95);backdrop-filter:blur(6px);border-top:1px solid var(--border);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px}
+.bottombar .btn{flex:1;padding:11px;font-size:13.5px;border-radius:10px}
+#toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:86px;z-index:70;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{background:#1f1f1e;color:#f2f2ee;font-size:12.5px;padding:9px 15px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+</style>
+</head>
+<body>
+
+<div class="demobar">
+  <span class="tag">Demo v3 · depurada</span>
+  <div class="seg" id="segMode"><button class="on" data-mode="edicion">Edición</button><button data-mode="nuevo">Nuevo</button></div>
+  <div class="seg" id="segView"><button class="on" data-view="auto">Vista ajustada</button><button data-view="desktop">Escritorio (1200 px)</button></div>
+</div>
+
+<div id="stage"><div id="app">
+  <div class="topbar">
+    <button class="back" data-action="toast" data-msg="Volvería a la vista de origen (Cursos o Banco)">← Volver</button>
+    <div class="tb-mid">
+      <span class="overline">Ejercicio · <button class="estlink" id="estadoMini" data-action="goto" data-step="5" title="Ir a Revisión">—</button></span>
+      <button class="tb-title" id="tbTitle" data-action="goto" data-step="1" title="Editar en Identidad"></button>
+    </div>
+    <button class="btn primary" id="btnSave" disabled>Guardar</button>
+    <div class="mwrap">
+      <button class="btn icon" data-action="menu" aria-haspopup="menu" aria-label="Más acciones">⋯</button>
+      <div class="menu" role="menu">
+        <button data-action="toast" data-msg="Abriría la previsualización como alumno">Previsualizar como alumno</button>
+        <button data-action="toast" data-msg="Ejercicio duplicado (simulado)">Duplicar ejercicio</button>
+        <button data-action="togglevis" id="miVis">Ocultar para alumnos</button><hr>
+        <button class="danger" data-action="delex">Eliminar ejercicio</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <aside class="rail">
+      <div class="hsteps" id="hsteps"></div>
+      <div id="railCard">
+        <div class="estado warn" id="estadoBox">—</div>
+        <div class="steps" id="railSteps"></div>
+      </div>
+    </aside>
+    <main id="stepContent"></main>
+  </div>
+
+  <div class="bottombar" id="bbar"></div>
+</div></div>
+<div id="toasts"></div>
+
+<script>
+/* ───────── Estado ───────── */
+const MM={interactivo:{label:"Interactivo"},cuestionario:{label:"Cuestionario"},esquema:{label:"Esquema"}};
+const mkPart=(n,comp,dur,seed)=>({id:"p"+Math.random().toString(36).slice(2,7),name:"Audio "+n,comp,dur,seed,key:{interactivo:false,cuestionario:0,esquema:false}});
+const EDICION={mode:"edicion",step:3,dirty:false,title:"Cadencias — tres audios",showComp:true,visible:true,
+  models:["interactivo","cuestionario"],opts:{margen:1,pista:false,soloEscucha:false,ref:"corregir"},
+  cats:["Cadencias","Clasicismo"],unidades:["Cadencias I","Formas breves"],selPart:null,
+  parts:[mkPart(1,"Haydn","1:12",3),mkPart(2,"Mozart","0:58",7),mkPart(3,"Beethoven","1:31",11)]};
+EDICION.parts[0].key.interactivo=true;EDICION.parts[0].key.cuestionario=3;
+EDICION.parts[1].key.interactivo=true;EDICION.parts[2].key.cuestionario=2;
+EDICION.selPart=EDICION.parts[0].id;
+const NUEVO={mode:"nuevo",step:1,dirty:false,title:"",showComp:true,visible:true,
+  models:["interactivo"],opts:{margen:1,pista:false,soloEscucha:false,ref:"corregir"},cats:[],unidades:[],selPart:null,parts:[]};
+let S=EDICION;
+
+/* ───────── Utilidades ───────── */
+const $=s=>document.querySelector(s);
+const esc=t=>t.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toast=m=>{const t=document.createElement("div");t.className="toast";t.textContent=m;$("#toasts").appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";t.style.transition="opacity .25s"},1900);setTimeout(()=>t.remove(),2250)};
+const secs=d=>{const[a,b]=d.split(":").map(Number);return a*60+b};
+const fmt=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+const totalDur=()=>fmt(S.parts.reduce((a,p)=>a+secs(p.dur),0));
+const ready=(p,m)=>m==="cuestionario"?p.key.cuestionario>0:!!p.key[m];
+const cellStats=()=>{const t=S.parts.length*S.models.length;let ok=0;S.parts.forEach(p=>S.models.forEach(m=>{if(ready(p,m))ok++}));return{ok,t}};
+const allReady=()=>S.parts.length>0&&cellStats().ok===cellStats().t;
+const setDirty=v=>{S.dirty=v;$("#btnSave").disabled=!v;$("#btnSave").innerHTML=v?'Guardar<span class="dot"></span>':"Guardar"};
+function findPart(id){return S.parts.find(p=>p.id===id)}
+function closeMenus(x){document.querySelectorAll(".mwrap.open").forEach(w=>{if(w!==x)w.classList.remove("open");
+  w.querySelectorAll(".armed").forEach(b=>{b.classList.remove("armed");b.textContent=b.dataset.orig||b.textContent})})}
+
+/* ───────── Pasos ───────── */
+const STEPS=[
+ {n:1,label:"Identidad",sub:()=>S.title.trim()||"Sin título",st:()=>S.title.trim()?"done":"todo"},
+ {n:2,label:"Modelo",sub:()=>S.models.map(m=>MM[m].label).join(" + "),st:()=>"done"},
+ {n:3,label:"Audios",sub:()=>S.parts.length?`${S.parts.length} audio${S.parts.length>1?"s":""} · ${totalDur()}`:"Sin audio",st:()=>S.parts.length?"done":"todo"},
+ {n:4,label:"Claves",sub:()=>{const{ok,t}=cellStats();return t?`${ok} de ${t} listas`:"—"},
+   st:()=>{const{ok,t}=cellStats();return !t?"todo":ok===t?"done":"warn"}},
+ {n:5,label:"Revisión",sub:()=>S.visible?`Visible · ${S.unidades.length||"sin"} unidad${S.unidades.length===1?"":"es"}`:"Oculto",
+   st:()=>allReady()&&S.visible?"done":"todo"}
+];
+const faltas=()=>{const f=[];
+  if(!S.title.trim())f.push({txt:"Falta el título",go:1});
+  if(!S.parts.length)f.push({txt:"Añade el primer audio",go:3});
+  else{const{ok,t}=cellStats();if(ok<t)f.push({txt:`Claves incompletas (${ok} de ${t})`,go:4})}
+  if(!S.visible)f.push({txt:"Oculto para alumnos",go:0});
+  return f};
+
+/* ───────── Resumen ───────── */
+function renderRail(){
+  const ok=allReady()&&S.visible;
+  const eb=$("#estadoBox");eb.style.display=ok?"flex":"none";
+  if(ok){eb.className="estado ok";eb.textContent="✓ Lista para alumnos"}
+  $("#estadoMini").textContent=ok?"Lista ✓":"Borrador";
+  $("#tbTitle").innerHTML=S.title.trim()?esc(S.title):'<span class="ph">Título del ejercicio</span>';
+  $("#miVis").textContent=S.visible?"Ocultar para alumnos":"Mostrar a alumnos";
+  $("#railSteps").innerHTML=STEPS.map(st=>{const state=st.st();
+    return `<button class="strow ${state} ${S.step===st.n?"cur":""}" data-action="goto" data-step="${st.n}">
+      <span class="snum">${state==="done"?"✓":state==="warn"?"!":st.n}</span>
+      <span class="sl"><b>${st.label}</b><span>${esc(st.sub())}</span></span></button>`}).join("");
+  $("#hsteps").innerHTML=STEPS.map(st=>{const state=st.st();
+    return `<button class="hstep ${state} ${S.step===st.n?"cur":""}" data-action="goto" data-step="${st.n}">
+      <span class="snum">${state==="done"?"✓":state==="warn"?"!":st.n}</span>${st.label}</button>`}).join("");
+  const cur=$("#hsteps .cur");if(cur)cur.scrollIntoView({inline:"center",block:"nearest"});
+}
+
+/* ───────── Contenido ───────── */
+const waveHTML=(seed,h=76)=>{let bars="",x=seed;for(let i=0;i<52;i++){x=(x*137+31)%97;bars+=`<i style="height:${18+(x%78)}%"></i>`}
+  const w=Math.round(36+(seed*7)%30),l=8+(seed*3)%14;
+  return `<div class="wave" style="height:${h}px">${bars}<div class="frag" style="left:${l}%;width:${w}%"></div><span class="fraglab">Fragmento</span></div>`};
+const head=(n,t,p)=>`<div class="stephead"><span class="overline">Paso ${n} de 5</span><h1>${t}</h1>${p?`<p>${p}</p>`:""}</div>`;
+
+function stepIdentidad(){return head(1,"Identidad","Título y etiquetas del ejercicio.")+`
+  <div class="panel">
+    <div class="field"><label class="flabel" for="inTitle">Título</label>
+      <input class="inp big" id="inTitle" value="${esc(S.title)}" placeholder="P. ej. Cadencias — tres audios" autocomplete="off"></div>
+    <div class="grid2c" style="margin-top:2px">
+      <div><span class="flabel">Categorías</span>
+        <div class="tagchips">${S.cats.map(c=>`<span class="tchip">${esc(c)}</span>`).join("")}
+          <button class="tchip" data-action="toast" data-msg="Abriría el selector de categorías">+ Añadir</button></div></div>
+      <div class="row" style="border:none;padding:0;align-items:flex-start"><div><div class="rl">Mostrar compositor al alumno</div>
+          <div class="rd">El compositor se indica en cada audio (paso 3)</div></div>
+        <button class="switch ${S.showComp?"on":""}" data-action="sw" data-k="showComp" role="switch" aria-checked="${S.showComp}"></button></div>
+    </div>
+  </div>`}
+
+function stepModelo(){return head(2,"Modelo de ejercicio","Hasta dos: se combinan y el alumno alterna entre ellos.")+`
+  <div class="mcards">${Object.keys(MM).map(m=>{const on=S.models.includes(m);
+    const desc={interactivo:"El alumno marca las funciones (T · S · D) sobre el audio en tiempo real. Corrección automática con margen.",
+      cuestionario:"Preguntas ancladas a fragmentos del audio: test, respuesta corta o desarrollo.",
+      esquema:"El alumno construye la forma colocando y nombrando bloques sobre la línea temporal."}[m];
+    return `<button class="mcard ${on?"on":""}" data-m="${m}" data-action="model" aria-pressed="${on}">
+      <h3><span class="sw"></span>${MM[m].label}</h3><p>${desc}</p>
+      <span class="st">${on?"✓ Activo":"Tocar para activar"}</span></button>`}).join("")}</div>
+  <div class="note">Al desactivar un modelo, sus claves se conservan.</div>`}
+
+function stepAudios(){
+  const seg=S.parts.length?`<div class="pseg" role="group" aria-label="Partes">${S.parts.map((p,i)=>
+      `<button class="${p.id===S.selPart?"on":""}" data-action="selpart" data-p="${p.id}" title="${esc(p.name)}" aria-pressed="${p.id===S.selPart}">${i+1}</button>`).join("")}
+      <button class="plus" data-action="addpart" title="Añadir audio" aria-label="Añadir audio">+</button></div>`:"";
+  const header=`<div class="shrow"><div class="stephead"><span class="overline">Paso 3 de 5</span><h1>Audios</h1></div>${seg}</div>`;
+  if(!S.parts.length) return header+`
+    <div class="mtempty"><h3>Este ejercicio aún no tiene audio</h3>
+    <p>Añade el primero desde la biblioteca o subiendo un archivo. Hasta 8 partes: p. ej., una cadencia por audio.</p>
+    <button class="add" style="width:auto;padding:10px 18px" data-action="addpart">+ Añadir el primer audio</button></div>`;
+  const sel=findPart(S.selPart)||S.parts[0];S.selPart=sel.id;
+  const i=S.parts.indexOf(sel),d=secs(sel.dur);
+  return header+`
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
+      <span class="overline">Parte ${i+1} de ${S.parts.length} · ${sel.dur}</span>
+      <div class="mwrap"><button class="btn sm icon" data-action="menu" aria-haspopup="menu" aria-label="Acciones de la parte">⋯</button>
+        <div class="menu" role="menu">
+          <button data-action="mvpart" data-d="-1" data-p="${sel.id}">Subir en el orden</button>
+          <button data-action="mvpart" data-d="1" data-p="${sel.id}">Bajar en el orden</button>
+          <button data-action="duppart" data-p="${sel.id}">Duplicar parte</button><hr>
+          <button class="danger" data-action="delpart" data-p="${sel.id}">Eliminar parte</button>
+        </div></div>
+    </div>
+    ${waveHTML(sel.seed,96)}
+    <div class="btnrow" style="align-items:center">
+      <button class="btn sm" data-action="toast" data-msg="Reproducción simulada">▸ Escuchar</button>
+      <button class="btn sm" data-action="toast" data-msg="Ajuste del fragmento simulado (arrastre de bordes)">Ajustar fragmento</button>
+      <span class="mini">Fragmento ${fmt(Math.round(d*0.15))} – ${fmt(Math.round(d*0.62))}</span>
+      <button class="btn sm" style="margin-left:auto" data-action="toast" data-msg="Elegiría de la biblioteca o subiría un archivo">Cambiar audio…</button>
+    </div>
+    <div class="grid2c" style="border-top:1px dashed var(--border);padding-top:14px;margin-top:16px">
+      <div><label class="flabel" for="pName">Nombre de la parte</label>
+        <input class="inp" id="pName" data-action="pname" data-p="${sel.id}" value="${esc(sel.name)}" autocomplete="off"></div>
+      <div><label class="flabel" for="pComp">Compositor de esta parte</label>
+        <input class="inp" id="pComp" data-action="pcomp" data-p="${sel.id}" value="${esc(sel.comp)}" placeholder="P. ej. Haydn" autocomplete="off"></div>
+    </div>
+  </div>`}
+
+function cellHTML(p,m){const ok=ready(p,m);
+  const chip=`<span class="chip ${ok?"ok":"miss"}">${m==="cuestionario"?(ok?`${p.key.cuestionario} preguntas ✓`:"Sin preguntas ⚠"):(ok?"Lista ✓":"Sin clave ⚠")}</span>`;
+  const btn=m==="cuestionario"
+    ?`<button class="btn sm ${ok?"ok":""}" data-action="quiz" data-p="${p.id}">${ok?"Gestionar":"Añadir preguntas"}</button>`
+    :`<button class="btn sm ${ok?"ok":""}" data-action="key" data-p="${p.id}" data-m="${m}">${ok?"Regrabar":"Grabar"}</button>`;
+  return chip+btn}
+
+function stepClaves(){
+  if(!S.parts.length) return head(4,"Claves de corrección")+
+    `<div class="mtempty"><h3>Sin audios todavía</h3><p>Las claves se graban sobre cada audio.</p>
+     <button class="add" style="width:auto;padding:10px 18px" data-action="goto" data-step="3">Ir al paso 3 · Audios</button></div>`;
+  const table=`<div class="ktable panel" style="padding:6px 8px"><table class="matrix">
+    <thead><tr><th style="width:34%">Parte</th>${S.models.map(m=>`<th><span class="sw" style="background:var(--m${m==="interactivo"?"Int":m==="cuestionario"?"Quiz":"Sch"})"></span>${MM[m].label}</th>`).join("")}</tr></thead>
+    <tbody>${S.parts.map((p,i)=>`<tr><td><b style="font-size:13px">${i+1} · ${esc(p.name)}</b><div class="rd">${esc(p.comp)||"&nbsp;"} · ${p.dur}</div></td>
+      ${S.models.map(m=>`<td><div class="mcell">${cellHTML(p,m)}</div></td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const cards=`<div class="kcards">${S.parts.map((p,i)=>`<div class="panel">
+      <span class="flabel">Parte ${i+1} · ${esc(p.name)}</span>
+      ${S.models.map(m=>`<div class="row"><span class="rl">${MM[m].label}</span><span class="mcell">${cellHTML(p,m)}</span></div>`).join("")}
+    </div>`).join("")}</div>`;
+  const o=S.opts;const opts=[];
+  if(S.models.includes("interactivo")) opts.push(`
+    <div class="row" style="display:block"><div class="rl">Margen de acierto <b id="mval">±${o.margen.toFixed(1)} s</b></div>
+      <input class="range" type="range" min="0" max="3" step="0.5" value="${o.margen}" data-action="margen" aria-label="Margen" style="margin-top:6px"></div>
+    <div class="row"><div><div class="rl">Pista visible</div><div class="rd">La clave como guía durante el ejercicio</div></div>
+      <button class="switch ${o.pista?"on":""}" data-action="sw" data-k="pista" role="switch" aria-checked="${o.pista}"></button></div>`);
+  if(S.models.includes("esquema")) opts.push(`
+    <div class="row"><div><div class="rl">Solo escucha</div><div class="rd">Dictado formal: escuchar antes de colocar</div></div>
+      <button class="switch ${o.soloEscucha?"on":""}" data-action="sw" data-k="soloEscucha" role="switch" aria-checked="${o.soloEscucha}"></button></div>
+    <div class="row" style="display:block"><div class="rl" style="margin-bottom:2px">Esquema de referencia</div><div class="radios">
+      <label><input type="radio" name="ref" value="entregar" ${o.ref==="entregar"?"checked":""} data-action="ref"> Mostrarlo al entregar</label>
+      <label><input type="radio" name="ref" value="corregir" ${o.ref==="corregir"?"checked":""} data-action="ref"> Mostrarlo tras la corrección</label></div></div>`);
+  return head(4,"Claves de corrección","Una casilla por audio y modelo.")+
+    table+cards+(opts.length?`<div class="panel optbox"><span class="flabel">Opciones de corrección</span>${opts.join("")}</div>`:"")}
+
+function stepRevision(){
+  const ok=allReady()&&S.visible;const f=faltas();
+  return head(5,"Revisión y publicación")+`
+  <div class="rev">
+    <div class="panel">
+      ${ok?`<div class="estado ok" style="margin:0">✓ Lista para alumnos</div>
+        <div class="okline" style="margin-top:10px"><span class="ok">✓</span> ${S.parts.length} audio${S.parts.length>1?"s":""} · ${totalDur()} · claves ${cellStats().ok}/${cellStats().t} · ${S.models.map(m=>MM[m].label).join(" + ")}</div>`
+          :`<div class="mini" style="padding:0 2px 4px">Se guarda como borrador hasta completar:</div>
+          <ul class="faltas" style="margin-top:2px">${f.map(it=>`<li><button data-action="${it.go?"goto":"togglevis"}" ${it.go?`data-step="${it.go}"`:""}>
+              <span class="ck">○</span><span>${it.txt}</span><span class="go">${it.go?"Ir al paso "+it.go+" →":"Hacer visible"}</span></button></li>`).join("")}</ul>`}
+    </div>
+    <div class="panel">
+      <div class="row" style="padding-top:0"><div><div class="rl">${S.visible?"Visible para alumnos":"Oculto para alumnos"}</div>
+        <div class="rd">Aparece en sus listas y unidades</div></div>
+        <button class="switch ${S.visible?"on":""}" data-action="togglevis" role="switch" aria-checked="${S.visible}"></button></div>
+      <div class="row" style="display:block;border:none">
+        <span class="flabel">Unidades</span>
+        <div class="tagchips" style="margin-top:2px">${S.unidades.map(u=>`<span class="tchip">${esc(u)}</span>`).join("")}
+          <button class="tchip" data-action="toast" data-msg="Abriría el selector de unidades">+ Añadir a unidad</button></div></div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn" style="flex:1" data-action="toast" data-msg="Abriría la previsualización como alumno">Previsualizar</button>
+        <button class="btn primary" style="flex:1" data-action="save">Guardar</button></div>
+    </div></div>`}
+
+const RENDER={1:stepIdentidad,2:stepModelo,3:stepAudios,4:stepClaves,5:stepRevision};
+
+function renderStep(){
+  $("#stepContent").innerHTML=RENDER[S.step]()+(S.step<5?`
+    <div class="stepfoot">
+      <span>${S.step>1?`<button class="btn" data-action="goto" data-step="${S.step-1}">← ${STEPS[S.step-2].label}</button>`:""}</span>
+      <button class="btn primary" data-action="goto" data-step="${S.step+1}">${STEPS[S.step].label} →</button></div>`:"");
+  $("#bbar").innerHTML=S.step<5
+    ?(S.step>1?`<button class="btn" data-action="goto" data-step="${S.step-1}">← Anterior</button>`:"")+
+      `<button class="btn primary" data-action="goto" data-step="${S.step+1}">${STEPS[S.step].label} →</button>`
+    :`<button class="btn" data-action="toast" data-msg="Abriría la previsualización como alumno">Previsualizar</button>
+      <button class="btn primary" data-action="save">Guardar${S.dirty?'<span class="dot"></span>':""}</button>`;
+}
+function renderAll(){renderRail();renderStep();setDirty(S.dirty);fit()}
+
+/* ───────── Acciones ───────── */
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-action]");
+  if(!e.target.closest(".mwrap"))closeMenus();
+  if(!b)return;const a=b.dataset.action;
+
+  if(a==="toast")toast(b.dataset.msg);
+  if(a==="menu"){const w=b.closest(".mwrap");const was=w.classList.contains("open");closeMenus(w);w.classList.toggle("open",!was);e.stopPropagation()}
+  if(a==="goto"){S.step=+b.dataset.step;renderAll();window.scrollTo({top:0,behavior:"smooth"})}
+  if(a==="save"){if(S.dirty){setDirty(false);toast("Cambios guardados (demo)")}else toast("Sin cambios que guardar");renderStep()}
+
+  if(a==="model"){const m=b.dataset.m;const on=S.models.includes(m);
+    if(on&&S.models.length===1){toast("Debe haber al menos un modelo");return}
+    if(!on&&S.models.length===2){toast("Máximo dos modelos por ejercicio (combo)");return}
+    S.models=on?S.models.filter(x=>x!==m):[...S.models,m];setDirty(true);renderAll();
+    toast(on?`${MM[m].label} desactivado — su clave se conserva`:`${MM[m].label} activado`)}
+
+  if(a==="selpart"){S.selPart=b.dataset.p;renderStep();renderRail()}
+  if(a==="addpart"){const p=mkPart(S.parts.length+1,"","1:05",4+S.parts.length*5);S.parts.push(p);S.selPart=p.id;
+    setDirty(true);S.step=3;renderAll();toast("Parte añadida — elige o sube su audio")}
+  if(a==="duppart"){const p=findPart(b.dataset.p);const i=S.parts.indexOf(p);
+    const c=structuredClone(p);c.id="p"+Math.random().toString(36).slice(2,7);c.name=p.name+" (copia)";
+    S.parts.splice(i+1,0,c);S.selPart=c.id;setDirty(true);renderAll();toast("Parte duplicada")}
+  if(a==="mvpart"){const p=findPart(b.dataset.p);const i=S.parts.indexOf(p);const j=i+(+b.dataset.d);
+    if(j<0||j>=S.parts.length)return;[S.parts[i],S.parts[j]]=[S.parts[j],S.parts[i]];setDirty(true);renderAll()}
+  if(a==="delpart"){if(!b.classList.contains("armed")){b.dataset.orig=b.textContent;b.classList.add("armed");b.textContent="¿Eliminar? Confirmar";return}
+    S.parts=S.parts.filter(p=>p.id!==b.dataset.p);S.parts.forEach((p,i)=>{if(/^Audio \d/.test(p.name))p.name=`Audio ${i+1}`});
+    S.selPart=S.parts[0]?.id||null;setDirty(true);renderAll();toast("Parte eliminada")}
+
+  if(a==="key"){const p=findPart(b.dataset.p);const m=b.dataset.m;
+    if(p.key[m])toast(`Abriría el modo grabar para regrabar (${MM[m].label} · ${p.name})`);
+    else{p.key[m]=true;toast(`${m==="esquema"?"Esquema":"Clave"} de ${p.name} guardada (simulado)`)}
+    renderStep();renderRail()}
+  if(a==="quiz"){const p=findPart(b.dataset.p);
+    if(p.key.cuestionario>0)toast(`Abriría el gestor de preguntas de ${p.name}`);
+    else{p.key.cuestionario=3;toast(`3 preguntas añadidas a ${p.name} (simulado)`);renderStep();renderRail()}}
+
+  if(a==="sw"){const k=b.dataset.k;if(k in S.opts)S.opts[k]=!S.opts[k];else S[k]=!S[k];
+    b.classList.toggle("on");b.setAttribute("aria-checked",b.classList.contains("on"));setDirty(true)}
+  if(a==="togglevis"){S.visible=!S.visible;setDirty(true);renderAll();toast(S.visible?"Visible para alumnos":"Oculto para alumnos")}
+  if(a==="ref"){S.opts.ref=b.value;setDirty(true)}
+  if(a==="delex"){if(!b.classList.contains("armed")){b.dataset.orig=b.textContent;b.classList.add("armed");b.textContent="¿Eliminar el ejercicio? Confirmar";return}
+    closeMenus();toast("Ejercicio eliminado (simulado) — volvería al origen")}
+});
+
+document.addEventListener("input",e=>{const el=e.target;
+  if(el.id==="inTitle"){S.title=el.value;setDirty(true);renderRail();return}
+  if(el.dataset.action==="pname"){const p=findPart(el.dataset.p);p.name=el.value;setDirty(true);renderRail();return}
+  if(el.dataset.action==="pcomp"){const p=findPart(el.dataset.p);p.comp=el.value;setDirty(true);return}
+  if(el.dataset.action==="margen"){S.opts.margen=parseFloat(el.value);const v=$("#mval");if(v)v.textContent=`±${S.opts.margen.toFixed(1)} s`;setDirty(true)}
+});
+
+/* ───────── Barra de demo ───────── */
+$("#segMode").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle("on",x===b));
+  S=b.dataset.mode==="nuevo"?NUEVO:EDICION;renderAll();window.scrollTo(0,0)});
+$("#segView").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle("on",x===b));
+  $("#stage").classList.toggle("force",b.dataset.view==="desktop");fit()});
+function fit(){const st=$("#stage"),app=$("#app");
+  if(!st.classList.contains("force")){app.style.transform="";st.style.height="";return}
+  const sc=Math.min(1,(st.clientWidth-14)/1200);app.style.transform=`scale(${sc})`;
+  requestAnimationFrame(()=>{st.style.height=(app.offsetHeight*sc+22)+"px"})}
+window.addEventListener("resize",fit);
+new ResizeObserver(()=>fit()).observe(document.getElementById("app"));
+
+renderAll();
+</script>
+</body>
+</html>
