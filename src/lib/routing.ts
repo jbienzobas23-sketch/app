@@ -19,10 +19,11 @@
 //   /profesor/alumnos/:studentId/ejercicio/:exId → respuesta de un alumno (corrección)
 //   /profesor/ejercicio/nuevo          → crear ejercicio
 //   /profesor/ejercicio/:id            → detalle del ejercicio
-//   /profesor/ejercicio/:id/grabar     → grabar clave (interactivo/esquema)
-//   /profesor/ejercicio/:id/previsualizar → previsualizar esquema
-//   /profesor/ejercicio/:id/preguntas  → gestor de preguntas (cuestionario)
-//   /profesor/ejercicio/:id/correccion → corrección (previsualización)
+//   /profesor/ejercicio/:id[/parte/:pid]/grabar     → grabar clave (interactivo/esquema)
+//   /profesor/ejercicio/:id[/parte/:pid]/previsualizar → previsualizar esquema
+//   /profesor/ejercicio/:id[/parte/:pid]/preguntas  → gestor de preguntas (cuestionario)
+//   /profesor/ejercicio/:id[/parte/:pid]/correccion → corrección (previsualización)
+//   parte/:pid es opcional (F4, T4.2): sin él, App resuelve a la primera parte.
 import { useState, useEffect, useMemo } from "react";
 
 export interface Route { name: string; params: Record<string, string>; }
@@ -67,7 +68,7 @@ export function setHashQuery(patch: Record<string, string | null>): void {
 
 // Segmentos de URL → ruta lógica { name, params }
 export function routeFromSegments(segs: string[]): Route {
-  const [a, b, c, d, e] = segs;
+  const [a, b, c, d, e, f] = segs;
   if (!a) return { name: "home", params: {} };
   if (a === "configuracion") return { name: "setup", params: {} };
 
@@ -93,10 +94,16 @@ export function routeFromSegments(segs: string[]): Route {
 
   if (a === "profesor") {
     if (b === "ejercicio" && c) {
-      if (d === "grabar")        return { name: "session", params: { exId: c, mode: "record" } };
-      if (d === "previsualizar") return { name: "session", params: { exId: c, mode: "preview" } };
-      if (d === "preguntas")     return { name: "question-manager", params: { exId: c } };
-      if (d === "correccion")    return { name: "correction", params: { exId: c, from: "teacher" } };
+      // Segmento opcional parte/:pid (F4, T4.2) antes de la acción; sin él,
+      // App resuelve a la primera parte del ejercicio.
+      const hasPart = d === "parte" && e;
+      const action  = hasPart ? f : d;
+      const params: Record<string, string> = { exId: c };
+      if (hasPart) params.partId = e;
+      if (action === "grabar")        return { name: "session", params: { ...params, mode: "record" } };
+      if (action === "previsualizar") return { name: "session", params: { ...params, mode: "preview" } };
+      if (action === "preguntas")     return { name: "question-manager", params };
+      if (action === "correccion")    return { name: "correction", params: { ...params, from: "teacher" } };
       return { name: "teacher-detail", params: { exId: c } };
     }
     if (b === "cursos") {

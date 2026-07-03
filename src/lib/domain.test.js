@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
-  partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf,
+  partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -206,6 +206,25 @@ describe("keyReadyOf", () => {
       ],
     };
     expect(keyReadyOf(ex)).toBe(false);
+  });
+});
+
+describe("updatePart", () => {
+  it("fusiona el patch sobre la parte indicada, sin tocar las demás", () => {
+    const ex = { id: "e1", parts: [{ id: "a", questions: [] }, { id: "b", questions: [] }] };
+    const updated = updatePart(ex, "b", { questions: [{ id: "q1" }] });
+    expect(updated.parts).toEqual([{ id: "a", questions: [] }, { id: "b", questions: [{ id: "q1" }] }]);
+  });
+  it("materializa `parts` a partir de partsOf() si el ejercicio no lo tenía", () => {
+    const ex = { id: "e1", title: "T", audioUrl: "x.mp3", questions: [] };
+    const updated = updatePart(ex, "p1", { questions: [{ id: "q1" }] });
+    expect(updated.parts).toHaveLength(1);
+    expect(updated.parts[0]).toMatchObject({ id: "p1", audioUrl: "x.mp3", questions: [{ id: "q1" }] });
+  });
+  it("no muta el ejercicio original", () => {
+    const ex = { id: "e1", parts: [{ id: "a", questions: [] }] };
+    updatePart(ex, "a", { questions: [{ id: "q1" }] });
+    expect(ex.parts[0].questions).toEqual([]);
   });
 });
 

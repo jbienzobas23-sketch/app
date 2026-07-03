@@ -142,6 +142,20 @@ export const durationOf = (exercise?: Exercise | null): number =>
 export const questionsCountOf = (exercise?: Exercise | null): number =>
   partsOf(exercise).reduce((sum, p) => sum + (p.questions?.length ?? 0), 0);
 
+// ¿Esta parte concreta tiene lista la clave de todos los modelos del combo?
+// Extraído para que keyReadyOf (todas las partes) y quien necesite apuntar a
+// la primera parte incompleta (p.ej. el botón "Grabar clave" genérico) usen
+// exactamente el mismo criterio por parte.
+export const partKeyReadyOf = (exercise: Exercise, part: Part, models: string[]): boolean => {
+  const projected = partToExercise(exercise, part);
+  return models.every((m) => {
+    if (m === "cuestionario") return questionsOf(projected).length > 0;
+    if (m === "esquema") return Array.isArray(projected.schemaKey) && (projected.schemaKey as unknown[]).length > 0;
+    const { recorded, total } = answerStats(projected);
+    return total > 0 && recorded === total;
+  });
+};
+
 // La clave está lista si TODAS las partes tienen clave lista para TODOS los
 // modelos del combo (v1: mismo combo para todas las partes). Sustituye a los
 // cálculos ad-hoc de keyReady dispersos por las vistas — algunos de los
@@ -151,16 +165,16 @@ export const keyReadyOf = (exercise?: Exercise | null): boolean => {
   const models = modelsOf(exercise);
   const parts = partsOf(exercise);
   if (parts.length === 0) return false;
-  return parts.every((part) => {
-    const projected = partToExercise(exercise as Exercise, part);
-    return models.every((m) => {
-      if (m === "cuestionario") return questionsOf(projected).length > 0;
-      if (m === "esquema") return Array.isArray(projected.schemaKey) && (projected.schemaKey as unknown[]).length > 0;
-      const { recorded, total } = answerStats(projected);
-      return total > 0 && recorded === total;
-    });
-  });
+  return parts.every((part) => partKeyReadyOf(exercise as Exercise, part, models));
 };
+
+// Fusiona `patch` sobre la parte `partId` (materializa `parts` a partir de
+// partsOf() si el ejercicio aún no lo tenía — así una edición cualquiera de
+// un ejercicio de una parte no pierde el resto de campos). No muta el original.
+export const updatePart = (exercise: Exercise, partId: string, patch: Partial<Part>): Exercise => ({
+  ...exercise,
+  parts: partsOf(exercise).map((p) => (p.id === partId ? { ...p, ...patch } : p)),
+});
 
 export interface PartResultEnvelope { byModel: Record<string, ExerciseResult>; }
 
