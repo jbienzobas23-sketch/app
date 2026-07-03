@@ -22,6 +22,10 @@ type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: nu
 
 interface SchemaSubmit { type: "esquema"; blocks: Block[]; schemaPalette: string; placementScore?: number | null; [k: string]: unknown; }
 
+// Borrador de bloques — mismo formato que produce esta vista y que
+// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId].
+type EsquemaDraft = Block[];
+
 interface SchemaExerciseViewProps {
   exercise: Exercise;
   mode: string;
@@ -29,9 +33,11 @@ interface SchemaExerciseViewProps {
   onBack: () => void;
   modelToggleNode?: ReactNode;
   sharedAudioPlayer?: SharedAudioPlayer | null;
+  initialDraft?: EsquemaDraft | null;
+  onDraftChange?: (draft: EsquemaDraft) => void;
 }
 
-export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }: SchemaExerciseViewProps) {
+export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange }: SchemaExerciseViewProps) {
   const duration = exercise.duration as number;
   const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
@@ -50,7 +56,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const timeRef = useRef(0);
   timeRef.current = time;
 
-  const [blocks,       setBlocks]       = useState<Block[]>((exercise.blocks as Block[] | undefined) || []);
+  const [blocks,       setBlocks]       = useState<Block[]>(() => initialDraft ?? (exercise.blocks as Block[] | undefined) ?? []);
+  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
+  useEffect(() => { onDraftChange?.(blocks); }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
   const [history,      setHistory]      = useState<Block[][]>([]);
   const [selected,     setSelected]     = useState<string | null>(null);
   const [selectedRepId, setSelectedRepId] = useState<string | null>(null); // rep seleccionada en la banda

@@ -19,6 +19,10 @@ type QuizQuestion = Question & { audioStart: number; audioEnd: number };
 
 interface QuestionnaireResult { type: "cuestionario"; answers: Record<string, string>; score: number | null; }
 
+// Borrador de respuestas — mismo formato que produce esta vista y que
+// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId].
+type CuestionarioDraft = Record<string, string>;
+
 interface QuestionnaireViewProps {
   exercise: Exercise;
   onSubmit: (result: QuestionnaireResult) => void;
@@ -26,14 +30,16 @@ interface QuestionnaireViewProps {
   modelToggleNode?: ReactNode;
   sharedAudioPlayer?: SharedAudioPlayer | null;
   loopRegionRef?: { current: Question | null } | null;
+  initialDraft?: CuestionarioDraft | null;
+  onDraftChange?: (draft: CuestionarioDraft) => void;
 }
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null }: QuestionnaireViewProps) {
+export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null, initialDraft = null, onDraftChange }: QuestionnaireViewProps) {
   const dur       = exercise.duration as number;
   const questions = questionsOf(exercise) as QuizQuestion[];
 
-  const [answers,        setAnswers]        = useState<Record<string, string>>({});
+  const [answers,        setAnswers]        = useState<Record<string, string>>(() => initialDraft || {});
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [lockedQuestion, setLockedQuestion] = useState<QuizQuestion | null>(null);
   const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
@@ -77,6 +83,9 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
   }, []);
+
+  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
+  useEffect(() => { onDraftChange?.(answers); }, [answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const answeredCount = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== "").length;
 

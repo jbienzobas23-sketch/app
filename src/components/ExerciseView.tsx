@@ -33,6 +33,11 @@ interface ExerciseSubmit {
   currentCategoryId: string;
 }
 
+// Borrador por categoría — mismo formato que consume/produce esta vista y que
+// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId] para que
+// cambiar de parte (o de modelo en un híbrido) nunca destruya trabajo.
+export type InteractivoDraft = Record<string, IV[]>;
+
 interface ExerciseViewProps {
   exercise: Exercise;
   mode: string;
@@ -40,9 +45,11 @@ interface ExerciseViewProps {
   onBack: () => void;
   modelToggleNode?: ReactNode;
   sharedAudioPlayer?: SharedAudioPlayer | null;
+  initialDraft?: InteractivoDraft | null;
+  onDraftChange?: (draft: InteractivoDraft) => void;
 }
 
-export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null }: ExerciseViewProps) {
+export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange }: ExerciseViewProps) {
   const dur          = exercise.duration as number;
   const exCategories = categoriesOf(exercise);
   const initialCategoryId = useMemo(() => {
@@ -67,7 +74,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     return m;
   }, [exCategory]);
 
-  const [intervalsByCategory, setIntervalsByCategory] = useState<Record<string, IV[]>>({});
+  const [intervalsByCategory, setIntervalsByCategory] = useState<Record<string, IV[]>>(() => initialDraft || {});
   const [pressing,     setPressing]     = useState<Pressing | null>(null);
   const [selected,     setSelected]     = useState<string | null>(null);
   const [paintFn,      setPaintFn]      = useState<string | null>(null);   // grado activo como pincel (modo colorear)
@@ -108,7 +115,10 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     return { ...prev, [currentCategoryId]: next };
   });
 
-  useEffect(() => { setIntervalsByCategory({}); setPressing(null); setSelected(null); setPaintFn(null); }, [exercise.id]);
+  useEffect(() => { setIntervalsByCategory(initialDraft || {}); setPressing(null); setSelected(null); setPaintFn(null); }, [exercise.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio,
+  // para que saltar de parte o de modelo dentro de un híbrido no pierda nada.
+  useEffect(() => { onDraftChange?.(intervalsByCategory); }, [intervalsByCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cambio de categoría: cierra el intervalo en curso de la actual
   const switchCategory = (newId: string) => {
