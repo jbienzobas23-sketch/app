@@ -6,6 +6,7 @@ import { C, F, S } from "../theme/tokens.js";
 import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 import { modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
+import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { TabBar, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
 import { ExerciseRow, ExerciseCard } from "./student.jsx";
 import { CoursesPages } from "./courses.jsx";
@@ -29,14 +30,22 @@ interface StudentDashProps {
   onUpdatePalette?: (palette: string) => void;
   tab?: string;
   onTab?: (tab: string) => void;
+  cursoId?: string | null;
+  unidadId?: string | null;
+  onNavigateCourses?: (cursoId?: string | null, unidadId?: string | null) => void;
 }
 
-export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab }: StudentDashProps) {
+export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab, cursoId = null, unidadId = null, onNavigateCourses }: StudentDashProps) {
   const isMobile = useIsMobile();
   const view    = tab;             // controlado por la URL
   const setView = onTab || (() => {});
-  const [filterModel,   setFilterModel]   = useState("all");
-  const [filterDone,    setFilterDone]    = useState("all");
+  // Filtros persistidos en la query (T3.6): sobreviven a entrar a un
+  // ejercicio y volver, porque StudentDash se desmonta al navegar a la sesión
+  // y al remontar vuelve a leer ?tipo=/?estado= de la URL.
+  const [filterModel, setFilterModelState] = useState(() => parseHashQuery().tipo   || "all");
+  const [filterDone,  setFilterDoneState]  = useState(() => parseHashQuery().estado || "all");
+  const setFilterModel = (v: string) => { setFilterModelState(v); setHashQuery({ tipo: v === "all" ? null : v }); };
+  const setFilterDone  = (v: string) => { setFilterDoneState(v);  setHashQuery({ estado: v === "all" ? null : v }); };
 
   const teacherCourses = useMemo(() => {
     const studentGroupIds = new Set(groups.filter((g) => g.studentIds?.includes(user.id)).map((g) => g.id));
@@ -144,6 +153,9 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
             results={results}
             onExercise={onExercise}
             onViewCorrection={onViewCorrection}
+            cursoId={cursoId}
+            unidadId={unidadId}
+            onNavigate={onNavigateCourses || (() => {})}
           />
         )}
       </div>
