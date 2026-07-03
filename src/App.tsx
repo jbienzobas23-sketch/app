@@ -138,21 +138,25 @@ export default function App() {
       sb.from("fa_audio_library").select("*"),
       sb.from("fa_groups").select("*"),
     ]);
+    // Con cliente presente, cada tabla se asigna siempre que la consulta no
+    // haya fallado — incluida la lista vacía. Antes un `if (data?.length)`
+    // dejaba las semillas (INIT_EXERCISES, etc.) puestas cuando el servidor
+    // respondía [], colando datos de ejemplo en un despliegue real vacío.
     const loadedUsers = userRes.data?.length ? userRes.data.map((r: any) => r.data) : null;
-    if (exRes.data?.length)     setExercises(exRes.data.map((r: any) => r.data));
-    if (loadedUsers)            setUsers(loadedUsers);
-    if (catRes.data?.length) {
-      const cats = catRes.data.map((r: any) => r.data);
+    if (!exRes.error)     setExercises((exRes.data ?? []).map((r: any) => r.data));
+    if (loadedUsers)      setUsers(loadedUsers);
+    if (!catRes.error) {
+      const cats = (catRes.data ?? []).map((r: any) => r.data);
       if (!cats.find((c: any) => c.id === "default")) setCategories([DEFAULT_CATEGORY as Category, ...cats]);
       else setCategories(cats);
     }
-    if (courseRes.data?.length) setCourses(courseRes.data.map((r: any) => r.data));
-    if (unitRes.data?.length)   setUnits(unitRes.data.map((r: any) => r.data));
-    if (audioRes.data?.length)  setAudioLibrary(audioRes.data.map((r: any) => r.data));
-    if (groupRes.data?.length)  setGroups(groupRes.data.map((r: any) => r.data));
-    if (resultRes.data?.length) {
+    if (!courseRes.error) setCourses((courseRes.data ?? []).map((r: any) => r.data));
+    if (!unitRes.error)   setUnits((unitRes.data ?? []).map((r: any) => r.data));
+    if (!audioRes.error)  setAudioLibrary((audioRes.data ?? []).map((r: any) => r.data));
+    if (!groupRes.error)  setGroups((groupRes.data ?? []).map((r: any) => r.data));
+    if (!resultRes.error) {
       const byUser: Record<string, Record<string, ExerciseResult>> = {};
-      resultRes.data.forEach((row: any) => {
+      (resultRes.data ?? []).forEach((row: any) => {
         if (!byUser[row.user_id]) byUser[row.user_id] = {};
         byUser[row.user_id][row.exercise_id] = row.data;
       });
@@ -821,6 +825,10 @@ export default function App() {
   }
 
   // ── Panel del profesor / admin ──
+  if (route.name === "teacher" && route.params.tab === "users" && user?.role !== "admin") {
+    navigate("/profesor", { replace: true });
+    return null;
+  }
   return (
     <Suspense fallback={lazyFallback}>
     <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
