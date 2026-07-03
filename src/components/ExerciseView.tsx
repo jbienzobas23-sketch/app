@@ -666,7 +666,7 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }: Repe
               value={r.second.end}
               onChange={e => updSecondEnd(r.id, e.target.value)} />
           </div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_MONO }}>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
             {fmt(r.first.start)} → {fmt(r.first.end)} → {fmt(r.second.end)}
             &nbsp;·&nbsp;1ª: {fmt(r.first.end - r.first.start)} · 2ª: {fmt(Math.max(0, r.second.end - r.first.end))}
           </div>

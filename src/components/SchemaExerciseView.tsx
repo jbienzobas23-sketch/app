@@ -1635,7 +1635,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                           onMouseDown={e => handleMarkDown(e, globalIdx)} onTouchStart={e => handleMarkDown(e, globalIdx)}>
                           <div style={{ width: 2, height: "100%", background: "rgba(184,74,58,0.6)", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }} />
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: C.danger, border: "2px solid white", marginTop: 4, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", position: "relative", zIndex: 1, flexShrink: 0 }} />
-                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_MONO, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none" }}>{fmt(mt)}</span>
+                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_MONO, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>{fmt(mt)}</span>
                         </div>
                       );
                     })}
@@ -1754,7 +1754,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     {ticks.map(({ t, frac }) => (
                       <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
                         <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
-                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_MONO, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1 }}>{fmt(t)}</span>
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_MONO, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmt(t)}</span>
                       </div>
                     ))}
                   </div>

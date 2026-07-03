@@ -194,6 +194,9 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
   const [filterModel,     setFilterModel]     = useState("all");
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
   const [filterTags,      setFilterTags]      = useState<string[]>([]);
+  // Buscador de texto (F7, T7.5): filtra por título o compositor, junto a
+  // los filtros de tipo/compositor/etiqueta — no los sustituye.
+  const [searchQuery,     setSearchQuery]     = useState("");
 
   // Derivar compositores y etiquetas únicas de la biblioteca de audios
   const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
@@ -221,6 +224,7 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
   }, [exercises, results]);
 
   const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return exercises.filter((ex) => {
       if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterComposers.length > 0 || filterTags.length > 0) {
@@ -231,12 +235,17 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
           if (!filterTags.every((t) => aTags.includes(t))) return false;
         }
       }
+      if (q) {
+        const audioComposer = ex.audioUrl ? audioByUrl[ex.audioUrl as string]?.composer : null;
+        const haystack = [ex.title, ...composersOf(ex), audioComposer].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     })
     // Los ejercicios ocultos se muestran siempre por debajo de los visibles
     // (orden estable: conservan su orden relativo dentro de cada grupo).
     .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
-  }, [exercises, filterModel, filterComposers, filterTags, audioByUrl]);
+  }, [exercises, filterModel, filterComposers, filterTags, searchQuery, audioByUrl]);
 
   // La barra de filtros se muestra siempre que haya ejercicios.
   const showFilterBar = exercises.length > 0;
@@ -248,6 +257,19 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
         <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
           {exercises.length} {exercises.length === 1 ? "ejercicio" : "ejercicios"}
           {hiddenCount > 0 && ` · ${hiddenCount} ${hiddenCount === 1 ? "oculto" : "ocultos"}`}
+        </div>
+      )}
+      {showFilterBar && (
+        <div style={{ position: "relative", marginBottom: 10, maxWidth: 320 }}>
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar por título o compositor…"
+            style={{ ...S.input, paddingRight: searchQuery ? 30 : undefined }} />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
+              ✕
+            </button>
+          )}
         </div>
       )}
       {showFilterBar
@@ -263,7 +285,7 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
         : filtered.length === 0
           ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem" }}>
               Ningún ejercicio coincide con los filtros.{" "}
-              <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); }}
+              <button onClick={() => { setFilterModel("all"); setFilterComposers([]); setFilterTags([]); setSearchQuery(""); }}
                 style={{ background: "none", border: "none", color: C.fnS, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: 0 }}>
                 Limpiar filtros
               </button>
@@ -766,7 +788,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
                     <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
                   )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO }}>{fmt(audio.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
                     {(audio.tags || []).map((tag) => (
                       <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>

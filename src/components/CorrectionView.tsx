@@ -89,7 +89,10 @@ interface CorrectionViewProps {
 // (y por modelo, en partes híbridas), proyectando el ejercicio y desglosando
 // el sobre compuesto en resultados planos — así un ejercicio de una sola
 // parte se corrige exactamente como siempre (mismo árbol de render).
-function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
+// backLabel por defecto contextual (F7, T7.5): en modo profesor (previsualizar
+// o corregir) el destino natural es "Volver", no "Mis ejercicios" (etiqueta
+// del alumno) — un explícito del llamador sigue ganando siempre.
+function CorrectionViewSingle({ exercise, result, margin, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
 
@@ -215,7 +218,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                       <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <span style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 13, color: bg }}>{b.label}</span>
-                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(b.start)}–{fmt(b.end)}</span>
                         </div>
                         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
                       </div>
@@ -330,7 +333,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                           <div key={b.id} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
                             <div style={{ ...S.row, gap: 6, marginBottom: 6 }}>
                               <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{b.label}</span>
-                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(b.start)}–{fmt(b.end)}</span>
                               <span style={{ fontSize: 10, background: (lv?.color || C.muted) + "20", color: lv?.color || C.muted, padding: "1px 6px", borderRadius: 3 }}>{lv?.sub}</span>
                             </div>
                             <textarea value={blkComments[b.id] || ""}
@@ -442,7 +445,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                   <div key={blockId} style={{ marginBottom: 6, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
                     <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
                       <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{fmt(block.start)}–{fmt(block.end)}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(block.start)}–{fmt(block.end)}</span>
                     </div>
                     <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
                   </div>
@@ -530,7 +533,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                   <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                     <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                     <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
                     {hasAudio && (
                       <button onClick={() => playQuestionFragment(q)} className="fa-pressable"
                         style={{ ...S.badge, background: activeFragmentQId === q.id && playing ? C.quiz : "transparent", color: activeFragmentQId === q.id && playing ? "#fff" : C.quiz, border: `1px solid ${C.quiz}55`, cursor: "pointer" }}>
@@ -928,7 +931,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                 {diagnostics.confusiones.slice(0, 5).map((c, i) => (
                   <div key={i} style={{ ...S.row, justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
                     <span style={{ color: C.ink }}>{c.de} → {c.a}</span>
-                    <span style={{ color: C.muted, fontFamily: FONT_MONO, fontSize: 12 }}>{c.segundos}s</span>
+                    <span style={{ color: C.muted, fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{c.segundos}s</span>
                   </div>
                 ))}
               </div>
@@ -939,7 +942,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, backLabel = "�
                 {diagnostics.tramos.map((tr, i) => (
                   <button key={i} onClick={() => seekTo(tr.start)} className="fa-pressable"
                     style={{ display: "flex", width: "100%", boxSizing: "border-box", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, padding: "6px 0", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 12 }}>{fmt(tr.start)}–{fmt(tr.end)}</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{fmt(tr.start)}–{fmt(tr.end)}</span>
                     <span style={{ color: C.muted, fontSize: 12 }}>esperado {tr.esperado} · marcado {tr.marcado ?? "—"}</span>
                   </button>
                 ))}
@@ -988,7 +991,7 @@ function effectiveModelResult(
 // (T4.3): un único useAudioPlayer vivo a la vez, sin cachés de audio nuevas.
 // teacherCorrection.parts[partId][modelId] anida la forma manual de cada
 // modelo tal cual la produce CorrectionViewSingle — sin tocarla.
-function MultiPartCorrectionShell({ exercise, result, margin, onBack, backLabel = "← Mis ejercicios", isTeacherMode = false, student = null, onSaveCorrection = null }: CorrectionViewProps) {
+function MultiPartCorrectionShell({ exercise, result, margin, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null }: CorrectionViewProps) {
   const parts = partsOf(exercise);
   const resultParts = resultPartsOf(result);
   const teacherPartsCorrection = ((result.teacherCorrection as { parts?: Record<string, Record<string, TeacherCorrection>> } | undefined)?.parts) || {};

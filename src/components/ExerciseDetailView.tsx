@@ -461,7 +461,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {audioName}
               </span>
-              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                 {fmt(effDuration)}
               </span>
               {audioLibrary.length > 0 && (
@@ -514,7 +514,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                 {fragStart !== null && (
                   <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.quiz, fontWeight: 600,
                     textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
-                    padding: "1px 6px", borderRadius: 4 }}>
+                    padding: "1px 6px", borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
                     {fmt(fragStart ?? 0)} – {fmt(fragEnd ?? 0)}
                   </span>
                 )}
@@ -683,7 +683,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8 }}>
                       <AudioWaveIcon size={14} color={C.ink2} />
                       <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{part.audioName}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0 }}>{fmt(partTotalDur)}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(partTotalDur)}</span>
                       {audioLibrary.length > 0 && (
                         <button type="button" onClick={() => setLibraryPickerForPart(part.id)} style={{ ...S.btn, padding: "2px 8px", fontSize: 11, flexShrink: 0 }}>Cambiar</button>
                       )}

@@ -3,7 +3,7 @@
 // Extraídos de App.jsx (Fase 2) sin cambiar su lógica ni su aspecto.
 import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { C, S, F, FONT_SANS, FONT_MONO, disabledStyle } from "../theme/tokens.js";
-import { scoreBg, scoreColor } from "../lib/color.js";
+import { scoreBg, scoreColor, textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
@@ -437,10 +437,18 @@ export function ProgressRing({ ready, total, size = 46, stroke = 4 }: ProgressRi
   );
 }
 
+// La inicial dentro del punto (F7, T7.5) evita que el color sea la única
+// señal — regla de daltonismo del resto de la app (p. ej. las flechas ↑/↓
+// siempre van con número, nunca solo con color).
 export function CategoryDots({ buttons }: CategoryDotsProps) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-      {buttons.map((b) => <span key={b.id} title={b.name} style={{ width: 9, height: 9, borderRadius: "50%", background: b.color, border: "1px solid rgba(0,0,0,0.08)" }} />)}
+      {buttons.map((b) => (
+        <span key={b.id} title={b.name}
+          style={{ width: 13, height: 13, borderRadius: "50%", background: b.color, border: "1px solid rgba(0,0,0,0.08)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, fontFamily: FONT_SANS, color: textOn(b.color), lineHeight: 1 }}>
+          {(b.name || "?")[0]?.toUpperCase()}
+        </span>
+      ))}
     </span>
   );
 }
@@ -947,7 +955,7 @@ export function CorrectionAudioBar({ time, timeRef, duration, playing, audioRead
           <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
           <SchemaPlayhead timeRef={timeRef} duration={duration} />
         </div>
-        <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(duration)}</span>
+        <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(time)} / {fmt(duration)}</span>
       </div>
     </div>
   );

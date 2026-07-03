@@ -195,7 +195,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
               <div onMouseDown={(e) => e.stopPropagation()}
                 style={{ ...S.row, gap: 8, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", marginBottom: 6, fontSize: 11 }}>
                 <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
-                <span style={{ fontFamily: FONT_MONO, color: C.ink2 }}>{fmt(selQ.audioStart)} → {fmt(selQ.audioEnd)}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmt(selQ.audioStart)} → {fmt(selQ.audioEnd)}</span>
                 <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmt(selQ.audioEnd - selQ.audioStart)}</span>
                 <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
                 <button onClick={() => { setEditingQ(selQ); setSelectedQId(null); }} style={{ ...S.btn, padding: "3px 10px", fontSize: 11 }}>Editar contenido</button>
@@ -249,7 +249,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
+                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
                   {q.type === "test" && (q.points ?? 1) !== 1 && (
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
                   )}

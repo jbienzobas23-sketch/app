@@ -204,7 +204,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
         </button>
 
         {/* Contador de tiempo */}
-        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2, minWidth: 70 }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink2, minWidth: 70, fontVariantNumeric: "tabular-nums" }}>
           {fmtP(currentTime)}
           {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
         </span>
@@ -237,12 +237,12 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
       <div style={{ position: "relative", paddingTop: start != null ? 20 : 6, marginBottom: 12, userSelect: "none" }}>
         {/* Etiquetas sobre los handles */}
         {start != null && startPct != null && (
-          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
             {fmt(start)}
           </div>
         )}
         {end != null && endPct != null && (
-          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_MONO, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
             {fmt(end)}
           </div>
         )}
@@ -298,7 +298,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
             <input type="number" min={0} max={end - 0.5} step={0.1}
-              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={start}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
@@ -308,7 +308,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
             <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
-              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13 }}
+              style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={end}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
@@ -317,7 +317,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           </div>
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
-            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center" }}>
+            <div style={{ ...S.input, fontFamily: FONT_MONO, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center", fontVariantNumeric: "tabular-nums" }}>
               {fmt(Math.max(0, end - start))}
             </div>
           </div>
