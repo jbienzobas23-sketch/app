@@ -86,8 +86,6 @@ export function createDb({ getClient, pendingSavesRef, onError, sleep = defaultS
   const dbDeleteResultsForUser = async (userId: string) => { await write("fa_results", (sb) => sb.from("fa_results").delete().eq("user_id", userId)); };
   const dbDeleteResultsForExercise = async (exerciseId: string) => { await write("fa_results", (sb) => sb.from("fa_results").delete().eq("exercise_id", exerciseId)); };
 
-  const dbUpsertSetting = async (key: string, value: unknown) => { await write("fa_settings", (sb) => sb.from("fa_settings").upsert({ key, value })); };
-
   const dbUpsertAudio = async (a: AnyRecord & { id: string }) => { await write("fa_audio_library", (sb) => sb.from("fa_audio_library").upsert({ id: a.id, data: a })); };
   const dbDeleteAudio = async (id: string) => { await write("fa_audio_library", (sb) => sb.from("fa_audio_library").delete().eq("id", id)); };
 
@@ -101,7 +99,6 @@ export function createDb({ getClient, pendingSavesRef, onError, sleep = defaultS
     dbUpsertCourse, dbDeleteCourse,
     dbUpsertUnit, dbDeleteUnit,
     dbUpsertResult, dbDeleteResultsForUser, dbDeleteResultsForExercise,
-    dbUpsertSetting,
     dbUpsertAudio, dbDeleteAudio,
     dbUpsertGroup, dbDeleteGroup,
   };

@@ -14,6 +14,7 @@ import type { AudioItem } from "./components/modals.js";
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
+import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "./lib/sessionConstants.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt } from "./lib/domain.js";
@@ -105,7 +106,6 @@ export default function App() {
   const [exercises,    setExercises]    = useState<Exercise[]>(INIT_EXERCISES as Exercise[]);
   const [users,        setUsers]        = useState<UserProfile[]>([]);
   const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
-  const [margin,       setMargin]       = useState(1);
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
   const [courses,      setCourses]      = useState<Course[]>([]);
   const [units,        setUnits]        = useState<Unit[]>([]);
@@ -151,14 +151,13 @@ export default function App() {
   // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
   // que el login decida el flujo sin esperar al re-render.
   const loadData = async (sb: SupabaseClient): Promise<{ users: UserProfile[] }> => {
-    const [exRes, userRes, catRes, courseRes, unitRes, resultRes, settingsRes, audioRes, groupRes] = await Promise.all([
+    const [exRes, userRes, catRes, courseRes, unitRes, resultRes, audioRes, groupRes] = await Promise.all([
       sb.from("fa_exercises").select("*"),
       sb.from("fa_users").select("*"),
       sb.from("fa_categories").select("*"),
       sb.from("fa_courses").select("*"),
       sb.from("fa_units").select("*"),
       sb.from("fa_results").select("*"),
-      sb.from("fa_settings").select("*"),
       sb.from("fa_audio_library").select("*"),
       sb.from("fa_groups").select("*"),
     ]);
@@ -187,10 +186,6 @@ export default function App() {
         byUser[row.user_id][row.exercise_id] = row.data;
       });
       setResults(byUser);
-    }
-    if (settingsRes.data?.length) {
-      const m = settingsRes.data.find((s) => s.key === "margin");
-      if (m?.value != null) setMargin(Number(m.value));
     }
     return { users: loadedUsers || users };
   };
@@ -251,7 +246,6 @@ export default function App() {
     dbUpsertCourse, dbDeleteCourse,
     dbUpsertUnit, dbDeleteUnit,
     dbUpsertResult, dbDeleteResultsForUser, dbDeleteResultsForExercise,
-    dbUpsertSetting,
     dbUpsertAudio, dbDeleteAudio,
     dbUpsertGroup, dbDeleteGroup,
   } = useMemo(() => createDb({
@@ -483,9 +477,6 @@ export default function App() {
     dbDeleteAudio(id);
   };
 
-  // ─── Margin (settings) ───────────────────────────────────────────────────
-  const updateMargin = (m: number) => { setMargin(m); dbUpsertSetting("margin", m); };
-
   // ─── Navegación helpers ──────────────────────────────────────────────────
   const freshExercise = (ex: Exercise) => exercises.find((e) => e.id === ex.id) || ex;
 
@@ -615,7 +606,7 @@ export default function App() {
             byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
             if (score != null) modelScores.push(score);
           } else if (m === "esquema") {
-            const score = calcSchemaPlacementScore(projected.schemaKey as SchemaBlock[], raw.blocks || [], projected.schemaMargin ?? 3);
+            const score = calcSchemaPlacementScore(projected.schemaKey as SchemaBlock[], raw.blocks || [], projected.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
             byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
             if (score != null) modelScores.push(score);
           } else {
@@ -623,7 +614,7 @@ export default function App() {
             const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
             const scoreFor = (categoryId: string, intervals: Interval[]) => {
               const key = answerFor(projected, categoryId) as Interval[];
-              return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? margin) : null;
+              return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? DEFAULT_MARGIN) : null;
             };
             const mainEntry = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
             const mainIvs   = mainEntry?.intervals || [];
@@ -719,7 +710,7 @@ export default function App() {
     const scoreFor = (categoryId: string, intervals: Interval[]) => {
       const key = answerFor(ex, categoryId) as Interval[];
       if (!key.length) return null;
-      return calcScore(key, intervals, ex.duration as number, ex.margin ?? margin);
+      return calcScore(key, intervals, ex.duration as number, ex.margin ?? DEFAULT_MARGIN);
     };
 
     if (exCtx.mode === "record") {
@@ -986,7 +977,7 @@ export default function App() {
     return (
       <CorrectionView
         exercise={applyPaletteToExercise(freshExercise(exCtx.exercise), corrPalette) || freshExercise(exCtx.exercise)}
-        result={result} margin={margin}
+        result={result}
         onBack={() => {
           setLastResult(null);
           // El preview del profesor es efímero: reemplaza la entrada de
@@ -1043,7 +1034,6 @@ export default function App() {
       onUpdateExercise={updateExercise}
       onDeleteExercise={deleteExercise}
       results={results}
-      margin={margin} onMargin={updateMargin}
       tab={route.name === "teacher" ? route.params.tab : "exercises"}
       onTab={(t) => navigate(TEACHER_TAB_PATH[t] || "/profesor")}
       cursoId={route.name === "teacher" ? route.params.cursoId ?? null : null}

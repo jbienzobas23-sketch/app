@@ -810,28 +810,13 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
 
 // ── Pestaña: Ajustes ──────────────────────────────────────────────────────
 interface SettingsTabProps {
-  margin: number;
-  onMargin: (v: number) => void;
   currentUser: User | null;
   onUpdateUser: (u: User) => void;
 }
-export function SettingsTab({ margin, onMargin, currentUser, onUpdateUser }: SettingsTabProps) {
+export function SettingsTab({ currentUser, onUpdateUser }: SettingsTabProps) {
   const current = currentUser?.defaultPalette || SCHEMA_PALETTE_DEFAULT;
   const setPalette = (id: string) => { if (currentUser) onUpdateUser({ ...currentUser, defaultPalette: id }); };
-  return (
-    <>
-      <div style={S.card}>
-        <label style={S.label}>Margen de error (segundos) — para ejercicios Interactivos (valor por defecto para nuevos ejercicios)</label>
-        <div style={S.row}>
-          <input type="range" min={0} max={3} step={0.5} value={margin}
-            onChange={(e) => onMargin(Number(e.target.value))} style={{ flex: 1 }} />
-          <span style={{ minWidth: 40, textAlign: "center", fontWeight: 600, color: C.fnD }}>{margin}s</span>
-        </div>
-        <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Por defecto: 1 segundo. Cada ejercicio puede definir su propio margen en su edición.</p>
-      </div>
-      <PalettePreferenceCard current={current} onSelect={setPalette} />
-    </>
-  );
+  return <PalettePreferenceCard current={current} onSelect={setPalette} />;
 }
 
 // Tarjeta reutilizable de selección de paleta por defecto (profesor y alumno).
@@ -931,8 +916,6 @@ interface TeacherDashProps {
   onUpdateExercise: (id: ExId, patch: Record<string, unknown>) => void;
   onDeleteExercise: (id: ExId) => void;
   results: Record<string, Record<string, ExerciseResult>>;
-  margin: number;
-  onMargin: (v: number) => void;
   onRecord: (ex: Exercise, partId?: string) => void;
   onPreview: (ex: Exercise, partId?: string) => void;
   onManageQuestions: (ex: Exercise, partId?: string) => void;
@@ -979,7 +962,7 @@ export function TeacherDash({
   currentUser,
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
-  results, margin, onMargin,
+  results,
   onRecord, onPreview, onManageQuestions, onAdd, onLogout,
   categories, onAddCategory, onUpdateCategory, onDeleteCategory, onToggleGlobalCategory,
   courses, units,
@@ -1096,7 +1079,6 @@ export function TeacherDash({
           key={JSON.stringify(freshResult.teacherCorrection)}
           exercise={freshVaPal}
           result={freshResult}
-          margin={margin}
           onBack={backFromAnswer}
           backLabel="← Volver a alumnos"
           isTeacherMode={true}
@@ -1122,7 +1104,6 @@ export function TeacherDash({
         onDelete={() => {}}
         categories={categories}
         audioLibrary={audioLibrary}
-        globalMargin={margin}
       />
     );
   }
@@ -1144,7 +1125,6 @@ export function TeacherDash({
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
         categories={categories}
         audioLibrary={audioLibrary}
-        globalMargin={margin}
       />
     );
   }
@@ -1255,7 +1235,7 @@ export function TeacherDash({
             askConfirm={askConfirm} />
         )}
 
-        {tab === "settings" && <SettingsTab margin={margin} onMargin={onMargin} currentUser={currentUser} onUpdateUser={onUpdateUser} />}
+        {tab === "settings" && <SettingsTab currentUser={currentUser} onUpdateUser={onUpdateUser} />}
 
         {tab === "users" && isAdmin && (
           <UsersTab currentUser={currentUser} teachers={teachers}

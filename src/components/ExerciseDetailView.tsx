@@ -10,6 +10,7 @@ import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
 import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, modelsOf, answerFor, answerStats, questionsOf, partsOf, partKeyReadyOf } from "../lib/domain.js";
 import { MODEL_META } from "../lib/modelMeta.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
+import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.js";
 import { ConfirmModal, AudioWaveIcon, CtaButton } from "./primitives.jsx";
 import { FragmentRangeSelector } from "./session.js";
 import { AudioLibraryPickerModal, type AudioItem } from "./modals.js";
@@ -35,11 +36,10 @@ interface ExerciseDetailViewProps {
   onDelete: () => void;
   categories: Category[];
   audioLibrary?: AudioItem[];
-  globalMargin?: number;
 }
 
 // ═══ 12. EXERCISE DETAIL VIEW (creación/edición de ejercicio) ═══════════════
-export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories: categoriesProp, audioLibrary = [], globalMargin = 1 }: ExerciseDetailViewProps) {
+export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, onPreview, onManageQuestions, onUpdate, onCreate, onDelete, categories: categoriesProp, audioLibrary = [] }: ExerciseDetailViewProps) {
   // Las categorías reales siempre traen `buttons`; lo garantizamos para el formulario.
   const categories = categoriesProp as CatWithButtons[];
   const isCreating = exerciseProp == null;
@@ -103,10 +103,8 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   const [schemaLevels,      setSchemaLevels]      = useState<Set<number>>(
     () => new Set(isCreating ? [1,2,3,4] : ((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]))
   );
-  const [exMargin,       setExMargin]       = useState<number>(isCreating ? globalMargin : (exercise.margin ?? globalMargin));
-  const [exSchemaMargin, setExSchemaMargin] = useState<number>(
-    isCreating ? 1 : (exercise.schemaMargin ?? Math.min(3, +(0.05 * (exercise.duration || 0)).toFixed(1)))
-  );
+  const [exMargin,       setExMargin]       = useState<number>(isCreating ? DEFAULT_MARGIN : (exercise.margin ?? DEFAULT_MARGIN));
+  const [exSchemaMargin, setExSchemaMargin] = useState<number>(isCreating ? DEFAULT_SCHEMA_MARGIN : (exercise.schemaMargin ?? DEFAULT_SCHEMA_MARGIN));
   const toggleSchemaLevel = (id: number) => setSchemaLevels(prev => {
     const n = new Set(prev);
     if (n.has(id)) { if (n.size > 1) n.delete(id); } else n.add(id);
@@ -295,7 +293,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     }
 
     if (selectedModels.includes("interactivo")) {
-      if ((exercise.margin ?? globalMargin) !== exMargin) return true;
+      if ((exercise.margin ?? DEFAULT_MARGIN) !== exMargin) return true;
       const exCats = categoriesOf(exercise);
       const exIds  = new Set(exCats.map((m) => m.id));
       if (selectedCategoryIds.size !== exIds.size) return true;
@@ -317,7 +315,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
       if ((fragEnd   ?? null) !== (exercise.audioFragmentEnd   ?? null)) return true;
     }
     return false;
-  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, globalMargin, isMultiPart, parts, initialParts]);
+  }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, isMultiPart, parts, initialParts]);
 
   // En multiparte la duración vive por parte, no en effDuration (congelado en
   // los campos planos de la parte 1 desde que se activó el modo multiparte).

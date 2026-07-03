@@ -10,6 +10,7 @@ import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
 import { categoriesOf, answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf, attemptsOf } from "../lib/domain.js";
 import { interactiveDiagnostics, schemaDiagnostics, aggregateParts, gradeShort } from "../lib/scoring.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
+import { DEFAULT_MARGIN } from "../lib/sessionConstants.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "./primitives.jsx";
 
@@ -63,7 +64,6 @@ const normalizeScore100 = (v: number | null | undefined): number | null =>
 interface CorrectionViewProps {
   exercise: Exercise;
   result: CorrectionResult;
-  margin?: number;
   onBack: () => void;
   backLabel?: string;
   isTeacherMode?: boolean;
@@ -92,7 +92,7 @@ interface CorrectionViewProps {
 // backLabel por defecto contextual (F7, T7.5): en modo profesor (previsualizar
 // o corregir) el destino natural es "Volver", no "Mis ejercicios" (etiqueta
 // del alumno) — un explícito del llamador sigue ganando siempre.
-function CorrectionViewSingle({ exercise, result, margin, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
+function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
 
@@ -819,7 +819,7 @@ function CorrectionViewSingle({ exercise, result, margin, onBack, isTeacherMode 
   const studentAns       = result.intervals;
   const sc               = result.score;
   const col              = scoreColor(sc);
-  const effMargin        = (exercise.margin as number | undefined) ?? margin;
+  const effMargin        = (exercise.margin as number | undefined) ?? DEFAULT_MARGIN;
   // Diagnóstico (T2.4): información adicional sobre CÓMO falló el alumno — la
   // nota sigue siendo `sc` (calcScore), esto no la sustituye ni la recalcula.
   const diagnostics = sc != null ? interactiveDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
@@ -988,7 +988,7 @@ function effectiveModelResult(
 // (T4.3): un único useAudioPlayer vivo a la vez, sin cachés de audio nuevas.
 // teacherCorrection.parts[partId][modelId] anida la forma manual de cada
 // modelo tal cual la produce CorrectionViewSingle — sin tocarla.
-function MultiPartCorrectionShell({ exercise, result, margin, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null }: CorrectionViewProps) {
+function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null }: CorrectionViewProps) {
   const parts = partsOf(exercise);
   const resultParts = resultPartsOf(result);
   const teacherPartsCorrection = ((result.teacherCorrection as { parts?: Record<string, Record<string, TeacherCorrection>> } | undefined)?.parts) || {};
@@ -1111,7 +1111,6 @@ function MultiPartCorrectionShell({ exercise, result, margin, onBack, isTeacherM
             key={m}
             exercise={projected}
             result={flatResult}
-            margin={margin}
             onBack={onBack}
             backLabel={backLabel}
             isTeacherMode={isTeacherMode}
