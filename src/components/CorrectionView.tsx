@@ -1,6 +1,6 @@
 // ═══ CORRECTIONVIEW (CORRECCIÓN / REVISIÓN) ══════════════════════════════════
-// SchemaPlayhead + CorrectionView (alumno y profesor). Extraídas de App.jsx (Fase 2).
-import React, { useState, useEffect, useRef } from "react";
+// CorrectionView (alumno y profesor). Extraída de App.jsx (Fase 2).
+import React, { useState, useRef } from "react";
 import type { Exercise } from "../lib/types.js";
 import { C, S, FONT_SANS, FONT_SERIF, FONT_MONO } from "../theme/tokens.js";
 import { textOn, scoreColor } from "../lib/color.js";
@@ -8,8 +8,9 @@ import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
 import { categoriesOf, answerFor, btnOf, questionsOf } from "../lib/domain.js";
+import { interactiveDiagnostics, schemaDiagnostics } from "../lib/scoring.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
-import { ScoreBadge } from "./primitives.jsx";
+import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "./primitives.jsx";
 
 // ── Tipos locales de corrección ──────────────────────────────────────────────
 interface TeacherCorrection {
@@ -51,32 +52,6 @@ type ScoreInput = string | number;
 const normalizeScore100 = (v: number | null | undefined): number | null =>
   v == null ? null : (v <= 10 ? v * 10 : v);
 
-interface SchemaPlayheadProps { timeRef: { current: number }; duration: number; }
-
-// Línea vertical animada a 60 fps sobre el timeline del esquema (sin re-renders de React)
-export function SchemaPlayhead({ timeRef, duration }: SchemaPlayheadProps) {
-  const lineRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    let raf: number;
-    const tick = () => {
-      if (lineRef.current && duration > 0) {
-        const pct = Math.min(100, (timeRef.current / duration) * 100);
-        lineRef.current.style.left = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [timeRef, duration]);
-  return (
-    <div ref={lineRef} style={{
-      position: "absolute", top: 0, left: 0, width: 2, height: "100%",
-      background: C.danger, opacity: 0.75, pointerEvents: "none", zIndex: 10,
-      transform: "translateX(-50%)", borderRadius: 1,
-    }} />
-  );
-}
-
 interface CorrectionViewProps {
   exercise: Exercise;
   result: CorrectionResult;
@@ -102,8 +77,18 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   const [quizGlobal,   setQuizGlobal]   = useState(tc?.globalComment || "");
   const [quizScore,    setQuizScore]    = useState<ScoreInput>(() => normalizeScore100(tc?.totalScore) ?? "");
 
-  // Audio — siempre incondicional (reglas de hooks)
-  const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
+  // Audio — siempre incondicional (reglas de hooks). loopRegionRef: región de
+  // bucle activa para el botón «▶ Fragmento» del cuestionario (T2.3); null en
+  // el resto de modelos.
+  const loopRegionRef = useRef<{ audioStart: number; audioEnd: number } | null>(null);
+  const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo, playFrom } = useAudioPlayer(exercise, { loopRegionRef });
+  const [activeFragmentQId, setActiveFragmentQId] = useState<string | null>(null);
+  const playQuestionFragment = (q: { id: string; audioStart?: number; audioEnd?: number }) => {
+    if (activeFragmentQId === q.id && playing) { togglePlay(); return; }
+    loopRegionRef.current = { audioStart: q.audioStart ?? 0, audioEnd: q.audioEnd ?? (exercise.duration as number) };
+    setActiveFragmentQId(q.id);
+    playFrom(q.audioStart ?? 0);
+  };
 
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
@@ -112,6 +97,12 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     const hasKey      = schemaKey.length > 0;
     const ps          = result.placementScore ?? null;
     const effSchemaMargin = (exercise.schemaMargin as number | undefined) ?? 3;
+    // Diagnóstico por bloque (T2.5): NO toca la nota — `ps` (colocación) sigue
+    // siendo la fuente de verdad. Separa "¿lo colocó bien?" de "¿lo llamó bien?".
+    const diag = schemaDiagnostics(schemaKey, blocks, effSchemaMargin);
+    const nombresPct = diag && diag.bloques.length > 0
+      ? Math.round((diag.bloques.filter((b) => b.etiquetaOk).length / diag.bloques.length) * 100)
+      : null;
     const studentPalette = result.schemaPalette || SCHEMA_PALETTE_DEFAULT;   // paleta elegida por el alumno
     const keyPalette     = exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT;  // paleta de la clave (profesor)
     const schemaLevels = exercise.schemaLevels as number[] | undefined;
@@ -190,23 +181,34 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
     );
 
     const AudioBar = () => hasAudio ? (
-      <div style={{ ...S.card, marginBottom: 16, padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={togglePlay}
-            disabled={!audioReady}
-            style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: audioReady ? C.ink : C.line, color: C.paper, cursor: audioReady ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, transition: "background .15s" }}>
-            {playing ? "⏸" : "▶"}
-          </button>
-          <div
-            onClick={handleTimelineClick}
-            style={{ flex: 1, position: "relative", height: 6, background: C.paper2, borderRadius: 3, cursor: "pointer", overflow: "visible" }}>
-            <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / dur) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
-          </div>
-          <span style={{ fontSize: 12, fontFamily: FONT_MONO, color: C.muted, flexShrink: 0 }}>{fmt(time)} / {fmt(dur)}</span>
-        </div>
-      </div>
+      <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
+        togglePlay={togglePlay} onSeek={handleTimelineClick} />
     ) : null;
+
+    const DiagnosticsCard = () => !diag ? null : (
+      <div style={{ ...S.card, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>Diagnóstico por bloque</div>
+        <div style={{ fontSize: 13, color: C.ink2, marginBottom: 12 }}>
+          Colocación {ps ?? 0}% · Nombres {nombresPct ?? 0}%
+        </div>
+        {diag.bloques.map((b, i) => (
+          <div key={b.id ?? i} style={{ ...S.row, justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+            <span style={{ color: C.ink }}>
+              {b.label || "—"} — {b.estado}
+              {b.estado === "desplazado" && b.delta != null && ` ${b.delta > 0 ? "+" : ""}${b.delta}s`}
+            </span>
+            <span style={{ color: b.etiquetaOk ? C.fnT : C.danger, fontSize: 12 }}>
+              etiqueta {b.etiquetaOk ? "✓" : "✗"}
+            </span>
+          </div>
+        ))}
+        {diag.sobrantes.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: C.muted }}>
+            + {diag.sobrantes.length} {diag.sobrantes.length === 1 ? "bloque sobrante sin clave" : "bloques sobrantes sin clave"}
+          </div>
+        )}
+      </div>
+    );
 
     // ── Vista del profesor ────────────────────────────────────────────────────
     if (isTeacherMode) {
@@ -239,6 +241,8 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                 {blocks.length > 0 && <SchemaStrip title="Esquema del alumno" bks={blocks} />}
               </div>
             )}
+
+            <DiagnosticsCard />
 
             <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.3)` }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.quiz, marginBottom: 16 }}>
@@ -343,6 +347,8 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
             </div>
           )}
 
+          {showRefSchema && <DiagnosticsCard />}
+
           {tc?.corrected && (
             <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.35)`, marginTop: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>Corrección del profesor</div>
@@ -434,6 +440,12 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
                     <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                     <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : C.quiz }}>{q.type === "test" ? "Test" : "Desarrollo"}</span>
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_MONO }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
+                    {hasAudio && (
+                      <button onClick={() => playQuestionFragment(q)} className="fa-pressable"
+                        style={{ ...S.badge, background: activeFragmentQId === q.id && playing ? C.quiz : "transparent", color: activeFragmentQId === q.id && playing ? "#fff" : C.quiz, border: `1px solid ${C.quiz}55`, cursor: "pointer" }}>
+                        {activeFragmentQId === q.id && playing ? "❚❚ Fragmento" : "▶ Fragmento"}
+                      </button>
+                    )}
                     {q.type === "test" && (
                       <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
                         {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
@@ -653,13 +665,26 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
   const sc               = result.score;
   const col              = scoreColor(sc);
   const effMargin        = (exercise.margin as number | undefined) ?? margin;
+  // Diagnóstico (T2.4): información adicional sobre CÓMO falló el alumno — la
+  // nota sigue siendo `sc` (calcScore), esto no la sustituye ni la recalcula.
+  const diagnostics = sc != null ? interactiveDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
   const pct = (t: number) => `${(t / dur) * 100}%`;
+  // Misma aritmética que handleTimelineClick del esquema: posición del clic
+  // dentro del contenedor → segundos, sea la barra de transporte o una banda.
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    seekTo(((e.clientX - rect.left) / rect.width) * dur);
+  };
 
   return (
     <div style={S.app}>
       <div style={S.page}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "Outfit, sans-serif", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>{backLabel}</button>
         <h1 style={{ ...S.h1, marginBottom: 20 }}>Corrección: {exercise.title}</h1>
+        {hasAudio && (
+          <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
+            togglePlay={togglePlay} onSeek={handleTimelineClick} />
+        )}
 
         {exCategories.length > 1 && (
           <div style={{ marginBottom: 16, color: C.muted, fontSize: 13 }}>
@@ -712,23 +737,60 @@ export function CorrectionView({ exercise, result, margin, onBack, backLabel = "
             {[{ label: "Clave", ivs: teacherAns }, { label: "Tu respuesta", ivs: studentAns }].map(({ label, ivs }) => (
               <div key={label} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{label}</div>
-                <div style={{ background: C.paper2, borderRadius: 6, height: 36, position: "relative" }}>
+                <div onClick={hasAudio ? handleTimelineClick : undefined}
+                  style={{ background: C.paper2, borderRadius: 6, height: 36, position: "relative", cursor: hasAudio ? "pointer" : "default" }}>
                   {(ivs ?? []).map((iv, i) => {
                     const b = btnOf(exCategory, iv.fn);
                     return (
-                      <div key={i} style={{ position: "absolute", top: "10%", height: "80%", left: pct(iv.start), width: pct(iv.end - iv.start), background: b.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                      <div key={i} style={{ position: "absolute", top: "10%", height: "80%", left: pct(iv.start), width: pct(iv.end - iv.start), background: b.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", pointerEvents: "none" }}>
                         {(iv.end - iv.start) / dur > 0.06 && (
                           <span style={{ fontSize: 10, fontWeight: 700, color: textOn(b.color) }}>{iv.fn}</span>
                         )}
                       </div>
                     );
                   })}
+                  {hasAudio && <SchemaPlayhead timeRef={audioTimeRef} duration={dur} />}
                 </div>
               </div>
             ))}
             <div style={{ ...S.row, justifyContent: "space-between", fontSize: 10, color: C.muted2 }}>
               {Array.from({ length: Math.floor(dur / 5) + 1 }, (_, i) => i * 5).map((t) => <span key={t}>{fmt(t)}</span>)}
             </div>
+          </div>
+        )}
+
+        {diagnostics && (
+          <div style={{ ...S.card, marginTop: 16 }}>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>Diagnóstico</div>
+            <div style={{ fontSize: 13, color: C.ink2, marginBottom: 14 }}>
+              Cobertura {diagnostics.cobertura}% · Precisión {diagnostics.precision}%
+              {diagnostics.desfaseMedio != null && (
+                <span style={{ color: C.muted }}> · desfase medio {diagnostics.desfaseMedio > 0 ? "+" : ""}{diagnostics.desfaseMedio}s</span>
+              )}
+            </div>
+            {diagnostics.confusiones.length > 0 && (
+              <div style={{ marginBottom: diagnostics.tramos.length > 0 ? 14 : 0 }}>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Confusiones más frecuentes</div>
+                {diagnostics.confusiones.slice(0, 5).map((c, i) => (
+                  <div key={i} style={{ ...S.row, justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                    <span style={{ color: C.ink }}>{c.de} → {c.a}</span>
+                    <span style={{ color: C.muted, fontFamily: FONT_MONO, fontSize: 12 }}>{c.segundos}s</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {diagnostics.tramos.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Tramos fallados</div>
+                {diagnostics.tramos.map((tr, i) => (
+                  <button key={i} onClick={() => seekTo(tr.start)} className="fa-pressable"
+                    style={{ display: "flex", width: "100%", boxSizing: "border-box", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, padding: "6px 0", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12 }}>{fmt(tr.start)}–{fmt(tr.end)}</span>
+                    <span style={{ color: C.muted, fontSize: 12 }}>esperado {tr.esperado} · marcado {tr.marcado ?? "—"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
