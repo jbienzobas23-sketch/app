@@ -191,6 +191,13 @@ export const resultPartsOf = (result: ExerciseResult | null | undefined): Record
   return { [SINGLE_PART_ID]: { byModel: { [modelId]: result } } };
 };
 
+// Compositores únicos de las partes de un ejercicio, en orden de aparición
+// (F4, T4.5) — con una parte sintetizada, equivale a [exercise.composerName]
+// si lo hay. Las listas usan esto para «Compositor: X» (una parte) frente a
+// «Compositores: varios» (partes con compositores distintos).
+export const composersOf = (exercise?: Exercise | null): string[] =>
+  [...new Set(partsOf(exercise).map((p) => p.composerName).filter((c): c is string => Boolean(c)))];
+
 // Listas únicas y ordenadas de compositores / etiquetas del almacén de audios.
 // Centralizadas aquí porque se usaban (con ligeras inconsistencias) en varias
 // pestañas y modales.

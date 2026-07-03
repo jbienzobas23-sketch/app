@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
-  partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart,
+  partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -179,6 +179,21 @@ describe("questionsCountOf", () => {
   it("multiparte: suma las preguntas de todas las partes", () => {
     const ex = { parts: [{ id: "a", questions: [{ id: "q1" }] }, { id: "b", questions: [{ id: "q2" }, { id: "q3" }] }] };
     expect(questionsCountOf(ex)).toBe(3);
+  });
+});
+
+describe("composersOf", () => {
+  it("con una sola parte sintetizada, es [composerName] si lo hay", () => {
+    expect(composersOf({ composerName: "Haydn" })).toEqual(["Haydn"]);
+    expect(composersOf({})).toEqual([]);
+  });
+  it("multiparte: únicos, en orden de aparición", () => {
+    const ex = { parts: [{ id: "a", composerName: "Haydn" }, { id: "b", composerName: "Bach" }, { id: "c", composerName: "Haydn" }] };
+    expect(composersOf(ex)).toEqual(["Haydn", "Bach"]);
+  });
+  it("partes sin compositor no aportan huecos ni duplicados vacíos", () => {
+    const ex = { parts: [{ id: "a" }, { id: "b", composerName: "Bach" }] };
+    expect(composersOf(ex)).toEqual(["Bach"]);
   });
 });
 
