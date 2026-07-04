@@ -116,6 +116,15 @@ const LOCAL_USERS: UserProfile[] = [
 // Curso/unidad de semilla enlazando los ejercicios de seed.ts (ids 2, 3 y 4).
 const LOCAL_COURSES: Course[] = [{ id: "local-curso", name: "Curso local", unitIds: ["local-unidad"] }];
 const LOCAL_UNITS: Unit[]     = [{ id: "local-unidad", name: "Unidad local", exerciseIds: ["2", "3", "4"] }];
+// Muestras híbridas para revisar la ModelPlate en el contexto real (las dos
+// parejas de producto, la tercera pareja y el triple de la puerta M7 — estos
+// dos últimos solo existen aquí, como muestra visual).
+const LOCAL_HYBRIDS = [
+  { id: "local-h1", title: "Trío Op. 1 n.º 3 — IV.", duration: 120, model: "interactivo", models: ["interactivo", "cuestionario"], composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
+  { id: "local-h2", title: "Cuarteto Op. 18 — I.",   duration: 120, model: "interactivo", models: ["interactivo", "esquema"],      composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
+  { id: "local-h3", title: "Sonata Op. 53 — I.",     duration: 120, model: "esquema",     models: ["esquema", "cuestionario"],     composerName: "Beethoven", categories: [], answers: {} },
+  { id: "local-h4", title: "Sinfonía n.º 9 — IV.",   duration: 120, model: "esquema",     models: ["esquema", "interactivo", "cuestionario"], composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
+] as unknown as Exercise[];
 
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
@@ -125,7 +134,8 @@ export default function App() {
   const pendingSavesRef = useRef(0);
 
   // Estado global
-  const [exercises,    setExercises]    = useState<Exercise[]>(() => (INIT_EXERCISES as Exercise[]).map(normalizeExercise));
+  const [exercises,    setExercises]    = useState<Exercise[]>(() =>
+    ([...(INIT_EXERCISES as Exercise[]), ...(LOCAL_MODE ? LOCAL_HYBRIDS : [])]).map(normalizeExercise));
   const [users,        setUsers]        = useState<UserProfile[]>(LOCAL_MODE ? LOCAL_USERS : []);
   const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);

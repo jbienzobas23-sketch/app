@@ -96,12 +96,12 @@ const glyphAt = (m: string, cx: number, cy: number, k: number) => {
   return `translate(${cx - (w * k) / 2} ${cy - (h * k) / 2}) scale(${k})`;
 };
 
-// Placa combinada (M2.5, según la maqueta de Jon 2026-07-04): UNA sola placa
-// partida en zonas de ÁREA IGUAL que se tocan en una curva suave (sin costura
-// blanca), y un glifo DEL MISMO TAMAÑO centrado en cada zona — sin jerarquía
-// entre modelos. Con dos: mitades diagonales (principal arriba-izquierda,
-// secundario abajo-derecha). Con tres (puerta M7): izquierda, arriba-derecha
-// y abajo. La curva sale del rx grande de la "baldosa" superpuesta.
+// Placa combinada (M2.5, según la maqueta de Jon 2026-07-04 + su corrección:
+// LÍNEAS RECTAS, nada de curvas): UNA sola placa partida en zonas de área
+// igual y un glifo DEL MISMO TAMAÑO centrado en cada zona — sin jerarquía
+// entre modelos. Con dos: mitades por la diagonal recta (principal arriba-
+// izquierda). Con tres (puerta M7): tres sectores a 120° desde el centro,
+// como la estrella de Mercedes (arriba-izquierda · arriba-derecha · abajo).
 interface ModelPlateProps { models: string[]; size?: number; radius?: number; style?: CSSProperties; }
 export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlateProps) {
   // Mínimo 36px: por debajo, el glifo secundario deja de leerse.
@@ -119,18 +119,19 @@ export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlate
         <rect width="48" height="48" fill={tint(m0)} />
         {models.length >= 3 ? (
           <>
-            {/* Tres tercios: izquierda · arriba-derecha · abajo-derecha, glifos iguales. */}
-            <rect x="24" y="-10" width="36" height="34" rx="14" fill={tint(m1)} />
-            <rect x="20" y="26" width="40" height="32" rx="14" fill={tint(m2)} />
-            <g transform={glyphAt(m0, 12, 22, 0.72)}   style={{ color: accent(m0) }}><Glyph model={m0} /></g>
-            <g transform={glyphAt(m1, 36.5, 11, 0.72)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
-            <g transform={glyphAt(m2, 35, 37, 0.72)}   style={{ color: accent(m2) }}><Glyph model={m2} /></g>
+            {/* Estrella de Mercedes: radios rectos desde el centro a las 12h,
+                ~16h y ~20h (120°) → sectores arriba-izq · arriba-dcha · abajo. */}
+            <path d="M24,24 L24,0 H48 V38 Z" fill={tint(m1)} />
+            <path d="M24,24 L48,38 V48 H0 V38 Z" fill={tint(m2)} />
+            <g transform={glyphAt(m0, 12, 13.5, 0.65)} style={{ color: accent(m0) }}><Glyph model={m0} /></g>
+            <g transform={glyphAt(m1, 36, 13.5, 0.65)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
+            <g transform={glyphAt(m2, 24, 38, 0.65)}   style={{ color: accent(m2) }}><Glyph model={m2} /></g>
           </>
         ) : (
           <>
-            {/* Mitades diagonales de área igual (la curva es el rx grande de la
-                baldosa) y glifos del MISMO tamaño, uno centrado en cada mitad. */}
-            <rect x="14" y="14" width="44" height="44" rx="20" fill={tint(m1)} />
+            {/* Mitades por la diagonal RECTA (48,0)–(0,48) y glifos del MISMO
+                tamaño, uno centrado en cada mitad. */}
+            <path d="M48,0 V48 H0 Z" fill={tint(m1)} />
             <g transform={glyphAt(m0, 15, 14.5, 0.9)} style={{ color: accent(m0) }}><Glyph model={m0} /></g>
             <g transform={glyphAt(m1, 34, 34, 0.9)}   style={{ color: accent(m1) }}><Glyph model={m1} /></g>
           </>
