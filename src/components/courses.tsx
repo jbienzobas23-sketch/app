@@ -2,14 +2,13 @@
 // Lista + detalle de cursos/unidades (profesor y alumno), incl. flujo móvil.
 // Extraída de teacher.jsx (Fase 2, subdivisión). Los modales los gestiona el
 // componente padre (TeacherDash) vía callbacks.
-import { useState, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, GhostButton, CtaButton } from "./primitives.jsx";
+import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, GhostButton, CtaButton, Menu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
@@ -172,40 +171,38 @@ export function CoursesLanding({ role, courses, units, exercises, results, group
 
 // — Desplegable para cambiar de curso sin salir del detalle —
 export function CourseDropdown({ courses, currentId, role, units, exercises, results, onSwitch }: { courses: Course[]; currentId: string; role: Role; units: Unit[]; exercises: Exercise[]; results: ResultsMap; onSwitch: (courseId: string) => void }) {
-  const [open, setOpen] = useState(false);
   const course = courses.find((c) => c.id === currentId);
   if (!course) return null;
   return (
-    <div style={{ position: "relative", minWidth: 0 }}>
-      <button onClick={() => setOpen((o) => !o)}
-        style={{ font: "inherit", display: "flex", alignItems: "center", gap: 10, maxWidth: "100%", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, borderRadius: 10, padding: "6px 12px 6px 10px", cursor: "pointer" }}>
-        <h3 style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.05, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</h3>
-        <span style={{ marginTop: 4, flexShrink: 0 }}><Chevron open={open} size={16} /></span>
-      </button>
-      {open && (
+    <Menu ariaLabel="Cambiar de curso" panelStyle={{ marginTop: 6, borderRadius: 12, boxShadow: "0 14px 40px rgba(0,0,0,0.16)", padding: 6, minWidth: 300, maxWidth: 380, maxHeight: 420, overflowY: "auto" }}
+      trigger={({ open, toggle, triggerRef }) => (
+        <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
+          style={{ font: "inherit", display: "flex", alignItems: "center", gap: 10, maxWidth: "100%", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, borderRadius: 10, padding: "6px 12px 6px 10px", cursor: "pointer" }}>
+          <h3 style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.05, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</h3>
+          <span style={{ marginTop: 4, flexShrink: 0 }}><Chevron open={open} size={16} /></span>
+        </button>
+      )}>
+      {({ close }) => (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
-          <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 31, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, boxShadow: "0 14px 40px rgba(0,0,0,0.16)", padding: 6, minWidth: 300, maxWidth: 380, maxHeight: 420, overflowY: "auto", boxSizing: "border-box" }}>
-            <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "6px 10px 7px" }}>Cambiar de curso</div>
-            {courses.map((c) => {
-              const cs  = courseProgress(c, units, exercises, role, results);
-              const cur = c.id === currentId;
-              return (
-                <button key={c.id} onClick={() => { onSwitch(c.id); setOpen(false); }}
-                  style={{ font: "inherit", width: "100%", boxSizing: "border-box", textAlign: "left", display: "flex", alignItems: "center", gap: 11, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: cur ? C.field : "transparent" }}>
-                  <ProgressRing ready={cs.num} total={cs.total} size={32} stroke={3} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 16.5, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                    <span style={{ display: "block", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 1 }}>{cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
-                  </span>
-                  {cur && <svg width="14" height="12" viewBox="0 0 7 6" fill="none" style={{ flexShrink: 0 }}><path d="M1 2.8L3 4.8L6 1" stroke={C.fnT} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </button>
-              );
-            })}
-          </div>
+          <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "6px 10px 7px" }}>Cambiar de curso</div>
+          {courses.map((c) => {
+            const cs  = courseProgress(c, units, exercises, role, results);
+            const cur = c.id === currentId;
+            return (
+              <button key={c.id} role="menuitem" onClick={() => { onSwitch(c.id); close(); }}
+                style={{ font: "inherit", width: "100%", boxSizing: "border-box", textAlign: "left", display: "flex", alignItems: "center", gap: 11, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: cur ? C.field : "transparent" }}>
+                <ProgressRing ready={cs.num} total={cs.total} size={32} stroke={3} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontFamily: F.serif, fontSize: 16.5, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                  <span style={{ display: "block", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 1 }}>{cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
+                </span>
+                {cur && <svg width="14" height="12" viewBox="0 0 7 6" fill="none" style={{ flexShrink: 0 }}><path d="M1 2.8L3 4.8L6 1" stroke={C.fnT} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              </button>
+            );
+          })}
         </>
       )}
-    </div>
+    </Menu>
   );
 }
 
@@ -303,41 +300,26 @@ export function CourseExercisesPanel({
 }
 
 // — Menú "⋯" reutilizable (acciones de curso / unidad) —
+// Sobre el primitivo Menu (M3.5) en modo portal: el desplegable vive a menudo
+// dentro de un contenedor overflow:hidden (.fa-expand-inner de ExerciseItem),
+// que recortaría un panel "absolute" — el portal lo evita.
 interface KebabItem { label: string; onClick: () => void; danger?: boolean; }
 export function KebabMenu({ items, size = 28, title = "Acciones" }: { items: KebabItem[]; size?: number; title?: string }) {
-  // El desplegable se porta a document.body con posición fija calculada desde
-  // el botón (en vez de "absolute" anclado al propio wrapper): si el kebab
-  // vive dentro de un contenedor con overflow:hidden (p.ej. .fa-expand-inner,
-  // que comparten todos los paneles desplegables para su animación de alto),
-  // un "absolute" quedaría recortado ahí. null = cerrado.
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  const btnRef = useRef<HTMLButtonElement | null>(null);
-  const open = pos != null;
-  const openMenu = () => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 5, right: window.innerWidth - r.right });
-  };
   return (
-    <div style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-      <button ref={btnRef} onClick={() => (open ? setPos(null) : openMenu())} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}
-        style={{ width: size, height: size, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, color: "#888", cursor: "pointer" }}>
-        <svg width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="4" cy="10" r="1.7" fill="currentColor" /><circle cx="10" cy="10" r="1.7" fill="currentColor" /><circle cx="16" cy="10" r="1.7" fill="currentColor" /></svg>
-      </button>
-      {pos && createPortal(
-        <>
-          <div onClick={() => setPos(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-          <div role="menu" style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 41, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", padding: 5, minWidth: 178, boxSizing: "border-box" }}>
-            {items.map((it, i) => (
-              <button key={i} role="menuitem" onClick={() => { setPos(null); it.onClick(); }}
-                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: it.danger ? C.danger : C.ink2 }}>
-                {it.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body,
-      )}
-    </div>
+    <Menu portal align="right" ariaLabel={title} panelStyle={{ minWidth: 178 }}
+      trigger={({ open, toggle, triggerRef }) => (
+        <button ref={triggerRef} onClick={toggle} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}
+          style={{ width: size, height: size, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, color: "#888", cursor: "pointer" }}>
+          <svg width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="4" cy="10" r="1.7" fill="currentColor" /><circle cx="10" cy="10" r="1.7" fill="currentColor" /><circle cx="16" cy="10" r="1.7" fill="currentColor" /></svg>
+        </button>
+      )}>
+      {({ close }) => items.map((it, i) => (
+        <button key={i} role="menuitem" onClick={() => { close(); it.onClick(); }}
+          style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: it.danger ? C.danger : C.ink2 }}>
+          {it.label}
+        </button>
+      ))}
+    </Menu>
   );
 }
 

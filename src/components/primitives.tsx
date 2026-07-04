@@ -1,7 +1,8 @@
 // ═══ PRIMITIVOS UI COMPARTIDOS ═══════════════════════════════════════════════
 // Modales, barras, inputs, iconos y botones-icono reutilizados por toda la app.
 // Extraídos de App.jsx (Fase 2) sin cambiar su lógica ni su aspecto.
-import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
+import React, { useState, useEffect, useRef, useCallback, type ReactNode, type CSSProperties, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { C, S, F, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor, textOn } from "../lib/color.js";
 import { fmtClock } from "../lib/time.js";
@@ -701,62 +702,131 @@ export function RemoveIconButton({ onClick, title = "Quitar" }: IconButtonProps)
   );
 }
 
-// ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
-export function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }: FilterDropdownProps) {
+// ─── Menu — primitivo de desplegable (T3.7 / M3.5) ───────────────────────────
+// Convención de descarte unificada para todos los desplegables de la app: cierra
+// con Escape, con clic fuera y devuelve el foco al trigger; flechas ↑/↓ mueven el
+// foco entre los ítems y Enter/Espacio los activa (los propios <button>). role=
+// menu en el panel. `portal` porta el panel a document.body con posición fija —
+// necesario cuando el desplegable vive dentro de un contenedor overflow:hidden
+// (p.ej. .fa-expand-inner). Cada llamador aporta el aspecto de su trigger y el
+// contenido de su panel; el primitivo solo aporta el comportamiento.
+interface MenuRenderApi { open: boolean; toggle: () => void; close: () => void; triggerRef: RefObject<HTMLButtonElement | null>; }
+interface MenuProps {
+  trigger: (api: MenuRenderApi) => ReactNode;
+  children: ReactNode | ((api: { close: () => void }) => ReactNode);
+  align?: "left" | "right";
+  portal?: boolean;
+  ariaLabel?: string;
+  panelStyle?: CSSProperties;
+  panelClassName?: string;
+}
+const MENU_PANEL_BASE: CSSProperties = { background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", padding: 5, boxSizing: "border-box" };
+export function Menu({ trigger, children, align = "left", portal = false, ariaLabel = "Menú", panelStyle, panelClassName }: MenuProps) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const count = selected.length;
+  const [pos, setPos] = useState<{ top: number; left?: number; right?: number }>({ top: 0 });
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
+  const close = useCallback(() => { setOpen(false); triggerRef.current?.focus(); }, []);
+  const openMenu = () => {
+    if (portal && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos(align === "right" ? { top: r.bottom + 5, right: window.innerWidth - r.right } : { top: r.bottom + 5, left: r.left });
+    }
+    setOpen(true);
+  };
+  const toggle = () => (open ? close() : openMenu());
+
+  // Clic fuera (modo inline: contención del ref; modo portal: la capa overlay).
+  useEffect(() => {
+    if (!open || portal) return;
+    const onDown = (e: MouseEvent | TouchEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
+  }, [open, portal]);
+
+  // Escape cierra; ↑/↓ mueven el foco entre los ítems enfocables del panel.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); close(); return; }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const nodes = panelRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [role="menuitem"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])');
+        if (!nodes || nodes.length === 0) return;
+        e.preventDefault();
+        const arr = Array.from(nodes);
+        const idx = arr.indexOf(document.activeElement as HTMLElement);
+        const next = e.key === "ArrowDown" ? (idx + 1) % arr.length : (idx - 1 + arr.length) % arr.length;
+        arr[next]?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, close]);
+
+  const panel = (
+    <div ref={panelRef} role="menu" aria-label={ariaLabel} className={panelClassName}
+      style={portal
+        ? { position: "fixed", top: pos.top, left: pos.left, right: pos.right, zIndex: 41, ...MENU_PANEL_BASE, ...panelStyle }
+        : { position: "absolute", top: "calc(100% + 6px)", ...(align === "right" ? { right: 0 } : { left: 0 }), zIndex: 41, ...MENU_PANEL_BASE, ...panelStyle }}>
+      {typeof children === "function" ? children({ close }) : children}
+    </div>
+  );
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 20, border: `1.5px solid ${count > 0 ? accent : C.line}`, background: count > 0 ? accent : C.paper, color: count > 0 ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: count > 0 ? 600 : 400, transition: "all .15s", whiteSpace: "nowrap" }}
-      >
-        {label}
-        {count > 0 && (
-          <span style={{ background: "rgba(255,255,255,0.28)", borderRadius: 10, padding: "0px 6px", fontSize: 11, fontWeight: 700 }}>{count}</span>
-        )}
-        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ marginLeft: 1, opacity: 0.7, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .18s" }}>
-          <polyline points="2,3.5 5,6.5 8,3.5" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="fa-pop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 200, maxWidth: 280, zIndex: 50, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", padding: "6px 0", overflow: "hidden" }}>
-          {options.length === 0 ? (
-            <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
-          ) : (
-            <>
-              {options.map((opt) => {
-                const on = selected.includes(opt);
-                return (
-                  <div key={opt} onMouseDown={() => onToggle(opt)}
-                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", cursor: "pointer", background: on ? `${accent}10` : "transparent", transition: "background .1s" }}>
-                    <span style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${on ? accent : C.chevron}`, background: on ? accent : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {on && <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polyline points="1.5,5 4,7.5 8.5,2.5"/></svg>}
-                    </span>
-                    <span style={{ fontSize: 13, fontFamily: FONT_SANS, color: C.ink, lineHeight: 1.3 }}>{opt}</span>
-                  </div>
-                );
-              })}
-              {count > 0 && (
-                <div style={{ borderTop: `1px solid ${C.line}`, margin: "4px 0 0" }}>
-                  <div onMouseDown={onClear} style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: C.danger, fontFamily: FONT_SANS, fontWeight: 500 }}>✕ Limpiar selección</div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+    <div ref={wrapRef} style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+      {trigger({ open, toggle, close, triggerRef })}
+      {open && (portal
+        ? createPortal(<><div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />{panel}</>, document.body)
+        : panel)}
     </div>
+  );
+}
+
+// ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
+// Sobre el primitivo Menu (M3.5): comparte descarte (Escape/clic-fuera/foco) y
+// navegación por flechas. Multi-selección → tocar un ítem NO cierra (solo
+// Escape/clic-fuera lo hacen); los ítems son botones role=menuitemcheckbox.
+export function FilterDropdown({ label, options, selected, onToggle, onClear, accent = C.ink }: FilterDropdownProps) {
+  const count = selected.length;
+  return (
+    <Menu ariaLabel={label} panelStyle={{ minWidth: 200, maxWidth: 280, padding: "6px 0", overflow: "hidden", boxShadow: "0 6px 24px rgba(0,0,0,0.10)" }} panelClassName="fa-pop"
+      trigger={({ open, toggle, triggerRef }) => (
+        <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 20, border: `1.5px solid ${count > 0 ? accent : C.line}`, background: count > 0 ? accent : C.paper, color: count > 0 ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: count > 0 ? 600 : 400, transition: "all .15s", whiteSpace: "nowrap" }}>
+          {label}
+          {count > 0 && <span style={{ background: "rgba(255,255,255,0.28)", borderRadius: 10, padding: "0px 6px", fontSize: 11, fontWeight: 700 }}>{count}</span>}
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ marginLeft: 1, opacity: 0.7, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .18s" }}>
+            <polyline points="2,3.5 5,6.5 8,3.5" />
+          </svg>
+        </button>
+      )}>
+      {options.length === 0 ? (
+        <div style={{ padding: "10px 14px", fontSize: 12, color: C.muted, fontFamily: FONT_SANS }}>Sin opciones disponibles</div>
+      ) : (
+        <>
+          {options.map((opt) => {
+            const on = selected.includes(opt);
+            return (
+              <button key={opt} type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => onToggle(opt)}
+                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", border: "none", display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", cursor: "pointer", background: on ? `${accent}10` : "transparent", transition: "background .1s" }}>
+                <span style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${on ? accent : C.chevron}`, background: on ? accent : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {on && <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polyline points="1.5,5 4,7.5 8.5,2.5"/></svg>}
+                </span>
+                <span style={{ fontSize: 13, fontFamily: FONT_SANS, color: C.ink, lineHeight: 1.3 }}>{opt}</span>
+              </button>
+            );
+          })}
+          {count > 0 && (
+            <div style={{ borderTop: `1px solid ${C.line}`, margin: "4px 0 0" }}>
+              <button type="button" onClick={onClear} style={{ width: "100%", boxSizing: "border-box", textAlign: "left", border: "none", background: "transparent", padding: "7px 14px", cursor: "pointer", fontSize: 12, color: C.danger, fontFamily: FONT_SANS, fontWeight: 500 }}>✕ Limpiar selección</button>
+            </div>
+          )}
+        </>
+      )}
+    </Menu>
   );
 }
 
