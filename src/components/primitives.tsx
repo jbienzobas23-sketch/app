@@ -34,7 +34,7 @@ interface IconButtonProps { onClick: () => void; title?: string; }
 interface FilterDropdownProps { label: string; options: string[]; selected: string[]; onToggle: (v: string) => void; onClear: () => void; accent?: string; }
 interface PillSelectProps { value: string; onChange: (v: string) => void; options: Option[]; accent?: string; }
 interface TeacherFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; allComposers: string[]; filterComposers: string[]; setFilterComposers: (v: string[]) => void; allTags: string[]; filterTags: string[]; setFilterTags: (v: string[]) => void; trailing?: ReactNode; }
-interface StudentFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; filterDone: string; setFilterDone: (v: string) => void; }
+interface StudentFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; filterDone: string; setFilterDone: (v: string) => void; searchQuery?: string; setSearchQuery?: (v: string) => void; }
 interface OverlineProps { children: ReactNode; style?: CSSProperties; }
 interface ButtonProps { children: ReactNode; onClick?: () => void; full?: boolean; lg?: boolean; disabled?: boolean; }
 interface FieldLabelProps { children: ReactNode; }
@@ -878,6 +878,7 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
 
   return (
     <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
       <FilterDropdown
         label="Tipo"
         options={typeOpts.map((c) => c.label)}
@@ -917,7 +918,7 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
 }
 
 // ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
-export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }: StudentFilterBarProps) {
+export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone, searchQuery, setSearchQuery }: StudentFilterBarProps) {
   const active = filterModel !== "all" || filterDone !== "all";
   // Mismos desplegables que la vista del profesor (Jon, 2026-07-04): "Tipo" y
   // "Estado" con semántica de radio — repetir la opción activa vuelve a todos.
@@ -928,6 +929,7 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
   ];
   return (
     <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
       <FilterDropdown
         label="Tipo"
         options={typeOpts.map((c) => c.label)}
@@ -947,6 +949,21 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
           style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
           ✕ Limpiar
         </button>
+      )}
+      {/* Buscador del alumno (Jon, 2026-07-04): mismo sitio que el del profesor
+          — al final de la fila de filtros, con su ✕ propio. */}
+      {setSearchQuery && (
+        <div style={{ position: "relative", marginLeft: "auto" }}>
+          <input type="text" value={searchQuery ?? ""} onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar…" title="Buscar por título o compositor"
+            style={{ ...S.input, width: 180, paddingRight: searchQuery ? 30 : undefined }} />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
+              ✕
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

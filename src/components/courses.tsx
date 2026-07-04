@@ -6,10 +6,11 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
+import { courseUnitList, unitExList, keyReadyOf, modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, CtaButton, Menu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
+import { TypePlate } from "./TypePlate.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -124,28 +125,48 @@ export function CourseProgressBar({ num, total, width = 120, accent = C.ink }: {
 }
 
 // ── Página 1 · Tarjeta de curso (rejilla) ────────────────────────────────────
+// Tarjeta de curso (rediseño 2026-07-04, Jon: "más grandes, más estéticas e
+// interesantes"): overline con las unidades, anillo de progreso, título serif
+// grande, descripción en itálica y las placas de los TIPOS de ejercicio que
+// contiene — la tarjeta cuenta qué hay dentro, no solo cuánto.
 export function CourseCard({ course, units, exercises, role, results, groups, onOpen }: Omit<CoursesData, "courses"> & { course: Course; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
-  const cs   = courseProgress(course, units, exercises, role, results);
-  const pct  = cs.total ? (cs.num / cs.total) * 100 : 0;
-  const done = cs.total > 0 && cs.num === cs.total;
+  const cs = courseProgress(course, units, exercises, role, results);
+  // Tipos de ejercicio presentes en el curso, en el orden canónico.
+  const present = new Set<string>();
+  courseUnitList(course, units, role).forEach((u) =>
+    unitExList(u, exercises, role).forEach((ex) => modelsOf(ex).forEach((m) => present.add(m))));
+  const courseModels = ["interactivo", "cuestionario", "esquema"].filter((m) => present.has(m));
   return (
     <button onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 13, background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, padding: "18px 18px 16px", cursor: "pointer", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
-      <div style={{ minWidth: 0 }}>
-        <h3 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, margin: "0 0 4px", lineHeight: 1.1, letterSpacing: "-0.01em", wordBreak: "break-word" }}>{course.name}</h3>
-        {role === "teacher"
-          ? <CourseVisBadge course={course} groups={groups} />
-          : (course.description ? <span style={{ fontFamily: F.sans, fontSize: 12, color: "#888" }}>{course.description}</span> : null)}
+      style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 14, minHeight: 172,
+        background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 16, padding: "22px 24px 20px", cursor: "pointer",
+        boxShadow: hover ? "0 10px 28px rgba(26,25,21,0.10)" : "0 1px 3px rgba(26,25,21,0.03)",
+        transform: hover ? "translateY(-2px)" : "none", transition: "box-shadow .18s, border-color .18s, transform .18s" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 7 }}>
+            Curso · {cs.units} {cs.units === 1 ? "unidad" : "unidades"}
+          </div>
+          <h3 style={{ fontFamily: F.serif, fontSize: 26, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1.08, letterSpacing: "-0.015em", wordBreak: "break-word" }}>{course.name}</h3>
+          {course.description && (
+            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14.5, color: C.ink2, marginTop: 6, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+              {course.description}
+            </div>
+          )}
+          {role === "teacher" && <div style={{ marginTop: 7 }}><CourseVisBadge course={course} groups={groups} /></div>}
+        </div>
+        <ProgressRing ready={cs.num} total={cs.total} size={44} stroke={4} />
       </div>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <span style={{ flex: 1, height: 5, borderRadius: 3, background: C.line, overflow: "hidden" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: done ? C.fnT : C.ink }} /></span>
-          <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{cs.num}/{cs.total}</span>
-        </div>
-        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
-          {cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "completados" : "con clave"}
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: "auto" }}>
+        {courseModels.length > 0 && (
+          <span style={{ display: "flex", gap: 5 }} aria-hidden="true">
+            {courseModels.map((m) => <TypePlate key={m} model={m} size={24} radius={7} />)}
+          </span>
+        )}
+        <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, fontVariantNumeric: "tabular-nums" }}>
+          {cs.num}/{cs.total} {role === "student" ? "completados" : "con clave"}
+        </span>
       </div>
     </button>
   );
@@ -165,7 +186,7 @@ export function CoursesLanding({ role, courses, units, exercises, results, group
       )}
       {courses.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>{role === "student" ? "El profesor aún no ha creado ningún curso." : "Aún no hay cursos. Crea el primero para organizar tus ejercicios."}</p>
-        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
+        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 18 }}>
             {courses.map((c) => <CourseCard key={c.id} course={c} units={units} exercises={exercises} role={role} results={results} groups={groups} onOpen={() => onOpen(c.id)} />)}
           </div>}
     </div>

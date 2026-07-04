@@ -5,7 +5,7 @@ import { useState, useMemo } from "react";
 import type { Exercise, ExerciseResult, Unit } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
-import { modelsOf } from "../lib/domain.js";
+import { modelsOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
@@ -54,6 +54,9 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
   const [filterDone,  setFilterDoneState]  = useState(() => parseHashQuery().estado || "all");
   const setFilterModel = (v: string) => { setFilterModelState(v); setHashQuery({ tipo: v === "all" ? null : v }); };
   const setFilterDone  = (v: string) => { setFilterDoneState(v);  setHashQuery({ estado: v === "all" ? null : v }); };
+  // Buscador (Jon, 2026-07-04): mismo comportamiento que el del profesor —
+  // título o compositor, sin persistir en la URL (es efímero por naturaleza).
+  const [searchQuery, setSearchQuery] = useState("");
 
   const teacherCourses = useMemo(() => {
     const studentGroupIds = new Set(groups.filter((g) => g.studentIds?.includes(user.id)).map((g) => g.id));
@@ -76,15 +79,20 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
   const showFilterBar = visibleCount > 6;
 
   const filteredExercises = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return exercises.filter((ex) => {
       if (ex.hidden) return false;
       if (!showFilterBar) return true;
       if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterDone === "done"    && !results[String(ex.id ?? "")]) return false;
       if (filterDone === "notdone" &&  results[String(ex.id ?? "")]) return false;
+      if (q) {
+        const haystack = [ex.title, ...composersOf(ex)].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
-  }, [exercises, filterModel, filterDone, results, showFilterBar]);
+  }, [exercises, filterModel, filterDone, results, showFilterBar, searchQuery]);
 
   return (
     <div style={S.app}>
@@ -134,7 +142,7 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
           <>
             {teacherCourses.length > 0 && (
               <section style={{ marginBottom: 34 }}>
-                <h2 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 14px" }}>Cursos</h2>
+                <h2 style={{ fontFamily: F.serif, fontSize: 27, fontWeight: 700, color: C.ink, letterSpacing: "-0.015em", margin: "0 0 16px" }}>Cursos</h2>
                 <CoursesPages
                   role="student"
                   courses={teacherCourses}
@@ -157,8 +165,8 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
               {teacherCourses.length > 0 ? (
                 <div onClick={toggleAllOpen} {...rowButtonProps(toggleAllOpen)} aria-expanded={allOpen}
                   style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", userSelect: "none", marginBottom: allOpen ? 14 : 0 }}>
-                  <h2 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, margin: 0 }}>Todos los ejercicios</h2>
-                  <Chevron open={allOpen} size={15} />
+                  <h2 style={{ fontFamily: F.serif, fontSize: 27, fontWeight: 700, color: C.ink, letterSpacing: "-0.015em", margin: 0 }}>Todos los ejercicios</h2>
+                  <Chevron open={allOpen} size={16} />
                 </div>
               ) : null}
               {(teacherCourses.length === 0 || allOpen) && (
@@ -167,6 +175,7 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
                     <StudentFilterBar
                       filterModel={filterModel} setFilterModel={setFilterModel}
                       filterDone={filterDone}   setFilterDone={setFilterDone}
+                      searchQuery={searchQuery} setSearchQuery={setSearchQuery}
                     />
                   )}
                   {filteredExercises.length === 0
