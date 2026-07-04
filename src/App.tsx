@@ -13,7 +13,7 @@ import type { AudioItem } from "./components/modals.js";
    archivo conserva los componentes React y el estado global de App().
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from "./lib/routing.js";
+import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath, parseHashQuery } from "./lib/routing.js";
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "./lib/sessionConstants.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
@@ -229,6 +229,19 @@ export default function App() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
+
+  // M4.2: normaliza los enlaces heredados /profesor/ejercicio/:id/parte/:pid/…
+  // a la única convención emitida (…/…?parte=:pid), una vez y con {replace} para
+  // no dejar entrada de historial. El segmento se sigue ACEPTANDO (routing.ts,
+  // @deprecated); esto solo reescribe bookmarks antiguos.
+  useEffect(() => {
+    if (route.params.partId && !parseHashQuery().parte) {
+      const full = window.location.hash.replace(/^#/, "");
+      const path = full.split("?")[0].replace(`/parte/${route.params.partId}`, "");
+      navigate(`${path}?parte=${route.params.partId}`, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route]);
 
   // ─── Helpers de upsert ───────────────────────────────────────────────────
   // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
@@ -520,7 +533,7 @@ export default function App() {
       if (parts.length > 1) {
         const models = modelsOf(ex);
         const target = parts.find((p) => !partKeyReadyOf(ex, p, models)) || parts[0];
-        navigate(`/profesor/ejercicio/${ex.id}/parte/${target.id}/${action}`);
+        navigate(`/profesor/ejercicio/${ex.id}/${action}?parte=${target.id}`);
       } else {
         navigate(`/profesor/ejercicio/${ex.id}/${action}`);
       }
@@ -576,8 +589,11 @@ export default function App() {
     // sin materializar `parts` (la UI se mantiene idéntica a hoy).
     const isMultiPart = Array.isArray(ex.parts) && ex.parts.length > 1;
     const recordParts = partsOf(ex);
-    const recordPartId = (route.params.partId && recordParts.some((p) => p.id === route.params.partId))
-      ? route.params.partId
+    // M4.2: la parte activa se lee de `?parte=` (única convención emitida); el
+    // segmento /parte/:pid heredado (route.params.partId) se sigue aceptando.
+    const urlPartId = parseHashQuery().parte || route.params.partId;
+    const recordPartId = (urlPartId && recordParts.some((p) => p.id === urlPartId))
+      ? urlPartId
       : recordParts[0]?.id;
 
     // Sesión multiparte (F4, T4.3): MultiPartSessionView entrega TODAS las
@@ -898,8 +914,9 @@ export default function App() {
     }
     // Autoría por parte (F4, T4.2): grabar/previsualizar apuntan a la parte
     // de la URL (o la primera si no hay).
+    const sessionUrlPartId = parseHashQuery().parte || route.params.partId;  // M4.2: ?parte= primero
     const baseExercise = (exCtx.mode === "record" || exCtx.mode === "preview")
-      ? partToExercise(exCtx.exercise, partsOf(exCtx.exercise).find((p) => p.id === route.params.partId) || partsOf(exCtx.exercise)[0])
+      ? partToExercise(exCtx.exercise, partsOf(exCtx.exercise).find((p) => p.id === sessionUrlPartId) || partsOf(exCtx.exercise)[0])
       : exCtx.exercise;
     const exModels = modelsOf(baseExercise);
     const onBack = () => navigate(getLastPanelPath(exCtx.mode === "record" || exCtx.mode === "preview" ? "/profesor" : "/alumno"));
@@ -932,8 +949,9 @@ export default function App() {
     // genuinamente multiparte; si no, en el campo plano de siempre.
     const qmParts = partsOf(qmCtx.exercise);
     const qmIsMultiPart = Array.isArray(qmCtx.exercise.parts) && qmCtx.exercise.parts.length > 1;
-    const qmPartId = (route.params.partId && qmParts.some((p) => p.id === route.params.partId))
-      ? route.params.partId
+    const qmUrlPartId = parseHashQuery().parte || route.params.partId;  // M4.2: ?parte= primero
+    const qmPartId = (qmUrlPartId && qmParts.some((p) => p.id === qmUrlPartId))
+      ? qmUrlPartId
       : qmParts[0]?.id;
     const qmPart = qmParts.find((p) => p.id === qmPartId) || qmParts[0];
     const qmExercise = qmIsMultiPart ? partToExercise(qmCtx.exercise, qmPart) : qmCtx.exercise;
@@ -1046,9 +1064,9 @@ export default function App() {
         else if (id === "new") navigate("/profesor/ejercicio/nuevo");
         else navigate(`/profesor/ejercicio/${id}`);
       }}
-      onRecord={(ex, partId) => partId ? navigate(`/profesor/ejercicio/${ex.id}/parte/${partId}/grabar`) : openEx(freshExercise(ex), "record")}
-      onManageQuestions={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/preguntas` : `/profesor/ejercicio/${ex.id}/preguntas`)}
-      onPreview={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/previsualizar` : `/profesor/ejercicio/${ex.id}/previsualizar`)}
+      onRecord={(ex, partId) => partId ? navigate(`/profesor/ejercicio/${ex.id}/grabar?parte=${partId}`) : openEx(freshExercise(ex), "record")}
+      onManageQuestions={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/preguntas?parte=${partId}` : `/profesor/ejercicio/${ex.id}/preguntas`)}
+      onPreview={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/previsualizar?parte=${partId}` : `/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
       onDuplicateExercise={duplicateExercise}
       onLogout={onLogout}

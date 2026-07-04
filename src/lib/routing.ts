@@ -94,8 +94,10 @@ export function routeFromSegments(segs: string[]): Route {
 
   if (a === "profesor") {
     if (b === "ejercicio" && c) {
-      // Segmento opcional parte/:pid (F4, T4.2) antes de la acción; sin él,
-      // App resuelve a la primera parte del ejercicio.
+      // @deprecated (M4.2): el segmento parte/:pid (F4, T4.2) se sigue ACEPTANDO
+      // para enlaces antiguos, pero ya NO se emite — la convención única es
+      // `?parte=:pid` (query). App normaliza los enlaces con segmento a la query
+      // con {replace}. Sin parte, App resuelve a la primera parte del ejercicio.
       const hasPart = d === "parte" && e;
       const action  = hasPart ? f : d;
       const params: Record<string, string> = { exId: c };
