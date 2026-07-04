@@ -17,6 +17,7 @@ import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath, parseHas
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "./lib/sessionConstants.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
+import { LOCAL_USERS, LOCAL_GROUPS, LOCAL_COURSES, LOCAL_UNITS, LOCAL_EXERCISES, LOCAL_RESULTS } from "./localSeed.js";
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt, normalizeExercise } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, type Interval, type SchemaBlock } from "./lib/scoring.js";
@@ -108,23 +109,8 @@ const LOCAL_MODE: "profe" | "alumno" | null = import.meta.env.DEV
       return v === null ? null : v === "alumno" ? "alumno" : "profe";
     })()
   : null;
-const LOCAL_USERS: UserProfile[] = [
-  { id: "local-profe",  username: "profe",  displayName: "Prof. Local",  role: "teacher" },
-  { id: "local-alumno", username: "alumno", displayName: "Alumno Local", role: "student", teacherId: "local-profe" },
-  { id: "local-alumna", username: "alumna", displayName: "Alumna Local", role: "student", teacherId: "local-profe" },
-];
-// Curso/unidad de semilla enlazando los ejercicios de seed.ts (ids 2, 3 y 4).
-const LOCAL_COURSES: Course[] = [{ id: "local-curso", name: "Curso local", unitIds: ["local-unidad"] }];
-const LOCAL_UNITS: Unit[]     = [{ id: "local-unidad", name: "Unidad local", exerciseIds: ["2", "3", "4"] }];
-// Muestras híbridas para revisar la ModelPlate en el contexto real (las dos
-// parejas de producto, la tercera pareja y el triple de la puerta M7 — estos
-// dos últimos solo existen aquí, como muestra visual).
-const LOCAL_HYBRIDS = [
-  { id: "local-h1", title: "Trío Op. 1 n.º 3 — IV.", duration: 120, model: "interactivo", models: ["interactivo", "cuestionario"], composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
-  { id: "local-h2", title: "Cuarteto Op. 18 — I.",   duration: 120, model: "interactivo", models: ["interactivo", "esquema"],      composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
-  { id: "local-h3", title: "Sonata Op. 53 — I.",     duration: 120, model: "esquema",     models: ["esquema", "cuestionario"],     composerName: "Beethoven", categories: [], answers: {} },
-  { id: "local-h4", title: "Sinfonía n.º 9 — IV.",   duration: 120, model: "esquema",     models: ["esquema", "interactivo", "cuestionario"], composerName: "Beethoven", categories: [DEFAULT_CATEGORY], answers: {} },
-] as unknown as Exercise[];
+// Todos los datos del modo local (alumnos, grupos, cursos, unidades, ejercicios
+// extra y entregas ficticias en todos los estados) viven en src/localSeed.ts.
 
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
@@ -135,13 +121,13 @@ export default function App() {
 
   // Estado global
   const [exercises,    setExercises]    = useState<Exercise[]>(() =>
-    ([...(INIT_EXERCISES as Exercise[]), ...(LOCAL_MODE ? LOCAL_HYBRIDS : [])]).map(normalizeExercise));
+    ([...(INIT_EXERCISES as Exercise[]), ...(LOCAL_MODE ? LOCAL_EXERCISES : [])]).map(normalizeExercise));
   const [users,        setUsers]        = useState<UserProfile[]>(LOCAL_MODE ? LOCAL_USERS : []);
-  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
+  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>(LOCAL_MODE ? LOCAL_RESULTS : {});   // { userId: { exerciseId: result } }
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
   const [courses,      setCourses]      = useState<Course[]>(LOCAL_MODE ? LOCAL_COURSES : []);
   const [units,        setUnits]        = useState<Unit[]>(LOCAL_MODE ? LOCAL_UNITS : []);
-  const [groups,       setGroups]       = useState<Group[]>([]);
+  const [groups,       setGroups]       = useState<Group[]>(LOCAL_MODE ? LOCAL_GROUPS : []);
   const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
 
   const [dbReady, setDbReady] = useState(!!LOCAL_MODE);
