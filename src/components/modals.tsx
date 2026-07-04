@@ -7,7 +7,7 @@ import { C, F, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { uid, toggleInSet } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
-import { modelsOf } from "../lib/domain.js";
+import { modelsOf, questionScopeOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
@@ -655,6 +655,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
 export function QuestionEditorModal({ initial, defaultStart, audioDuration, audioUrl = null, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; audioUrl?: string | null; onSave: (q: Question) => void; onClose: () => void }) {
   const [text,            setText]            = useState(initial?.text || "");
   const [type,            setType]            = useState(initial?.type || "test");
+  const [scope,           setScope]           = useState<"fragmento" | "obra">(initial ? questionScopeOf(initial) : "fragmento");
   const [explanation,     setExplanation]     = useState(initial?.explanation || "");
   const [audioStart,      setAudioStart]      = useState<number>(initial?.audioStart ?? defaultStart ?? 0);
   const [audioEnd,        setAudioEnd]        = useState<number>(initial?.audioEnd   ?? Math.min(audioDuration, (defaultStart ?? 0) + 10));
@@ -682,18 +683,22 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
 
   const canSave = Boolean(
     text.trim() &&
-    audioEnd > audioStart &&
+    // Las de obra no acotan tramo: se saltan la validación de tiempos (M6).
+    (scope === "obra" || audioEnd > audioStart) &&
     (type !== "test" || (options.every((o) => (o.text ?? "").trim()) && correctOptionId)) &&
     (type !== "corta" || accepted.length > 0));
 
   const handleSave = () => {
     if (!canSave) return;
+    const isObra = scope === "obra";
     onSave({
       id:         initial?.id || uid("q"),
       text:       text.trim(),
       type,
-      audioStart,
-      audioEnd,
+      scope,
+      // Obra ⇒ sin tiempos (evita rangos degenerados «0:00–fin»); fragmento ⇒ tramo.
+      audioStart: isObra ? undefined : audioStart,
+      audioEnd:   isObra ? undefined : audioEnd,
       options:    type === "test" ? options.map((o) => ({ ...o, text: (o.text ?? "").trim() })) : [],
       correctOptionId: type === "test" ? correctOptionId : null,
       explanation: explanation.trim() || undefined,
@@ -726,23 +731,47 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
         value={text} onChange={(e) => setText(e.target.value)}
         placeholder="¿Qué función armónica predomina en este fragmento?" autoFocus />
 
-      <label style={S.label}>Fragmento de audio</label>
-      <div style={{ marginBottom: 14 }}>
-        <FragmentRangeSelector
-          totalDuration={audioDuration}
-          start={audioStart}
-          end={audioEnd}
-          onChange={({ start, end }) => { setAudioStart(start); setAudioEnd(end); }}
-          onClear={() => { setAudioStart(0); setAudioEnd(audioDuration); }}
-          onDefine={() => {}}
-          audioUrl={audioUrl}
-        />
-        {!audioUrl && (
-          <p style={{ fontSize: 11, color: C.muted, margin: "-4px 0 0", lineHeight: 1.5 }}>
-            Este ejercicio aún no tiene audio — arrastra los bordes para fijar el fragmento; podrás escucharlo en cuanto lo subas.
-          </p>
-        )}
+      {/* Ámbito (M6): fragmento acota un tramo; obra atañe al audio entero. */}
+      <label style={S.label}>Ámbito</label>
+      <div style={{ ...S.row, gap: 8, marginBottom: 14 }}>
+        {[{ id: "fragmento", label: "Fragmento" }, { id: "obra", label: "Obra completa" }].map((opt) => (
+          <button key={opt.id} type="button" onClick={() => setScope(opt.id as "fragmento" | "obra")}
+            style={{
+              ...S.btn, flex: 1, fontSize: 12,
+              background: scope === opt.id ? C.ink   : C.paper,
+              color:      scope === opt.id ? C.paper : C.ink2,
+              border:     `1px solid ${scope === opt.id ? C.ink : C.line}`,
+            }}>
+            {opt.label}
+          </button>
+        ))}
       </div>
+
+      {scope === "fragmento" ? (
+        <>
+          <label style={S.label}>Fragmento de audio</label>
+          <div style={{ marginBottom: 14 }}>
+            <FragmentRangeSelector
+              totalDuration={audioDuration}
+              start={audioStart}
+              end={audioEnd}
+              onChange={({ start, end }) => { setAudioStart(start); setAudioEnd(end); }}
+              onClear={() => { setAudioStart(0); setAudioEnd(audioDuration); }}
+              onDefine={() => {}}
+              audioUrl={audioUrl}
+            />
+            {!audioUrl && (
+              <p style={{ fontSize: 11, color: C.muted, margin: "-4px 0 0", lineHeight: 1.5 }}>
+                Este ejercicio aún no tiene audio — arrastra los bordes para fijar el fragmento; podrás escucharlo en cuanto lo subas.
+              </p>
+            )}
+          </div>
+        </>
+      ) : (
+        <p style={{ fontSize: 11.5, color: C.muted, margin: "0 0 14px", padding: "8px 10px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, lineHeight: 1.5 }}>
+          Pregunta sobre la obra completa: el alumno la escucha entera, sin tramo acotado.
+        </p>
+      )}
 
       {(type === "test" || type === "corta") && (
         <>
