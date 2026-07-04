@@ -9,9 +9,9 @@ import { useState } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
-import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf, resultStatusOf } from "../lib/domain.js";
+import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf } from "../lib/domain.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { Chevron, ScoreBadge } from "./primitives.jsx";
+import { Chevron } from "./primitives.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
 import { KebabMenu } from "./courses.jsx";
 
@@ -84,13 +84,9 @@ export function ExerciseItem({
   const totalSlots = parts.length * models.length;
   const keyReady = totalSlots > 0 && readySlots === totalSlots;
 
-  // Menos ruido (Jon, 2026-07-04): la tarjeta colapsada solo interrumpe con lo
-  // ACCIONABLE — "N pendientes" (hay entregas por corregir). "Borrador" y
-  // "Oculto" salen de aquí: lo oculto ya se ve por el atenuado de la tarjeta y
-  // el borrador se explica al desplegar ("Claves x de y").
-  const statusBits: { text: string; amber?: boolean }[] = (role === "teacher" && pendingCount > 0)
-    ? [{ text: `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`, amber: true }]
-    : [];
+  // Nada de estado en la tarjeta colapsada (Jon, 2026-07-04): lo pendiente de
+  // corregir se anuncia SOLO en la bandeja única de TeacherDash; lo oculto ya
+  // se ve por el atenuado; el borrador se explica al desplegar ("Claves x de y").
 
   const isDone = result != null;
   const isCorrected = result?.teacherCorrection?.corrected;
@@ -131,23 +127,13 @@ export function ExerciseItem({
             <div style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 400, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerLabel}</div>
           )}
         </div>
-        {/* Menos ruido (Jon, 2026-07-04): sin "Pendiente" en cada tarjeta no
-            hecha — la ausencia de nota ya lo dice; la insignia solo aparece
-            cuando hay entrega (información real, no relleno). */}
+        {/* Alumno (Jon, 2026-07-04): solo una marca discreta de "hecho" — la
+            nota y el feedback viven en la vista de corrección, no en la lista. */}
         {role === "student" && isDone && (
-          <ScoreBadge score={result!.score ?? null} status={resultStatusOf(result, ex)} />
-        )}
-        {/* Estado del profesor: un nivel jerárquico POR DEBAJO del compositor
-            (Jon, 2026-07-04) — versalitas de 9px muy apagadas junto al chevron,
-            nunca mezclado con los metadatos de contenido de la obra. */}
-        {statusBits.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-            {statusBits.map((b) => (
-              <span key={b.text} style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: b.amber ? "#d47800" : C.chevron, whiteSpace: "nowrap" }}>
-                {b.text}
-              </span>
-            ))}
-          </div>
+          <span title="Entregado" aria-label="Entregado"
+            style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 700, color: C.fnT, flexShrink: 0, lineHeight: 1 }}>
+            ✓
+          </span>
         )}
         <Chevron open={open} />
       </div>
@@ -159,14 +145,13 @@ export function ExerciseItem({
             {role === "student" ? (
               <>
                 {/* Una sola fila de metadatos (Jon, 2026-07-04): duración y
-                    entrega juntas — misma estructura compacta que el profesor. */}
+                    entrega, SIN nota — el número vive en la vista de corrección. */}
                 <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
                   {durationDetail}
                   {isDone && (
                     <span style={{ color: C.ink2 }}>
                       {" · "}
                       {result!.timestamp ? `Entregado el ${fmtDate(result!.timestamp)}` : "Entregado"}
-                      {result!.score != null && ` · ${result!.score}%${isCorrected ? " ✓" : ""}`}
                     </span>
                   )}
                 </div>

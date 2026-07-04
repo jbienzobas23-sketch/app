@@ -123,16 +123,18 @@ describe('El payload de sesión es el "sobre correcto" que espera submitAnswer',
   });
 });
 
-// ── 3. Flujo de estado: esquema entregado → «Pendiente» → corregir → nota+✓ ──
+// ── 3. Flujo de estado: esquema entregado → ✓ discreto → corregir → sin nota ──
+// Rediseño de 2026-07-04 (Jon): la lista del alumno NO muestra "Pendiente" ni
+// la nota — solo una marca ✓ de "hecho"; el número vive en la corrección.
 describe("Flujo de estado de una entrega de esquema", () => {
-  it("pendiente en la lista del alumno; tras corregir, nota y ✓", () => {
+  it("✓ discreto en la lista del alumno; tras corregir, sigue sin nota en la lista", () => {
     const exercise = mk({ id: "sch-1", title: "Esquema demo", duration: 40, model: "esquema", categories: [] });
     const submitted: ExerciseResult = { type: "esquema", blocks: [{ id: "b1", level: 1, start: 0, end: 10, label: "A" }], score: null };
 
-    // ExerciseItem (M2) NUNCA repite la insignia en la sección expandida — solo
-    // aparece una vez, en la cabecera colapsada.
+    // Entregado (aún sin corregir): marca de hecho, sin "Pendiente" ni nota.
     const { rerender } = render(<ExerciseItem ex={exercise} role="student" variant="row" result={submitted} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getAllByText("Pendiente").length).toBe(1);
+    expect(screen.getByLabelText("Entregado")).toBeInTheDocument();
+    expect(screen.queryByText("Pendiente")).not.toBeInTheDocument();
 
     // El profesor corrige (CorrectionView, modo profesor) y guarda una puntuación.
     let saved: { studentId?: string; exerciseId: unknown; correction: { totalScore: number | null } } | null = null;
@@ -150,10 +152,13 @@ describe("Flujo de estado de una entrega de esquema", () => {
     expect(saved!.correction.totalScore).toBe(85);
 
     // Mismo merge que saveCorrection en App.tsx (no exportado): la corrección
-    // se añade y el resultado pasa a "corregido" con la nota normalizada.
+    // se añade — pero la LISTA sigue sin mostrar la nota (vive en la
+    // corrección); la tarjeta mantiene la marca ✓ y ofrece "Ver corrección ✓".
     const corrected: ExerciseResult = { ...submitted, teacherCorrection: { ...saved!.correction, corrected: true }, score: 85 };
     rerender(<ExerciseItem ex={exercise} role="student" variant="row" result={corrected} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getAllByText("85% ✓").length).toBe(1);
+    expect(screen.getByLabelText("Entregado")).toBeInTheDocument();
+    expect(screen.queryByText(/85%/)).not.toBeInTheDocument();
+    expect(screen.getByText("Ver corrección ✓")).toBeInTheDocument();
     expect(screen.queryByText("Pendiente")).not.toBeInTheDocument();
   });
 });

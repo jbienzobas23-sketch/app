@@ -14,7 +14,7 @@ import { rowButtonProps } from "../lib/a11y.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
-import { CoursesTab } from "./courses.js";
+import { CoursesTab, KebabMenu } from "./courses.js";
 import { EditorShell } from "./editor/EditorShell.js";
 import { ExerciseItem } from "./ExerciseItem.js";
 
@@ -199,55 +199,51 @@ interface StudentsTabProps {
 export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }: StudentsTabProps) {
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
   const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(() => new Set(groups.map((g) => g.id)));
-  // Cola de pendientes (F6, T6.1): con el filtro activo, solo se listan alumnos
-  // con al menos una entrega pendiente, y solo esas entregas dentro de su ficha.
-  const [onlyPending, setOnlyPending] = useState(false);
   const toggleExpand = (id: string) =>
     setExpandedStudents((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleGroup = (id: string) =>
     setExpandedGroups((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  // Entregas de un alumno, con su nota vigente y estado — ordenadas por fecha
-  // de entrega descendente (T6.1). `all` sin filtrar (para el contador X/Y);
-  // `visible` respeta el filtro "Solo pendientes".
-  const studentEntries = (s: User): { all: Array<{ ex: Exercise; r: ExerciseResult }>; visible: Array<{ ex: Exercise; r: ExerciseResult }> } => {
+  // Entregas de un alumno, con su nota vigente y estado — fecha descendente.
+  // (El antiguo filtro "Solo pendientes" y el contador rojo se retiraron el
+  // 2026-07-04: lo pendiente vive SOLO en la bandeja única de TeacherDash.)
+  const studentEntries = (s: User): Array<{ ex: Exercise; r: ExerciseResult }> => {
     const sRes = results[s.id] || {};
-    const all = exercises
+    return exercises
       .map((ex) => ({ ex, r: sRes[String(ex.id)] }))
       .filter((e): e is { ex: Exercise; r: ExerciseResult } => Boolean(e.r))
       .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0));
-    const visible = onlyPending ? all.filter((e) => resultStatusOf(e.r, e.ex) === "pendiente") : all;
-    return { all, visible };
   };
-  const pendingTotal = students.reduce((sum, s) => {
-    const sRes = results[s.id] || {};
-    return sum + exercises.filter((ex) => {
-      const r = sRes[String(ex.id)];
-      return r && resultStatusOf(r, ex) === "pendiente";
-    }).length;
-  }, 0);
 
   const renderStudentCard = (s: User) => {
     const isOpen  = expandedStudents.has(s.id);
-    const { all: allExs, visible: doneExs } = studentEntries(s);
-    if (onlyPending && doneExs.length === 0) return null;
+    const allExs  = studentEntries(s);
     return (
       <div
         key={s.id}
         onClick={() => exercises.length > 0 && toggleExpand(s.id)}
         {...(exercises.length > 0 ? { ...rowButtonProps(() => toggleExpand(s.id)), "aria-expanded": isOpen } : {})}
         style={{ ...S.card, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
-        {/* Cabecera siempre visible */}
+        {/* Cabecera: nombre + nº de entregas en texto sutil. Borrar/resetear se
+            pliegan al ⋯ (Jon, 2026-07-04: una ✕ roja permanente por fila era
+            ruido y un peligro al alcance de un clic). */}
         <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {s.displayName}
           </div>
-          <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+          <div style={{ ...S.row, gap: 8, flexShrink: 0 }}>
+            {allExs.length > 0 && (
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.muted, whiteSpace: "nowrap" }}>
+                {allExs.length} {allExs.length === 1 ? "entrega" : "entregas"}
+              </span>
+            )}
+            <span onClick={(e) => e.stopPropagation()}>
+              <KebabMenu title={`Acciones de ${s.displayName}`} items={[
+                { label: "Resetear credencial", onClick: () => onResetCred(s) },
+                { label: "Eliminar alumno", danger: true, onClick: () => askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id)) },
+              ]} />
+            </span>
             {exercises.length > 0 && <Chevron open={isOpen} rotate90WhenClosed size={13} />}
-            <button
-              onClick={(e) => { e.stopPropagation(); askConfirm(`¿Eliminar al alumno "${s.displayName}"?\n\nSe borrarán también todas sus respuestas guardadas.`, () => onRemove(s.id)); }}
-              title={`Eliminar alumno "${s.displayName}"`}
-              style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
           </div>
         </div>
 
@@ -255,7 +251,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
         <div className={`fa-expand${isOpen ? " fa-open" : ""}`}>
           <div className="fa-expand-inner">
             <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: doneExs.length > 0 ? 12 : 4 }}>
+              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: allExs.length > 0 ? 12 : 4 }}>
                 <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontSize: 10 }}>@{s.username}</span>
                 <span style={{ ...S.badge, background: s.credType === "pin" ? "rgba(47,111,184,0.12)" : "rgba(63,155,91,0.10)", color: s.credType === "pin" ? C.quiz : C.fnT }}>
                   {s.credType === "pin" ? "PIN" : "Contraseña"}
@@ -265,11 +261,10 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
                     {allExs.length}/{exercises.length} ejs.
                   </span>
                 )}
-                <button onClick={() => onResetCred(s)} style={{ ...S.btn, fontSize: 11, padding: "2px 9px" }}>Resetear</button>
               </div>
-              {doneExs.length === 0
-                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>{onlyPending ? "Sin entregas pendientes." : "Ningún ejercicio entregado todavía."}</p>
-                : doneExs.map(({ ex, r }) => (
+              {allExs.length === 0
+                ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: 0 }}>Ningún ejercicio entregado todavía.</p>
+                : allExs.map(({ ex, r }) => (
                     <div key={ex.id} style={{ ...S.row, justifyContent: "space-between", paddingBottom: 6, borderBottom: `1px solid ${C.line}`, marginBottom: 6 }}>
                       <span style={{ fontSize: 13, color: C.muted2, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{ex.title}</span>
                       <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
@@ -291,28 +286,9 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
 
   return (
     <>
-      <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ ...S.row, gap: 10, flexWrap: "wrap" }}>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>
-            {students.length} {students.length === 1 ? "alumno" : "alumnos"} · {groups.length} {groups.length === 1 ? "grupo" : "grupos"}
-            {pendingTotal > 0 && <> · <span style={{ color: C.danger, fontWeight: 600 }}>Pendientes ({pendingTotal})</span></>}
-          </p>
-          {(pendingTotal > 0 || onlyPending) && (
-            <button onClick={() => setOnlyPending((v) => !v)} disabled={pendingTotal === 0 && !onlyPending}
-              style={{
-                ...S.btn, fontSize: 11.5, padding: "3px 10px",
-                background: onlyPending ? C.danger : C.paper,
-                color:      onlyPending ? "#fff" : C.danger,
-                borderColor: C.danger,
-              }}>
-              {onlyPending ? "✓ Solo pendientes" : "Solo pendientes"}
-            </button>
-          )}
-        </div>
-        <div style={{ ...S.row, gap: 8 }}>
-          <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
-          <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
-        </div>
+      <div style={{ ...S.row, justifyContent: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
+        <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
+        <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
       </div>
 
       {students.length === 0 && groups.length === 0 && (
@@ -324,7 +300,6 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
 
       {groups.map((group) => {
         const groupStudents = students.filter((s) => (group.studentIds || []).includes(s.id));
-        const visibleStudents = onlyPending ? groupStudents.filter((s) => studentEntries(s).visible.length > 0) : groupStudents;
         const isGroupOpen   = expandedGroups.has(group.id);
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
@@ -333,21 +308,20 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
               style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
               <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
+              {/* Acciones del grupo plegadas al ⋯ (mismo criterio que las filas
+                  de alumno: sin ✕ roja permanente a un clic). */}
+              <span onClick={(e) => e.stopPropagation()}>
+                <KebabMenu title={`Acciones del grupo "${group.name}"`} items={[
+                  { label: "Editar grupo", onClick: () => onEditGroup(group) },
+                  { label: "Eliminar grupo", danger: true, onClick: () => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id)) },
+                ]} />
+              </span>
               <Chevron open={isGroupOpen} rotate90WhenClosed size={14} />
-              <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => onEditGroup(group)} style={{ ...S.btn, fontSize: 12, padding: "4px 10px" }}>Editar</button>
-                <button
-                  onClick={() => askConfirm(`¿Eliminar el grupo "${group.name}"?\n\nLos alumnos no se eliminarán.`, () => onDeleteGroup(group.id))}
-                  title={`Eliminar grupo "${group.name}"`}
-                  style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 13 }}>✕</button>
-              </div>
             </div>
             {isGroupOpen && (
               groupStudents.length === 0
                 ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
-                : visibleStudents.length === 0
-                  ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Sin pendientes en este grupo.</p>
-                  : visibleStudents.map(renderStudentCard)
+                : groupStudents.map(renderStudentCard)
             )}
           </div>
         );
@@ -360,9 +334,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
               <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, color: C.muted }}>Sin grupo</span>
             </div>
           )}
-          {onlyPending && ungrouped.every((s) => studentEntries(s).visible.length === 0)
-            ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Sin pendientes.</p>
-            : ungrouped.map(renderStudentCard)}
+          {ungrouped.map(renderStudentCard)}
         </div>
       )}
     </>
@@ -889,25 +861,23 @@ export function TeacherDash({
       : null;
   const backFromAnswer = onBackFromAnswer || (() => {});
 
-  // Cola de pendientes del mismo ejercicio (F6, T6.2): entregas pendientes
-  // de TODOS los alumnos para el ejercicio que se está corrigiendo, en el
-  // mismo orden que la cola de StudentsTab (fecha de entrega descendente).
-  // Depende solo del ejercicio, no de qué alumno se esté viendo — así no se
-  // recalcula (ni cambia de orden) al navegar dentro de la propia cola.
-  const pendingQueue = useMemo(() => {
-    if (viewingExId == null) return [];
-    const exercise = exercises.find((e) => String(e.id) === String(viewingExId));
-    if (!exercise) return [];
-    return students
-      .map((s) => ({ student: s, r: (results[s.id] || {})[String(viewingExId)] }))
-      .filter((e): e is { student: User; r: ExerciseResult } => Boolean(e.r) && resultStatusOf(e.r, exercise) === "pendiente")
-      .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0));
-  }, [viewingExId, exercises, students, results]);
-  const queueIdx = pendingQueue.findIndex((e) => e.student.id === viewingStudentId);
+  // Bandeja única (Jon, 2026-07-04): TODAS las entregas pendientes de
+  // corrección (alumno × ejercicio), en fecha de entrega descendente. Alimenta
+  // el aviso sobre el panel y la cola de corrección — «Siguiente» recorre ahora
+  // todo el trabajo pendiente, cruzando de ejercicio si hace falta (sustituye
+  // a la cola por-ejercicio de T6.2: una sola puerta, un solo recorrido).
+  const pendingQueue = useMemo(() =>
+    students
+      .flatMap((s) => exercises.map((ex) => ({ student: s, exercise: ex, r: (results[s.id] || {})[String(ex.id)] })))
+      .filter((e): e is { student: User; exercise: Exercise; r: ExerciseResult } =>
+        Boolean(e.r) && resultStatusOf(e.r, e.exercise) === "pendiente")
+      .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0)),
+  [students, exercises, results]);
+  const queueIdx = pendingQueue.findIndex((e) => e.student.id === viewingStudentId && String(e.exercise.id) === String(viewingExId));
   const queueLabel = queueIdx >= 0 ? `${queueIdx + 1}/${pendingQueue.length}` : null;
   const goToQueueIdx = (idx: number) => {
     const target = pendingQueue[idx];
-    if (target && onViewStudentAnswer && viewingExId != null) onViewStudentAnswer(target.student.id, viewingExId);
+    if (target && onViewStudentAnswer) onViewStudentAnswer(target.student.id, target.exercise.id);
   };
 
   // Modal state
@@ -1056,6 +1026,21 @@ export function TeacherDash({
             <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
             <div style={{ flex: 1 }} />
             <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
+          </div>
+        )}
+
+        {/* Bandeja única de correcciones (Jon, 2026-07-04): el único lugar donde
+            se anuncia lo pendiente — las tarjetas y las filas quedan limpias.
+            «Corregir» abre la cola global y se recorre con Siguiente. */}
+        {pendingQueue.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(212,120,0,0.07)", border: "1px solid rgba(212,120,0,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d47800", flexShrink: 0 }} aria-hidden="true" />
+            <span style={{ fontFamily: F.sans, fontSize: 13.5, color: C.ink, flex: 1, minWidth: 0 }}>
+              <b>{pendingQueue.length}</b> {pendingQueue.length === 1 ? "entrega por corregir" : "entregas por corregir"}
+            </span>
+            <button onClick={() => goToQueueIdx(0)} className="fa-pressable" style={{ ...S.btnPrimary, padding: "8px 16px", fontSize: 12.5, flexShrink: 0 }}>
+              Corregir →
+            </button>
           </div>
         )}
 
