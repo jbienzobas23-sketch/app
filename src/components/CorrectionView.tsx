@@ -141,6 +141,11 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
     setActiveFragmentQId(q.id);
     playFrom(q.audioStart ?? 0);
   };
+  // Candado de región (M3.3): libera el bucle de fragmento y vuelve a la
+  // reproducción libre de todo el audio, sin cambiar la posición actual.
+  const releaseFragment = () => {
+    if (loopRegionRef.current) { loopRegionRef.current = null; setActiveFragmentQId(null); }
+  };
 
   // Modelo esquema — corrección semiautomática
   if (result.type === "esquema") {
@@ -520,6 +525,24 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
               <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
                 <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</div>
                 <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>{correctN} de {gradableQs} {gradableQs === 1 ? "pregunta correcta" : "preguntas correctas"} (automático)</div>
+              </div>
+            )}
+
+            {/* Barra de audio compartida + candado de región (M3.3): los «▶
+                Fragmento» de cada pregunta fijan su bucle en esta misma barra;
+                la píldora muestra el bucle activo y permite liberarlo. */}
+            {hasAudio && (
+              <div style={{ marginBottom: 20 }}>
+                <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
+                  togglePlay={togglePlay} onSeek={(e) => { const r = e.currentTarget.getBoundingClientRect(); seekTo(((e.clientX - r.left) / r.width) * dur); }} />
+                {activeFragmentQId && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, marginTop: 8, flexWrap: "wrap" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
+                      🔒 Fragmento P{questions.findIndex((q) => q.id === activeFragmentQId) + 1} · bucle
+                    </span>
+                    <button onClick={releaseFragment} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
+                  </div>
+                )}
               </div>
             )}
 
