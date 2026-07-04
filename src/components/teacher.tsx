@@ -523,6 +523,22 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
   const toggleComposer = (val: string) => setFilterComposers((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
   const toggleTag      = (val: string) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
 
+  // Organizado por compositor, en apartados (Jon, 2026-07-04): un grupo por
+  // compositor (orden alfabético, como el desplegable), «Sin compositor» al
+  // final. Respeta el filtrado vigente — un grupo desaparece si queda vacío.
+  const groupedByComposer = useMemo(() => {
+    const byComposer = new Map<string, AudioItem[]>();
+    filtered.forEach((a) => {
+      const key = a.composer || "Sin compositor";
+      if (!byComposer.has(key)) byComposer.set(key, []);
+      byComposer.get(key)!.push(a);
+    });
+    const withComposer = [...byComposer.keys()].filter((k) => k !== "Sin compositor").sort();
+    const groups = withComposer.map((composer) => ({ composer, items: byComposer.get(composer)! }));
+    if (byComposer.has("Sin compositor")) groups.push({ composer: "Sin compositor", items: byComposer.get("Sin compositor")! });
+    return groups;
+  }, [filtered]);
+
   return (
     <>
       {isAdmin && (
@@ -573,77 +589,87 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
         </div>
       )}
 
-      {!isMobile ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
-          {filtered.map((audio) => (
-            <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
-              isOpen={openId === audio.id} isPrev={previewId === audio.id}
-              onToggleOpen={() => setOpenId(openId === audio.id ? null : audio.id)}
-              onTogglePrev={() => setPreviewId(previewId === audio.id ? null : audio.id)}
-              onEdit={onEdit} onDelete={onDelete} askConfirm={askConfirm} />
-          ))}
-        </div>
-      ) : (
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {filtered.map((audio) => {
-          const isOpen = openId === audio.id;
-          const isPrev = previewId === audio.id;
-          return (
-            <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-              {/* ── Cabecera siempre visible ── */}
-              <div
-                onClick={() => setOpenId(isOpen ? null : audio.id)} {...rowButtonProps(() => setOpenId(isOpen ? null : audio.id))} aria-expanded={isOpen}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {audio.title}
-                  </div>
-                  {audio.composer && (
-                    <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {audio.composer}
-                    </div>
-                  )}
-                </div>
-                <Chevron open={isOpen} />
-                <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <button onClick={() => { setPreviewId(isPrev ? null : audio.id); if (!isOpen) setOpenId(audio.id); }}
-                    style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
-                    {isPrev ? "⏹" : "▶"}
-                  </button>
-                  {isAdmin && (
-                    <>
-                      <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                      <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
-                        style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Detalle expandido ── */}
-              {isOpen && (
-                <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 14px", background: C.bg }}>
-                  {audio.description && (
-                    <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
-                  )}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
-                    {(audio.tags || []).map((tag) => (
-                      <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
-                    ))}
-                  </div>
-                  {isPrev && (
-                    <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 10, height: 36 }} />
-                  )}
-                </div>
-              )}
+      {/* Apartados por compositor (Jon, 2026-07-04): un grupo alfabético por
+          compositor, «Sin compositor» al final — mismo overline sutil que
+          «CURSO · N UNIDADES», para no competir con los títulos de página. */}
+      {groupedByComposer.map(({ composer, items }) => (
+        <div key={composer} style={{ marginBottom: 28 }}>
+          <div style={{ fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, marginBottom: 12 }}>
+            {composer} · {items.length} {items.length === 1 ? "audio" : "audios"}
+          </div>
+          {!isMobile ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+              {items.map((audio) => (
+                <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
+                  isOpen={openId === audio.id} isPrev={previewId === audio.id}
+                  onToggleOpen={() => setOpenId(openId === audio.id ? null : audio.id)}
+                  onTogglePrev={() => setPreviewId(previewId === audio.id ? null : audio.id)}
+                  onEdit={onEdit} onDelete={onDelete} askConfirm={askConfirm} />
+              ))}
             </div>
-          );
-        })}
-      </div>
-      )}
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {items.map((audio) => {
+                const isOpen = openId === audio.id;
+                const isPrev = previewId === audio.id;
+                return (
+                  <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                    {/* ── Cabecera siempre visible ── */}
+                    <div
+                      onClick={() => setOpenId(isOpen ? null : audio.id)} {...rowButtonProps(() => setOpenId(isOpen ? null : audio.id))} aria-expanded={isOpen}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {audio.title}
+                        </div>
+                        {audio.composer && (
+                          <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {audio.composer}
+                          </div>
+                        )}
+                      </div>
+                      <Chevron open={isOpen} />
+                      <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button onClick={() => { setPreviewId(isPrev ? null : audio.id); if (!isOpen) setOpenId(audio.id); }}
+                          style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
+                          {isPrev ? "⏹" : "▶"}
+                        </button>
+                        {isAdmin && (
+                          <>
+                            <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                            <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                              style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ── Detalle expandido ── */}
+                    {isOpen && (
+                      <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 14px", background: C.bg }}>
+                        {audio.description && (
+                          <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
+                        )}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
+                          <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
+                          <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+                          {(audio.tags || []).map((tag) => (
+                            <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
+                          ))}
+                        </div>
+                        {isPrev && (
+                          <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 10, height: 36 }} />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
     </>
   );
 }
