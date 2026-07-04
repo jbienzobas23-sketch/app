@@ -1050,15 +1050,19 @@ export function TeacherDash({
               {settingsBtn}<GhostButton onClick={onLogout}>Salir</GhostButton>
             </div>
           );
+          // Separación encabezado/cuerpo (Jon, 2026-07-04): filete algo más
+          // presente (C.rail) + sombra suave hacia abajo — sin volver a la
+          // línea negra gruesa.
+          const headerSep = { borderBottom: `1px solid ${C.rail}`, boxShadow: "0 10px 16px -14px rgba(26,25,21,0.22)" };
           return isMobile ? (
-            <div style={{ borderBottom: `1px solid ${C.line}`, marginBottom: 20 }}>
+            <div style={{ ...headerSep, marginBottom: 22 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, marginBottom: 8 }}>
                 {identity}{actions}
               </div>
               {tabsStrip}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "flex-end", gap: 20, borderBottom: `1px solid ${C.line}`, marginBottom: 26, paddingBottom: 2 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "flex-end", gap: 20, ...headerSep, marginBottom: 28, paddingBottom: 2 }}>
               <div style={{ paddingBottom: 12 }}>{identity}</div>
               {tabsStrip}
               <div style={{ paddingBottom: 10 }}>{actions}</div>
