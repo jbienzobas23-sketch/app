@@ -1024,31 +1024,47 @@ export function TeacherDash({
   return (
     <div style={S.app}>
       <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
-        {/* Cabecera editorial: identidad a la izquierda, engranaje (Ajustes) +
-            Salir a la derecha. Las pestañas van centradas debajo. */}
-        <div style={{ marginBottom: isMobile ? 12 : 14, paddingBottom: isMobile ? 12 : 16, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <Overline>{isAdmin ? "Administrador" : "Profesor"}</Overline>
-            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</h1>
-          </div>
-          <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+        {/* Barra superior única (Jon, 2026-07-04): pestañas arriba del todo,
+            centradas; identidad a la izquierda; engranaje (Ajustes) + Salir a
+            la derecha. Sin la línea negra gruesa — un filete fino basta. */}
+        {(() => {
+          const settingsBtn = (
             <button onClick={() => setTab("settings")} title="Ajustes" aria-label="Ajustes"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 9, border: `1px solid ${tab === "settings" ? C.ink : C.line}`, background: tab === "settings" ? C.paper2 : "transparent", color: tab === "settings" ? C.ink : "#666", cursor: "pointer" }}>
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 9, border: `1px solid ${tab === "settings" ? C.ink : C.line}`, background: tab === "settings" ? C.paper2 : "transparent", color: tab === "settings" ? C.ink : "#666", cursor: "pointer", flexShrink: 0 }}>
               <GearIcon size={18} />
             </button>
-            <GhostButton onClick={onLogout}>Salir</GhostButton>
-          </div>
-        </div>
-
-        {/* Pestañas principales centradas (Jon, 2026-07-04). En móvil, tira con
-            scroll horizontal alineada a la izquierda para no recortar. */}
-        <div className="fa-noscroll" style={{
-          display: "flex", alignItems: "flex-end", justifyContent: isMobile ? "flex-start" : "center",
-          borderBottom: `1px solid ${C.line}`, marginBottom: isMobile ? 22 : 26, gap: 0,
-          overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none",
-        }}>
-          <TabBar tabs={primaryTabs} value={tab} onChange={setTab} variant="primary" />
-        </div>
+          );
+          const tabsStrip = (
+            <div className="fa-noscroll" style={{ display: "flex", alignItems: "flex-end", justifyContent: isMobile ? "flex-start" : "center", overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+              <TabBar tabs={primaryTabs} value={tab} onChange={setTab} variant="primary" />
+            </div>
+          );
+          const identity = (
+            <div style={{ minWidth: 0 }}>
+              <Overline style={{ marginBottom: 2 }}>{isAdmin ? "Administrador" : "Profesor"}</Overline>
+              <div style={{ fontFamily: F.serif, fontWeight: 700, fontSize: isMobile ? 22 : 24, letterSpacing: "-0.01em", color: C.ink, lineHeight: 1.05, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</div>
+            </div>
+          );
+          const actions = (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, flexShrink: 0 }}>
+              {settingsBtn}<GhostButton onClick={onLogout}>Salir</GhostButton>
+            </div>
+          );
+          return isMobile ? (
+            <div style={{ borderBottom: `1px solid ${C.line}`, marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, marginBottom: 8 }}>
+                {identity}{actions}
+              </div>
+              {tabsStrip}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "flex-end", gap: 20, borderBottom: `1px solid ${C.line}`, marginBottom: 26, paddingBottom: 2 }}>
+              <div style={{ paddingBottom: 12 }}>{identity}</div>
+              {tabsStrip}
+              <div style={{ paddingBottom: 10 }}>{actions}</div>
+            </div>
+          );
+        })()}
 
         {/* Bandeja única de correcciones (Jon, 2026-07-04): el único lugar donde
             se anuncia lo pendiente — las tarjetas y las filas quedan limpias.
