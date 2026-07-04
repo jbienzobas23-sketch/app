@@ -590,15 +590,23 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
       )}
 
       {/* Apartados por compositor (Jon, 2026-07-04): un grupo alfabético por
-          compositor, «Sin compositor» al final — mismo overline sutil que
-          «CURSO · N UNIDADES», para no competir con los títulos de página. */}
+          compositor, «Sin compositor» al final. El nombre destaca — serif
+          grande en tinta, con el conteo al lado — porque aquí SÍ es la
+          jerarquía principal de la página (a diferencia de «Cursos»/«Todos
+          los ejercicios», que llevan versalitas por competir con el nombre
+          del encabezado; Audios no tiene ese título propio). */}
       {groupedByComposer.map(({ composer, items }) => (
-        <div key={composer} style={{ marginBottom: 28 }}>
-          <div style={{ fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, marginBottom: 12 }}>
-            {composer} · {items.length} {items.length === 1 ? "audio" : "audios"}
+        <div key={composer} style={{ marginBottom: 30 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14, paddingBottom: 9, borderBottom: `1px solid ${C.line}` }}>
+            <h3 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", margin: 0 }}>{composer}</h3>
+            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{items.length} {items.length === 1 ? "audio" : "audios"}</span>
           </div>
           {!isMobile ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+            // auto-fit (no auto-fill): con menos audios que columnas posibles,
+            // las tarjetas existentes se estiran a todo el ancho en vez de
+            // dejar hueco vacío a la derecha (Jon: "que dos audios ocupen todo
+            // el ancho").
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
               {items.map((audio) => (
                 <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
                   isOpen={openId === audio.id} isPrev={previewId === audio.id}
