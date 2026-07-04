@@ -7,7 +7,7 @@ import type { ExerciseResult } from "../../lib/types.js";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
-import { questionsSnapshotOf } from "../../lib/domain.js";
+import { questionsSnapshotOf, questionScopeOf } from "../../lib/domain.js";
 import { gradeShort } from "../../lib/scoring.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { CorrectionAudioBar } from "../primitives.jsx";
@@ -24,8 +24,10 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
   const loopRegionRef = useRef<{ audioStart: number; audioEnd: number } | null>(null);
   const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo, playFrom } = useAudioPlayer(exercise, { loopRegionRef });
   const [activeFragmentQId, setActiveFragmentQId] = useState<string | null>(null);
-  const playQuestionFragment = (q: { id: string; audioStart?: number; audioEnd?: number }) => {
+  const playQuestionFragment = (q: { id: string; audioStart?: number; audioEnd?: number; scope?: "fragmento" | "obra" }) => {
     if (activeFragmentQId === q.id && playing) { togglePlay(); return; }
+    // M6: una pregunta de obra se escucha entera desde 0, sin candado de región.
+    if (questionScopeOf(q) === "obra") { loopRegionRef.current = null; setActiveFragmentQId(q.id); playFrom(0); return; }
     loopRegionRef.current = { audioStart: q.audioStart ?? 0, audioEnd: q.audioEnd ?? (exercise.duration as number) };
     setActiveFragmentQId(q.id);
     playFrom(q.audioStart ?? 0);
@@ -96,14 +98,19 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
               <div style={{ marginBottom: 20 }}>
                 <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
                   togglePlay={togglePlay} onSeek={(e) => { const r = e.currentTarget.getBoundingClientRect(); seekTo(((e.clientX - r.left) / r.width) * dur); }} />
-                {activeFragmentQId && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, marginTop: 8, flexWrap: "wrap" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
-                      🔒 Fragmento P{questions.findIndex((q) => q.id === activeFragmentQId) + 1} · bucle
-                    </span>
-                    <button onClick={releaseFragment} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
-                  </div>
-                )}
+                {activeFragmentQId && (() => {
+                  const aq   = questions.find((q) => q.id === activeFragmentQId);
+                  const aIdx = questions.findIndex((q) => q.id === activeFragmentQId);
+                  const isObra = !!aq && questionScopeOf(aq) === "obra";
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, marginTop: 8, flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
+                        {isObra ? `📖 Obra completa · P${aIdx + 1}` : `🔒 Fragmento P${aIdx + 1} · bucle`}
+                      </span>
+                      <button onClick={releaseFragment} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -117,11 +124,17 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                   <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                     <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                     <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
+                    {questionScopeOf(q) === "obra" ? (
+                      <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>Obra completa</span>
+                    ) : (
+                      <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
+                    )}
                     {hasAudio && (
                       <button onClick={() => playQuestionFragment(q)} className="fa-pressable"
                         style={{ ...S.badge, background: activeFragmentQId === q.id && playing ? C.quiz : "transparent", color: activeFragmentQId === q.id && playing ? "#fff" : C.quiz, border: `1px solid ${C.quiz}55`, cursor: "pointer" }}>
-                        {activeFragmentQId === q.id && playing ? "❚❚ Fragmento" : "▶ Fragmento"}
+                        {questionScopeOf(q) === "obra"
+                          ? (activeFragmentQId === q.id && playing ? "❚❚ Obra" : "▸ Escuchar la obra")
+                          : (activeFragmentQId === q.id && playing ? "❚❚ Fragmento" : "▶ Fragmento")}
                       </button>
                     )}
                     {(q.type === "test" || q.type === "corta") && (
@@ -301,7 +314,11 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                 <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
+                  {questionScopeOf(q) === "obra" ? (
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>Obra completa</span>
+                  ) : (
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
+                  )}
                   {(q.type === "test" || q.type === "corta") && (
                     <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
                       {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
