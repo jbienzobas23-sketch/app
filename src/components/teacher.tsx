@@ -660,11 +660,15 @@ export function SettingsTab({ currentUser, onUpdateUser }: SettingsTabProps) {
 }
 
 // Sección con título de la página de Ajustes (Categorías / Preferencias /
-// Usuarios) — un solo encabejado serif por bloque, separación generosa.
+// Usuarios) — versalitas Outfit + filete, el mismo registro de sección que la
+// página del alumno (Jon, 2026-07-04): distinto del nombre serif de la cabecera.
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section style={{ marginBottom: 34 }}>
-      <h2 style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", margin: "0 0 14px" }}>{title}</h2>
+      <h2 style={{ display: "flex", alignItems: "center", gap: 12, fontFamily: F.sans, fontSize: 13, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: C.ink, margin: "0 0 14px" }}>
+        {title}
+        <span aria-hidden="true" style={{ flex: 1, height: 1, background: C.line }} />
+      </h2>
       {children}
     </section>
   );

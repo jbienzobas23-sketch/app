@@ -144,7 +144,13 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
           <>
             {teacherCourses.length > 0 && (
               <section style={{ marginBottom: 34 }}>
-                <h2 style={{ fontFamily: F.serif, fontSize: 27, fontWeight: 700, color: C.ink, letterSpacing: "-0.015em", margin: "0 0 16px" }}>Cursos</h2>
+                {/* Título de sección en versalitas Outfit + filete (Jon,
+                    2026-07-04): registro tipográfico distinto del nombre serif
+                    del encabezado, para que no compitan. */}
+                <h2 style={{ display: "flex", alignItems: "center", gap: 12, fontFamily: F.sans, fontSize: 13, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: C.ink, margin: "0 0 16px" }}>
+                  Cursos
+                  <span aria-hidden="true" style={{ flex: 1, height: 1, background: C.line }} />
+                </h2>
                 <CoursesPages
                   role="student"
                   courses={teacherCourses}
@@ -166,9 +172,12 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
                   lista es la página entera y el pliegue sería ruido. */}
               {teacherCourses.length > 0 ? (
                 <div onClick={toggleAllOpen} {...rowButtonProps(toggleAllOpen)} aria-expanded={allOpen}
-                  style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", userSelect: "none", marginBottom: allOpen ? 14 : 0 }}>
-                  <h2 style={{ fontFamily: F.serif, fontSize: 27, fontWeight: 700, color: C.ink, letterSpacing: "-0.015em", margin: 0 }}>Todos los ejercicios</h2>
-                  <Chevron open={allOpen} size={16} />
+                  style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", userSelect: "none", marginBottom: allOpen ? 16 : 0 }}>
+                  <h2 style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: F.sans, fontSize: 13, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: C.ink, margin: 0 }}>
+                    Todos los ejercicios
+                    <Chevron open={allOpen} size={14} />
+                  </h2>
+                  <span aria-hidden="true" style={{ flex: 1, height: 1, background: C.line }} />
                 </div>
               ) : null}
               {(teacherCourses.length === 0 || allOpen) && (
