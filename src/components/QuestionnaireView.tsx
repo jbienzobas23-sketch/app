@@ -8,6 +8,7 @@ import { calcQuestionnaireScore } from "../lib/scoring.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
+import { QuestionMinimap } from "./QuestionMinimap.js";
 
 // El player compartido (MultiModelSessionView) es el valor de useAudioPlayer
 // ampliado con la waveform decodificada una sola vez.
@@ -136,21 +137,9 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
           </div>
 
           {/* Minimapa de preguntas — toca un bloque para saltar a su fragmento */}
-          <div style={{ position: "relative", height: 30, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", userSelect: "none" }}>
-            {questions.map((q, idx) => {
-              const isLock = lockedQuestion?.id === q.id;
-              const answered = answers[q.id] !== undefined && answers[q.id] !== "";
-              return (
-                <div key={q.id}
-                  onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
-                  title={`P${idx + 1}: ${fmtClock(q.audioStart)} – ${fmtClock(q.audioEnd)}`}
-                  style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: answered ? C.fnT : C.quiz, opacity: isLock ? 1 : 0.5, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.9)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
-                  <span style={{ fontSize: 8, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>{idx + 1}</span>
-                </div>
-              );
-            })}
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 1.5, background: C.ink, opacity: 0.75, pointerEvents: "none" }} />
-          </div>
+          <QuestionMinimap questions={questions} duration={dur} time={time}
+            blockState={(q) => ({ fill: (answers[q.id] !== undefined && answers[q.id] !== "") ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id })}
+            onSelect={(q) => selectQuestion(q)} />
 
           {lockedQuestion ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>

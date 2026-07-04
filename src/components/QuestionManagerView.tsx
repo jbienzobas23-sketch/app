@@ -9,6 +9,7 @@ import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
+import { QuestionMinimap } from "./QuestionMinimap.js";
 import { QuestionEditorModal } from "./modals.js";
 
 // En el gestor de preguntas cada pregunta tiene fragmento (start/end) definido.
@@ -154,38 +155,13 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             })()}
           </div>
 
-          {/* Minimapa de preguntas (draggable) */}
-          <div ref={minimapRef} onMouseDown={() => setSelectedQId(null)}
-            style={{ position: "relative", height: 36, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", touchAction: "none", userSelect: "none", cursor: "default" }}>
-            {questions.map((q, idx) => {
-              const isSel  = selectedQId === q.id;
-              const qLeft  = `${(q.audioStart / dur) * 100}%`;
-              const qWidth = `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`;
-              return (
-                <div key={q.id}
-                  onMouseDown ={(e) => beginDragQBody(e, q.id)}
-                  onTouchStart={(e) => beginDragQBody(e, q.id)}
-                  title={`P${idx + 1}: ${fmtClock(q.audioStart)} – ${fmtClock(q.audioEnd)}`}
-                  style={{
-                    position: "absolute", top: 3, bottom: 3, left: qLeft, width: qWidth,
-                    background: C.quiz, opacity: isSel ? 1 : 0.7,
-                    borderRadius: 3, cursor: "grab",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: isSel ? `1.5px solid rgba(255,255,255,0.85)` : "none",
-                    boxSizing: "border-box", overflow: "hidden", zIndex: isSel ? 2 : 1,
-                  }}>
-                  <div onMouseDown ={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "start"); }}
-                       onTouchStart={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "start"); }}
-                       style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 3, background: isSel ? "rgba(255,255,255,0.22)" : "transparent" }} />
-                  <span style={{ fontSize: 8, color: C.paper, fontWeight: 700, fontFamily: FONT_SANS, pointerEvents: "none", padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap" }}>P{idx + 1}</span>
-                  <div onMouseDown ={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "end"); }}
-                       onTouchStart={(e) => { e.stopPropagation(); beginDragQEdge(e, q.id, "end"); }}
-                       style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 3, background: isSel ? "rgba(255,255,255,0.22)" : "transparent" }} />
-                </div>
-              );
-            })}
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(time / dur) * 100}%`, width: 2, background: C.ink, opacity: 0.75, pointerEvents: "none", zIndex: 5 }} />
-          </div>
+          {/* Minimapa de preguntas (editable — arrastrar mueve, bordes ajustan) */}
+          <QuestionMinimap editable minimapRef={minimapRef} questions={questions} duration={dur} time={time}
+            onBackgroundDown={() => setSelectedQId(null)}
+            blockState={(q) => ({ fill: C.quiz, active: selectedQId === q.id })}
+            label={(i) => `P${i + 1}`}
+            onDragBody={(e, q) => beginDragQBody(e, q.id)}
+            onDragEdge={(e, q, which) => beginDragQEdge(e, q.id, which)} />
 
           {selectedQId && (() => {
             const selQ   = questions.find((q) => q.id === selectedQId);
