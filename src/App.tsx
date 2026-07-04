@@ -94,6 +94,29 @@ interface SubmitPayload extends ModelAnswerPayload {
   parts?: Record<string, { byModel?: Record<string, ModelAnswerPayload> }>;
 }
 
+// ─── Modo local de desarrollo (?local | ?local=alumno) ───────────────────────
+// Arranca la app COMPLETA sin backend: datos de semilla en memoria y sesión ya
+// iniciada (profesor por defecto; `?local=alumno` para el alumno). Sirve para
+// trabajar sobre el contexto real de todas las ventanas sin Supabase (el
+// staging está pausado) ni pasar por la primera configuración. Solo existe en
+// `vite dev`: en el build de producción `import.meta.env.DEV` es false y la
+// condición (constante) elimina el código; además las escrituras van a un
+// cliente nulo, así que nada puede tocar un servidor por accidente.
+const LOCAL_MODE: "profe" | "alumno" | null = import.meta.env.DEV
+  ? (() => {
+      const v = new URLSearchParams(window.location.search).get("local");
+      return v === null ? null : v === "alumno" ? "alumno" : "profe";
+    })()
+  : null;
+const LOCAL_USERS: UserProfile[] = [
+  { id: "local-profe",  username: "profe",  displayName: "Prof. Local",  role: "teacher" },
+  { id: "local-alumno", username: "alumno", displayName: "Alumno Local", role: "student", teacherId: "local-profe" },
+  { id: "local-alumna", username: "alumna", displayName: "Alumna Local", role: "student", teacherId: "local-profe" },
+];
+// Curso/unidad de semilla enlazando los ejercicios de seed.ts (ids 2, 3 y 4).
+const LOCAL_COURSES: Course[] = [{ id: "local-curso", name: "Curso local", unitIds: ["local-unidad"] }];
+const LOCAL_UNITS: Unit[]     = [{ id: "local-unidad", name: "Unidad local", exerciseIds: ["2", "3", "4"] }];
+
 // ═══ 15. APP ROOT ═══════════════════════════════════════════════════════════
 export default function App() {
   useInjectFonts();
@@ -103,22 +126,24 @@ export default function App() {
 
   // Estado global
   const [exercises,    setExercises]    = useState<Exercise[]>(() => (INIT_EXERCISES as Exercise[]).map(normalizeExercise));
-  const [users,        setUsers]        = useState<UserProfile[]>([]);
+  const [users,        setUsers]        = useState<UserProfile[]>(LOCAL_MODE ? LOCAL_USERS : []);
   const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
-  const [courses,      setCourses]      = useState<Course[]>([]);
-  const [units,        setUnits]        = useState<Unit[]>([]);
+  const [courses,      setCourses]      = useState<Course[]>(LOCAL_MODE ? LOCAL_COURSES : []);
+  const [units,        setUnits]        = useState<Unit[]>(LOCAL_MODE ? LOCAL_UNITS : []);
   const [groups,       setGroups]       = useState<Group[]>([]);
   const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
 
-  const [dbReady, setDbReady] = useState(false);
-  const [user,    setUser]    = useState<UserProfile | null>(null);
+  const [dbReady, setDbReady] = useState(!!LOCAL_MODE);
+  const [user,    setUser]    = useState<UserProfile | null>(
+    LOCAL_MODE ? LOCAL_USERS[LOCAL_MODE === "alumno" ? 1 : 0] : null
+  );
   // Mensaje de error de guardado (persistencia). null = sin error.
   const [saveError, setSaveError] = useState<string | null>(null);
   // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
   // Con RLS, anon no puede leer fa_users, así que el primer arranque no se puede
   // deducir de la carga; se consulta has_admin().
-  const [serverHasAdmin, setServerHasAdmin] = useState<boolean | null>(null);
+  const [serverHasAdmin, setServerHasAdmin] = useState<boolean | null>(LOCAL_MODE ? true : null);
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
@@ -190,6 +215,7 @@ export default function App() {
 
   // ─── Carga inicial desde Supabase ────────────────────────────────────────
   useEffect(() => {
+    if (LOCAL_MODE) return;   // modo local: sin backend, la semilla ya está puesta
     (async () => {
       try {
         // Detectar sesión desde magic link de recuperación de PIN. OJO: el login
@@ -260,7 +286,8 @@ export default function App() {
     dbUpsertAudio, dbDeleteAudio,
     dbUpsertGroup, dbDeleteGroup,
   } = useMemo(() => createDb({
-    getClient: () => supabase,
+    // En modo local, cliente nulo: createDb convierte toda escritura en no-op.
+    getClient: () => (LOCAL_MODE ? null : supabase),
     pendingSavesRef,
     onError: () => setSaveError("No se pudieron guardar los cambios en el servidor. Puede que se pierdan al recargar — prueba a cerrar sesión y volver a entrar."),
   }), []);
