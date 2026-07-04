@@ -9,7 +9,7 @@ import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
 import type { FigItem } from "../lib/figures.js";
 import { SCHEMA_MIN_DUR } from "../lib/schema.js";
 import { resolveOverlap } from "../lib/scoring.js";
-import { categoriesOf, answerFor } from "../lib/domain.js";
+import { answerFor } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, EMPTY_IVS } from "../lib/sessionConstants.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -51,7 +51,7 @@ interface ExerciseViewProps {
 
 export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange }: ExerciseViewProps) {
   const dur          = exercise.duration as number;
-  const exCategories = categoriesOf(exercise);
+  const exCategories = useMemo(() => exercise.categories ?? [], [exercise.categories]);
   const initialCategoryId = useMemo(() => {
     if (mode === "record") {
       const empty = exCategories.find((m) => answerFor(exercise, m.id).length === 0);

@@ -7,7 +7,7 @@ import { fmt } from "../lib/ids.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../lib/audio.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, categoriesOf, modelsOf, answerFor, answerStats, questionsOf, partsOf, partKeyReadyOf } from "../lib/domain.js";
+import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, modelsOf, answerFor, answerStats, partsOf, partKeyReadyOf } from "../lib/domain.js";
 import { MODEL_META } from "../lib/modelMeta.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.js";
@@ -59,7 +59,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
 
   const initialCatIds = useMemo<Set<string>>(() => {
     if (isCreating) return new Set([categories[0]?.id || "default"]);
-    const exIds = new Set(categoriesOf(exercise).map((m) => m.id));
+    const exIds = new Set((exercise.categories ?? []).map((m) => m.id));
     const valid = categories.filter((m) => exIds.has(m.id)).map((m) => m.id);
     return new Set(valid.length ? valid : [categories[0]?.id || "default"]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,7 +69,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
   const initialBtnIds = useMemo<Map<string, Set<string>>>(() => {
     const map = new Map<string, Set<string>>();
     categories.forEach((cat) => {
-      const exCat = isCreating ? null : categoriesOf(exercise).find((c) => c.id === cat.id);
+      const exCat = isCreating ? null : (exercise.categories ?? []).find((c) => c.id === cat.id);
       map.set(cat.id, new Set((exCat ? (exCat.buttons ?? []) : cat.buttons).map((b) => b.id)));
     });
     return map;
@@ -288,13 +288,12 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
     if (selectedModels.includes("esquema")) {
       const exLvs = new Set((exercise.schemaLevels as number[] | undefined) ?? [1,2,3,4]);
       if (schemaLevels.size !== exLvs.size || [...schemaLevels].some(id => !exLvs.has(id))) return true;
-      const exSchemaMarginDefault = Math.min(3, +(0.05 * (exercise.duration || 0)).toFixed(1));
-      if ((exercise.schemaMargin ?? exSchemaMarginDefault) !== exSchemaMargin) return true;
+      if ((exercise.schemaMargin ?? DEFAULT_SCHEMA_MARGIN) !== exSchemaMargin) return true;
     }
 
     if (selectedModels.includes("interactivo")) {
       if ((exercise.margin ?? DEFAULT_MARGIN) !== exMargin) return true;
-      const exCats = categoriesOf(exercise);
+      const exCats = exercise.categories ?? [];
       const exIds  = new Set(exCats.map((m) => m.id));
       if (selectedCategoryIds.size !== exIds.size) return true;
       for (const id of selectedCategoryIds) {
@@ -418,7 +417,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
 
   // Estado derivado del ejercicio guardado
   const isQuizSaved = !isCreating && modelsOf(exercise).includes("cuestionario");
-  const exQs        = isCreating ? [] : questionsOf(exercise);
+  const exQs        = isCreating ? [] : (exercise.questions ?? []);
   const { recorded, total } = (isCreating || isQuizSaved) ? { recorded: 0, total: 0 } : answerStats(exercise);
 
   return (
@@ -778,7 +777,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
             ) : (
               <>
                 <div style={{ marginBottom: 14 }}>
-                  {categoriesOf(exercise).map((cat) => {
+                  {(exercise.categories ?? []).map((cat) => {
                     const hasKey = answerFor(exercise, cat.id).length > 0;
                     return (
                       <div key={cat.id} style={{ ...S.row, justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: hasKey ? "rgba(63,155,91,0.07)" : C.paper2, border: `1px solid ${hasKey ? "rgba(63,155,91,0.22)" : C.line}`, marginBottom: 6 }}>

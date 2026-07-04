@@ -130,6 +130,26 @@ export const partsOf = (exercise?: Exercise | null): Part[] => {
   return [synthesized];
 };
 
+// ── Frontera de datos (M1.1) ──────────────────────────────────────────────────
+// Aplica de una vez, en la frontera (carga desde Supabase, escrituras y
+// semillas), el trabajo de forma que hoy hacían categoriesOf/modelOf/
+// questionsOf/partsOf en cada lectura dispersa por los componentes. El
+// resultado trae categories/models/questions/parts ya poblados — los
+// componentes los leen como campos directos (M1.2) sin repetir la detección
+// de formas heredadas en cada render. Idempotente: los cuatro lectores ya
+// devuelven su propio campo canónico sin más trabajo cuando ya está poblado,
+// así que normalizeExercise(normalizeExercise(ex)) === normalizeExercise(ex).
+// Cada parte normaliza también su `questions` a array (nunca undefined): las
+// vistas de sesión multiparte proyectan con partToExercise y leen `.questions`
+// directo de esa proyección.
+export const normalizeExercise = (exercise: Exercise): Exercise => ({
+  ...exercise,
+  categories: categoriesOf(exercise),
+  models: modelsOf(exercise),
+  questions: questionsOf(exercise),
+  parts: partsOf(exercise).map((p) => (Array.isArray(p.questions) ? p : { ...p, questions: [] })),
+});
+
 // Mezcla una parte sobre el ejercicio: el resultado tiene la forma plana que
 // hoy consumen las vistas (useAudioPlayer, ExerciseView, SchemaExerciseView,
 // QuestionnaireView, QuestionManagerView, CorrectionView). `id` siempre es el

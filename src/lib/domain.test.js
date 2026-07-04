@@ -3,7 +3,7 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
-  questionsSnapshotOf, attemptsOf, addAttempt,
+  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -346,5 +346,50 @@ describe("addAttempt", () => {
     const firstResult = addAttempt(null, { type: "esquema", score: null, status: "pendiente" });
     const second = { type: "esquema", score: 85, status: "auto" };
     expect(addAttempt(firstResult, second).score).toBe(85);
+  });
+});
+
+// M1.1: normalizeExercise hace, una vez en la frontera, el trabajo que hoy
+// hacían categoriesOf/modelOf/questionsOf/partsOf en cada lectura dispersa —
+// los componentes (M1.2) leen categories/models/questions/parts como campos
+// directos, confiando en que ya vienen poblados.
+describe("normalizeExercise", () => {
+  it("puebla categories/models/questions/parts desde un ejercicio heredado (mode/model, sin questions ni parts)", () => {
+    const legacy = { id: 1, title: "Legado", model: "interactivo", mode: { id: "leg", buttons: [] }, duration: 10 };
+    const norm = normalizeExercise(legacy);
+    expect(norm.categories).toEqual([{ id: "leg", buttons: [] }]);
+    expect(norm.models).toEqual(["interactivo"]);
+    expect(norm.questions).toEqual([]);
+    expect(norm.parts).toHaveLength(1);
+    expect(norm.parts[0].duration).toBe(10);
+    expect(norm.parts[0].questions).toEqual([]); // nunca undefined
+  });
+  it("un ejercicio ya canónico se conserva tal cual (categories/models no se pisan)", () => {
+    const cats = [{ id: "c1", buttons: [] }];
+    const canon = { id: 2, categories: cats, models: ["esquema"], questions: [], parts: [] };
+    const norm = normalizeExercise(canon);
+    expect(norm.categories).toBe(cats); // misma referencia: no se reconstruye si ya está poblado
+    expect(norm.models).toEqual(["esquema"]);
+  });
+  it("normaliza questions a array en cada parte de un multiparte real, aunque solo una la traiga", () => {
+    const multi = {
+      id: 3, model: "interactivo",
+      parts: [
+        { id: "p1", questions: [{ id: "q1" }] },
+        { id: "p2" }, // nunca se le añadió una pregunta: sin la clave `questions`
+      ],
+    };
+    const norm = normalizeExercise(multi);
+    expect(norm.parts[0].questions).toEqual([{ id: "q1" }]);
+    expect(norm.parts[1].questions).toEqual([]); // antes habría sido undefined
+  });
+  it("es idempotente: normalizar dos veces da el mismo resultado que una", () => {
+    const legacy = { id: 4, model: "cuestionario", mode: { id: "leg2", buttons: [] }, questions: [{ id: "q1" }] };
+    const once  = normalizeExercise(legacy);
+    const twice = normalizeExercise(once);
+    expect(twice).toEqual(once);
+    expect(twice.categories).toBe(once.categories); // segunda pasada no reconstruye nada
+    expect(twice.models).toBe(once.models);
+    expect(twice.parts).toEqual(once.parts); // partsOf().map() siempre da un array nuevo; el contenido es igual
   });
 });

@@ -5,7 +5,6 @@ import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmt } from "../lib/ids.js";
 import { calcQuestionnaireScore } from "../lib/scoring.js";
-import { questionsOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
@@ -37,7 +36,7 @@ interface QuestionnaireViewProps {
 // Vista del alumno para ejercicios tipo "cuestionario"
 export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null, initialDraft = null, onDraftChange }: QuestionnaireViewProps) {
   const dur       = exercise.duration as number;
-  const questions = questionsOf(exercise) as QuizQuestion[];
+  const questions = (exercise.questions ?? []) as QuizQuestion[];
 
   const [answers,        setAnswers]        = useState<Record<string, string>>(() => initialDraft || {});
   const [expandedId,     setExpandedId]     = useState<string | null>(null);

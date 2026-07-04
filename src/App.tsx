@@ -17,7 +17,7 @@ import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath } from ".
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "./lib/sessionConstants.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt } from "./lib/domain.js";
+import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt, normalizeExercise } from "./lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, type Interval, type SchemaBlock } from "./lib/scoring.js";
 import { createDb } from "./data/db.js";
@@ -103,7 +103,7 @@ export default function App() {
   const pendingSavesRef = useRef(0);
 
   // Estado global
-  const [exercises,    setExercises]    = useState<Exercise[]>(INIT_EXERCISES as Exercise[]);
+  const [exercises,    setExercises]    = useState<Exercise[]>(() => (INIT_EXERCISES as Exercise[]).map(normalizeExercise));
   const [users,        setUsers]        = useState<UserProfile[]>([]);
   const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
@@ -168,7 +168,7 @@ export default function App() {
     // Sin tipos generados de Supabase, `.data` de cada tabla es `any[] | null`
     // — los `.map`/`.filter` de abajo heredan ese `any` sin anotarlo aparte.
     const loadedUsers: UserProfile[] | null = userRes.data?.length ? userRes.data.map((r) => r.data) : null;
-    if (!exRes.error)     setExercises((exRes.data ?? []).map((r) => r.data));
+    if (!exRes.error)     setExercises((exRes.data ?? []).map((r) => normalizeExercise(r.data)));
     if (loadedUsers)      setUsers(loadedUsers);
     if (!catRes.error) {
       const cats = (catRes.data ?? []).map((r) => r.data);
@@ -341,15 +341,15 @@ export default function App() {
   // `onAdd` (teacher.tsx) entrega `Record<string, unknown>` — el mismo cruce de
   // frontera que en Users: se confía en su forma tras el cast.
   const addExercise = (newEx: Record<string, unknown>) => {
-    const ex = newEx as Exercise;
+    const ex = normalizeExercise(newEx as Exercise);
     setExercises((prev) => [...prev, ex]);
     dbUpsertExercise(ex);
   };
 
   const updateExercise = (id: Exercise["id"], patch: Record<string, unknown>) => {
     const current = exercises.find((e) => e.id === id);
-    setExercises((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
-    if (current) dbUpsertExercise({ ...current, ...patch });
+    setExercises((prev) => prev.map((e) => e.id === id ? normalizeExercise({ ...e, ...patch } as Exercise) : e));
+    if (current) dbUpsertExercise(normalizeExercise({ ...current, ...patch } as Exercise));
   };
 
   const deleteExercise = (id: Exercise["id"]) => {

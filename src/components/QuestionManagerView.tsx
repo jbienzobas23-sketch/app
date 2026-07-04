@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, S, FONT_SANS } from "../theme/tokens.js";
 import { fmt, uid } from "../lib/ids.js";
-import { questionsOf } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
@@ -25,14 +24,14 @@ interface QuestionManagerViewProps {
 // ═══ 13. QUESTION MANAGER VIEW (profesor edita preguntas) ═══════════════════
 export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManagerViewProps) {
   const dur = exercise.duration as number;
-  const [questions,   setQuestions]   = useState<QuizQuestion[]>(questionsOf(exercise) as QuizQuestion[]);
+  const [questions,   setQuestions]   = useState<QuizQuestion[]>((exercise.questions ?? []) as QuizQuestion[]);
   const [editingQ,    setEditingQ]    = useState<EditingQ>(null);
   const [confirmDel,  setConfirmDel]  = useState<{ id: string; text: string } | null>(null);
   const [selectedQId, setSelectedQId] = useState<string | null>(null);
   const [confirmBack, setConfirmBack] = useState(false);
   const minimapRef = useRef<HTMLDivElement | null>(null);
 
-  const isDirty = JSON.stringify(questions) !== JSON.stringify(questionsOf(exercise));
+  const isDirty = JSON.stringify(questions) !== JSON.stringify(exercise.questions ?? []);
   const guardedOnBack = () => { if (isDirty) setConfirmBack(true); else onBack(); };
 
   // QMV usa exercise.waveformData directamente — sin callback de onWaveform

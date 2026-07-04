@@ -7,7 +7,7 @@ import { textOn, scoreColor } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
-import { categoriesOf, answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf, attemptsOf } from "../lib/domain.js";
+import { answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf, attemptsOf } from "../lib/domain.js";
 import { interactiveDiagnostics, schemaDiagnostics, aggregateParts, gradeShort } from "../lib/scoring.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { DEFAULT_MARGIN } from "../lib/sessionConstants.js";
@@ -812,7 +812,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
   }
 
   // Modelo interactivo
-  const exCategories     = categoriesOf(exercise);
+  const exCategories     = exercise.categories ?? [];
   const resultCategoryId = result.categoryId ?? result.modeId;
   const exCategory       = (exCategories.find((m) => m.id === resultCategoryId) || exCategories[0]) as { id: string; name?: string; buttons: import("../lib/types.js").Button[] };
   const teacherAns       = answerFor(exercise, exCategory.id) as CorrectionIv[];

@@ -5,7 +5,7 @@
 // Interactivo (onda, verde) · Cuestionario (lista, azul) · Esquema (bloques, ámbar).
 import type { CSSProperties } from "react";
 import type { Exercise } from "../lib/types.js";
-import { modelOf, partsOf } from "../lib/domain.js";
+import { modelsOf, partsOf } from "../lib/domain.js";
 import { MODEL_META } from "../lib/modelMeta.js";
 import { C, FONT_SANS } from "../theme/tokens.js";
 
@@ -67,7 +67,7 @@ export function TypePlate({ model, size = 36, radius = 10, style }: PlateProps) 
 // partes va siempre acompañado del texto (nunca solo un color) y se repite,
 // en detalle, en el MetaItem de Duración de cada tarjeta.
 export function ExercisePlate({ ex, size = 36, radius, style }: { ex: Exercise; size?: number; radius?: number; style?: CSSProperties }) {
-  const plate = <TypePlate model={modelOf(ex)} size={size} radius={radius} style={style} />;
+  const plate = <TypePlate model={modelsOf(ex)[0]} size={size} radius={radius} style={style} />;
   const partsN = partsOf(ex).length;
   if (partsN <= 1) return plate;
   return (

@@ -17,7 +17,7 @@ import { useState, useMemo, lazy, Suspense } from "react";
 import type { Exercise, Part } from "../lib/types.js";
 import type { Block } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
-import { partsOf, partToExercise, modelsOf, questionsOf, categoriesOf } from "../lib/domain.js";
+import { partsOf, partToExercise, modelsOf } from "../lib/domain.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { ConfirmModal } from "./primitives.jsx";
 import { ExerciseView, type InteractivoDraft } from "./ExerciseView.js";
@@ -43,7 +43,7 @@ type Drafts = Record<string, Record<string, unknown>>;
 // el ejercicio (ningún modelo suelto lo exige tampoco), solo haber tocado algo.
 function isModelStarted(modelId: string, draft: unknown, projected: Exercise): boolean {
   if (modelId === "cuestionario") {
-    const qs = questionsOf(projected);
+    const qs = projected.questions ?? [];
     const ans = (draft as Record<string, string>) || {};
     return qs.length > 0 && qs.every((q) => ans[q.id] !== undefined && ans[q.id] !== "");
   }
@@ -63,7 +63,7 @@ function draftToPayload(modelId: string, draft: unknown, projected: Exercise): u
     categoryId,
     intervals: (ivs || []).map(({ fn, start, end }) => ({ fn, start, end })),
   }));
-  const currentCategoryId = entries[0]?.categoryId || categoriesOf(projected)[0]?.id;
+  const currentCategoryId = entries[0]?.categoryId || (projected.categories ?? [])[0]?.id;
   return { entries, currentCategoryId };
 }
 
@@ -131,7 +131,7 @@ export function MultiPartSessionView({ exercise, mode, onSubmit, onBack }: Props
   if (activePart.title) progressText += ` · ${activePart.title}`;
   if (activePart.composerName) progressText += ` — ${activePart.composerName}`;
   if (partModels.length === 1 && partModels[0] === "cuestionario") {
-    const qs = questionsOf(partExercise);
+    const qs = partExercise.questions ?? [];
     const ans = (drafts[activePart.id]?.cuestionario as Record<string, string>) || {};
     const done = qs.filter((q) => ans[q.id] !== undefined && ans[q.id] !== "").length;
     progressText += ` · ${done}/${qs.length} respondidas`;

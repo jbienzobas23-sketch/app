@@ -6,7 +6,7 @@ import type { Category, Course, Unit, Group, Exercise, Question, QuestionOption 
 import { C, F, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { fmt, uid, toggleInSet } from "../lib/ids.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
-import { modelOf } from "../lib/domain.js";
+import { modelsOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
@@ -295,7 +295,7 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
                   <div style={{ ...S.row, gap: 6 }}>
                     <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(ex.duration ?? 0)}</span>
                     {(() => {
-                      const isQuiz = modelOf(ex) === "cuestionario";
+                      const isQuiz = modelsOf(ex)[0] === "cuestionario";
                       return <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : C.fnT }}>{isQuiz ? "Cuestionario" : "Interactivo"}</span>;
                     })()}
                   </div>

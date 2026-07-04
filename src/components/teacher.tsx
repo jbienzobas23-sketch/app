@@ -8,7 +8,7 @@ import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
-import { categoriesOf, modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf, partsOf, composersOf } from "../lib/domain.js";
+import { modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf, partsOf, composersOf } from "../lib/domain.js";
 import { modelMeta } from "../lib/modelMeta.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
@@ -54,7 +54,7 @@ export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility,
   const meta    = modelMeta(ex);
   const hasQuiz = modelsOf(ex).includes("cuestionario");
   const exQsN   = questionsCountOf(ex);
-  const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
+  const allBtns = (ex.categories ?? []).flatMap((c) => c.buttons || []);
   const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
   // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
@@ -119,7 +119,7 @@ export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility
   const meta    = modelMeta(ex);
   const hasQuiz = modelsOf(ex).includes("cuestionario");
   const exQsN   = questionsCountOf(ex);
-  const allBtns = categoriesOf(ex).flatMap((c) => c.buttons || []);
+  const allBtns = (ex.categories ?? []).flatMap((c) => c.buttons || []);
   const keyReady = keyReadyOf(ex);
   const isHidden = !!ex.hidden;
   // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
