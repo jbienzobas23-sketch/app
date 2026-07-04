@@ -61,22 +61,23 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
     });
   }, [courses, groups, user.id, user.teacherId]);
 
+  // Menos ruido (Jon, 2026-07-04): los filtros solo aparecen cuando hay
+  // volumen suficiente para necesitarlos (>6 visibles) — igual que la vista
+  // del profesor. Con la barra oculta, los filtros NO se aplican (aunque la
+  // URL traiga ?tipo=/?estado=): sin barra no habría forma de limpiarlos.
+  const visibleCount  = useMemo(() => exercises.filter((ex) => !ex.hidden).length, [exercises]);
+  const showFilterBar = visibleCount > 6;
+
   const filteredExercises = useMemo(() => {
     return exercises.filter((ex) => {
       if (ex.hidden) return false;
+      if (!showFilterBar) return true;
       if (filterModel !== "all" && !modelsOf(ex).includes(filterModel)) return false;
       if (filterDone === "done"    && !results[String(ex.id ?? "")]) return false;
       if (filterDone === "notdone" &&  results[String(ex.id ?? "")]) return false;
       return true;
     });
-  }, [exercises, filterModel, filterDone, results]);
-
-  // Conteo global de la vista "Todos": total visible · completados.
-  const allStats = useMemo(() => {
-    const visible = exercises.filter((ex) => !ex.hidden);
-    const done = visible.filter((ex) => results[String(ex.id ?? "")]).length;
-    return { total: visible.length, done };
-  }, [exercises, results]);
+  }, [exercises, filterModel, filterDone, results, showFilterBar]);
 
   return (
     <div style={S.app}>
@@ -113,15 +114,12 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
         {/* ── Todos los ejercicios ── */}
         {view === "all" && (
           <>
-            {allStats.total > 0 && (
-              <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
-                {allStats.total} {allStats.total === 1 ? "ejercicio" : "ejercicios"} · {allStats.done} {allStats.done === 1 ? "completado" : "completados"}
-              </div>
+            {showFilterBar && (
+              <StudentFilterBar
+                filterModel={filterModel} setFilterModel={setFilterModel}
+                filterDone={filterDone}   setFilterDone={setFilterDone}
+              />
             )}
-            <StudentFilterBar
-              filterModel={filterModel} setFilterModel={setFilterModel}
-              filterDone={filterDone}   setFilterDone={setFilterDone}
-            />
             {filteredExercises.length === 0
               ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
                   {exercises.length === 0

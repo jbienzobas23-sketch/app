@@ -131,10 +131,11 @@ export function ExerciseItem({
             <div style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 400, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerLabel}</div>
           )}
         </div>
-        {role === "student" && (
-          isDone
-            ? <ScoreBadge score={result!.score ?? null} status={resultStatusOf(result, ex)} />
-            : <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: C.muted, flexShrink: 0, whiteSpace: "nowrap" }}>Pendiente</span>
+        {/* Menos ruido (Jon, 2026-07-04): sin "Pendiente" en cada tarjeta no
+            hecha — la ausencia de nota ya lo dice; la insignia solo aparece
+            cuando hay entrega (información real, no relleno). */}
+        {role === "student" && isDone && (
+          <ScoreBadge score={result!.score ?? null} status={resultStatusOf(result, ex)} />
         )}
         {/* Estado del profesor: un nivel jerárquico POR DEBAJO del compositor
             (Jon, 2026-07-04) — versalitas de 9px muy apagadas junto al chevron,
@@ -157,15 +158,18 @@ export function ExerciseItem({
 
             {role === "student" ? (
               <>
-                {/* La duración vive aquí desde el rediseño de 2026-07-04 (no en
-                    la línea colapsada): se consulta al desplegar. */}
-                <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{durationDetail}</div>
-                {isDone && (
-                  <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.ink2 }}>
-                    {result!.timestamp ? `Entregado el ${fmtDate(result!.timestamp)}` : "Entregado"}
-                    {result!.score != null && ` · ${result!.score}%${isCorrected ? " ✓" : ""}`}
-                  </div>
-                )}
+                {/* Una sola fila de metadatos (Jon, 2026-07-04): duración y
+                    entrega juntas — misma estructura compacta que el profesor. */}
+                <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+                  {durationDetail}
+                  {isDone && (
+                    <span style={{ color: C.ink2 }}>
+                      {" · "}
+                      {result!.timestamp ? `Entregado el ${fmtDate(result!.timestamp)}` : "Entregado"}
+                      {result!.score != null && ` · ${result!.score}%${isCorrected ? " ✓" : ""}`}
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                   {isDone && onViewCorrection && (
                     <button onClick={() => onViewCorrection(ex)} className="fa-pressable"

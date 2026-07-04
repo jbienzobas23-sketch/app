@@ -860,30 +860,8 @@ const TYPE_CHIPS: Array<{ id: string; label: string; color?: string }> = [
   { id: "cuestionario", label: "Cuestionario", color: "#2F6FB8" },
   { id: "esquema",      label: "Esquema",      color: "#C77A1A" },
 ];
-export function TypeFilterChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      {TYPE_CHIPS.map((c) => {
-        const on = value === c.id;
-        if (c.id === "all") {
-          return (
-            <button key={c.id} onClick={() => onChange("all")}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: 20, border: `1px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? "#fff" : "#555", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: on ? 600 : 500, transition: "all .15s", whiteSpace: "nowrap" }}>
-              {c.label}
-            </button>
-          );
-        }
-        return (
-          <button key={c.id} onClick={() => onChange(on ? "all" : c.id)}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: 20, border: `1px solid ${on ? c.color! : C.line}`, background: on ? `${c.color}14` : C.paper, color: on ? c.color! : "#555", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: on ? 600 : 500, transition: "all .15s", whiteSpace: "nowrap" }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: c.color, flexShrink: 0 }} />
-            {c.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+// (TypeFilterChips se retiró el 2026-07-04: ambos roles filtran el tipo con el
+// desplegable FilterDropdown "Tipo"; TYPE_CHIPS queda como fuente de opciones.)
 
 // ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
 export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags, trailing }: TeacherFilterBarProps) {
@@ -941,27 +919,29 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
 // ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
 export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone }: StudentFilterBarProps) {
   const active = filterModel !== "all" || filterDone !== "all";
+  // Mismos desplegables que la vista del profesor (Jon, 2026-07-04): "Tipo" y
+  // "Estado" con semántica de radio — repetir la opción activa vuelve a todos.
+  const typeOpts = TYPE_CHIPS.filter((c) => c.id !== "all");
   const DONE_OPTIONS = [
-    { id: "all",     label: "Todos",     accent: C.ink  },
-    { id: "notdone", label: "Sin hacer", accent: C.fnD  },
-    { id: "done",    label: "Hechos",    accent: C.fnT  },
+    { id: "notdone", label: "Sin hacer" },
+    { id: "done",    label: "Hechos"    },
   ];
   return (
     <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <TypeFilterChips value={filterModel} onChange={setFilterModel} />
-
-      <div style={{ display: "flex", gap: 5, background: C.paper2, borderRadius: 20, padding: "3px 4px" }}>
-        {DONE_OPTIONS.map((opt) => {
-          const on = filterDone === opt.id;
-          return (
-            <button key={opt.id} onClick={() => setFilterDone(opt.id)}
-              style={{ padding: "4px 12px", borderRadius: 16, border: "none", background: on ? (opt.id === "all" ? C.ink : opt.accent) : "transparent", color: on ? "#fff" : C.ink2, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-
+      <FilterDropdown
+        label="Tipo"
+        options={typeOpts.map((c) => c.label)}
+        selected={typeOpts.filter((c) => c.id === filterModel).map((c) => c.label)}
+        onToggle={(lbl) => { const id = typeOpts.find((c) => c.label === lbl)?.id || "all"; setFilterModel(filterModel === id ? "all" : id); }}
+        onClear={() => setFilterModel("all")}
+      />
+      <FilterDropdown
+        label="Estado"
+        options={DONE_OPTIONS.map((o) => o.label)}
+        selected={DONE_OPTIONS.filter((o) => o.id === filterDone).map((o) => o.label)}
+        onToggle={(lbl) => { const id = DONE_OPTIONS.find((o) => o.label === lbl)?.id || "all"; setFilterDone(filterDone === id ? "all" : id); }}
+        onClear={() => setFilterDone("all")}
+      />
       {active && (
         <button onClick={() => { setFilterModel("all"); setFilterDone("all"); }}
           style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}>
