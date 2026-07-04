@@ -108,39 +108,37 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
     .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
   }, [exercises, filterModel, filterComposers, filterTags, searchQuery, audioByUrl]);
 
-  // La barra de filtros se muestra siempre que haya ejercicios.
-  const showFilterBar = exercises.length > 0;
-  const hiddenCount   = useMemo(() => exercises.filter((e) => e.hidden).length, [exercises]);
+  // Menos ruido para usuarios nuevos (Jon, 2026-07-04): sin línea de conteo, y
+  // el buscador+filtros solo aparecen cuando el banco tiene volumen suficiente
+  // para necesitarlos (>6). Con pocos ejercicios: solo la lista y "+ Nuevo".
+  // El buscador vive DENTRO de la fila de filtros (una sola fila, no tres).
+  const showFilterBar = exercises.length > 6;
 
   return (
     <>
-      {exercises.length > 0 && (
-        <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
-          {exercises.length} {exercises.length === 1 ? "ejercicio" : "ejercicios"}
-          {hiddenCount > 0 && ` · ${hiddenCount} ${hiddenCount === 1 ? "oculto" : "ocultos"}`}
-        </div>
-      )}
-      {showFilterBar && (
-        <div style={{ position: "relative", marginBottom: 10, maxWidth: 320 }}>
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar por título o compositor…"
-            style={{ ...S.input, paddingRight: searchQuery ? 30 : undefined }} />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
-              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
-              ✕
-            </button>
-          )}
-        </div>
-      )}
       {showFilterBar
         ? <TeacherFilterBar
             filterModel={filterModel}       setFilterModel={setFilterModel}
             allComposers={allComposers}     filterComposers={filterComposers} setFilterComposers={setFilterComposers}
             allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
-            trailing={<CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>}
+            trailing={
+              <>
+                <div style={{ position: "relative" }}>
+                  <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar…" title="Buscar por título o compositor"
+                    style={{ ...S.input, width: 180, paddingRight: searchQuery ? 30 : undefined }} />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
+                      style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
+              </>
+            }
           />
-        : <div style={{ marginBottom: 14 }}><CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton></div>}
+        : <div style={{ marginBottom: 14, display: "flex", justifyContent: "flex-end" }}><CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton></div>}
       {exercises.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
         : filtered.length === 0

@@ -11,7 +11,7 @@ import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
 import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf, resultStatusOf } from "../lib/domain.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { Chevron, ScoreBadge, EyeButton, EditIconButton, PreviewIconButton, RemoveIconButton } from "./primitives.jsx";
+import { Chevron, ScoreBadge } from "./primitives.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
 import { KebabMenu } from "./courses.jsx";
 
@@ -84,14 +84,13 @@ export function ExerciseItem({
   const totalSlots = parts.length * models.length;
   const keyReady = totalSlots > 0 && readySlots === totalSlots;
 
-  // Estado del profesor en la línea de metadatos, como texto sutil (sin chips:
-  // ocupaban media tarjeta y aplastaban el título). Solo las tres excepciones;
-  // si todo está en orden, no se muestra nada.
-  const statusBits: { text: string; amber?: boolean }[] = role === "teacher" ? [
-    ...(!keyReady ? [{ text: "Borrador" }] : []),
-    ...(isHidden ? [{ text: "Oculto" }] : []),
-    ...(pendingCount > 0 ? [{ text: `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`, amber: true }] : []),
-  ] : [];
+  // Menos ruido (Jon, 2026-07-04): la tarjeta colapsada solo interrumpe con lo
+  // ACCIONABLE — "N pendientes" (hay entregas por corregir). "Borrador" y
+  // "Oculto" salen de aquí: lo oculto ya se ve por el atenuado de la tarjeta y
+  // el borrador se explica al desplegar ("Claves x de y").
+  const statusBits: { text: string; amber?: boolean }[] = (role === "teacher" && pendingCount > 0)
+    ? [{ text: `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`, amber: true }]
+    : [];
 
   const isDone = result != null;
   const isCorrected = result?.teacherCorrection?.corrected;
@@ -208,19 +207,36 @@ export function ExerciseItem({
                     )}
                   </div>
                 )}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                  {onEdit && <EditIconButton onClick={() => onEdit(ex)} title={`Editar "${ex.title}"`} />}
-                  {onPreview && <PreviewIconButton onClick={() => onPreview(ex)} title={`Previsualizar "${ex.title}" como alumno`} />}
-                  {onToggleVisibility && <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />}
-                  {(onDuplicate || onDelete) && askConfirm && (
-                    <KebabMenu title={`Acciones de "${ex.title}"`} items={[
+                {/* Acciones CON TEXTO (Jon, 2026-07-04): los iconos sueltos
+                    (lápiz/play/ojo) no son intuitivos para usuarios nuevos.
+                    Solo lo infrecuente/destructivo queda plegado en el ⋯. */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+                  {onEdit && (
+                    <button onClick={() => onEdit(ex)} className="fa-pressable"
+                      style={{ ...S.btnPrimary, fontSize: 12.5, padding: "8px 16px" }}>
+                      Editar
+                    </button>
+                  )}
+                  {onPreview && (
+                    <button onClick={() => onPreview(ex)} className="fa-pressable"
+                      title={`Previsualizar "${ex.title}" como alumno`}
+                      style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px" }}>
+                      Previsualizar
+                    </button>
+                  )}
+                  {onToggleVisibility && (
+                    <button onClick={() => onToggleVisibility(ex)} className="fa-pressable"
+                      title={isHidden ? "Volver a mostrar este ejercicio a los alumnos" : "Dejar de mostrar este ejercicio a los alumnos"}
+                      style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px" }}>
+                      {isHidden ? "Mostrar" : "Ocultar"}
+                    </button>
+                  )}
+                  {(onDuplicate || onDelete || onRemoveFromUnit) && askConfirm && (
+                    <KebabMenu title={`Más acciones de "${ex.title}"`} items={[
                       ...(onDuplicate ? [{ label: "Duplicar ejercicio", onClick: () => onDuplicate(ex) }] : []),
+                      ...(onRemoveFromUnit ? [{ label: "Quitar de la unidad", onClick: () => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, onRemoveFromUnit) }] : []),
                       ...(onDelete ? [{ label: "Eliminar ejercicio", danger: true, onClick: () => askConfirm(`¿Eliminar "${ex.title}"?\n\nEsta acción no se puede deshacer.`, () => onDelete(ex)) }] : []),
                     ]} />
-                  )}
-                  {onRemoveFromUnit && askConfirm && (
-                    <RemoveIconButton title={`Quitar "${ex.title}" de la unidad`}
-                      onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, onRemoveFromUnit)} />
                   )}
                 </div>
               </>
