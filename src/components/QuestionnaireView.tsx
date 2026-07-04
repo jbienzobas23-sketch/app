@@ -5,6 +5,7 @@ import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
 import { calcQuestionnaireScore } from "../lib/scoring.js";
+import { questionScopeOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
@@ -53,7 +54,8 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
   const loopRegionRef    = externalLoopRef || ownLoopRegionRef;
   // M4.1: una vista oculta (combo keep-mounted) NO pisa el loopRegion del
   // reproductor compartido — solo la activa fija su fragmento bloqueado.
-  if (active) loopRegionRef.current = lockedQuestion;   // sincronizado cada render
+  // M6: solo las de fragmento acotan bucle; una de obra nunca bloquea región.
+  if (active) loopRegionRef.current = (lockedQuestion && questionScopeOf(lockedQuestion) === "fragmento") ? lockedQuestion : null;   // sincronizado cada render
 
   const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd: number[]) => setLocalWaveformData(wd) : null;
   const localPlayer = useAudioPlayer(
@@ -68,8 +70,11 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
   } = sharedAudioPlayer || localPlayer;
 
   const selectQuestion = (q: QuizQuestion) => {
-    setLockedQuestion(q);
     setExpandedId(q.id);
+    // M6: una pregunta de obra atañe al audio entero — libera cualquier
+    // fragmento y NO reposiciona el audio (se sigue oyendo la obra completa).
+    if (questionScopeOf(q) === "obra") { unlockAudio(); return; }
+    setLockedQuestion(q);
     if (playing) seekTo(q.audioStart); else playFrom(q.audioStart);
   };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
@@ -99,7 +104,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     onSubmit({ type: "cuestionario", answers, score });
   };
 
-  const questionRegion = lockedQuestion
+  const questionRegion = (lockedQuestion && questionScopeOf(lockedQuestion) === "fragmento")
     ? { start: lockedQuestion.audioStart, end: lockedQuestion.audioEnd, color: C.quiz }
     : null;
 
@@ -141,10 +146,20 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          {/* Minimapa de preguntas — toca un bloque para saltar a su fragmento */}
-          <QuestionMinimap questions={questions} duration={dur} time={time}
-            blockState={(q) => ({ fill: (answers[q.id] !== undefined && answers[q.id] !== "") ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id })}
-            onSelect={(q) => selectQuestion(q)} />
+          {/* Minimapa de preguntas — las de fragmento en la línea (toca para saltar
+              a su tramo); las de obra, en la bandeja «Obra» (M6, toca para oírla). */}
+          {(() => {
+            const fragmentQs = questions.filter((q) => questionScopeOf(q) === "fragmento");
+            const obraQs      = questions.filter((q) => questionScopeOf(q) === "obra");
+            return (
+              <QuestionMinimap questions={fragmentQs} duration={dur} time={time}
+                blockState={(q) => ({ fill: (answers[q.id] !== undefined && answers[q.id] !== "") ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id })}
+                onSelect={(q) => selectQuestion(q)}
+                obraQuestions={obraQs}
+                onSelectObra={(q) => selectQuestion(q)}
+                obraActiveId={expandedId} />
+            );
+          })()}
 
           {lockedQuestion ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>
@@ -184,7 +199,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
                     {answered ? "✓" : idx + 1}
                   </span>
                   <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
-                    {q.type === "test" ? "Opción múltiple" : q.type === "corta" ? "Respuesta corta" : "Respuesta abierta"} · {fmtClock(q.audioStart)}–{fmtClock(q.audioEnd)}
+                    {q.type === "test" ? "Opción múltiple" : q.type === "corta" ? "Respuesta corta" : "Respuesta abierta"} · {questionScopeOf(q) === "obra" ? "Obra completa" : `${fmtClock(q.audioStart)}–${fmtClock(q.audioEnd)}`}
                   </span>
                   <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>
