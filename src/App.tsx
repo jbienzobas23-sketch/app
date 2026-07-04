@@ -908,10 +908,22 @@ export default function App() {
           onLogin={finishLogin}
           onBack={() => navigate("/")}
           onForgotPin={loginRole === "student" ? () => setShowForgotPin(true) : undefined}
-          onGuest={loginRole === "student" ? () => {
-            const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
-            setUser(guest); navigate("/alumno");
-          } : undefined}
+          onGuest={
+            loginRole === "student"
+              ? () => {
+                  const guest = { id: `guest-${Date.now()}`, displayName: "Invitado", role: "student", isGuest: true };
+                  setUser(guest); navigate("/alumno");
+                }
+              // Profesor invitado: SOLO en el build local (import.meta.env.DEV).
+              // Permite entrar al panel de profesor sin credenciales para pruebas;
+              // en producción `import.meta.env.DEV` es false y la opción no existe.
+              : (loginRole === "teacher" && import.meta.env.DEV)
+                ? () => {
+                    const guest = { id: `guest-profe-${Date.now()}`, displayName: "Profesor invitado", role: "teacher", isGuest: true };
+                    setUser(guest); navigate("/profesor");
+                  }
+                : undefined
+          }
         />
       );
     }
