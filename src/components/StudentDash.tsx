@@ -104,8 +104,10 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
           </div>
         )}
 
-        {/* Cabecera editorial */}
-        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+        {/* Cabecera: mismo filete de separación que el profesor (Jon,
+            2026-07-04) — filete fino C.rail + sombra suave, sin la línea negra
+            gruesa. */}
+        <div style={{ marginBottom: isMobile ? 20 : 26, paddingBottom: isMobile ? 14 : 18, borderBottom: `1px solid ${C.rail}`, boxShadow: "0 10px 16px -14px rgba(26,25,21,0.22)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <Overline>Alumno</Overline>
             <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
