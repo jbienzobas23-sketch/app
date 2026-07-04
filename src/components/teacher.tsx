@@ -6,7 +6,7 @@ import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "../lib/types.js";
 import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
 import { modelsOf, audioComposers, audioTags, resultStatusOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
@@ -487,7 +487,7 @@ function AudioCard({ audio, isAdmin, isOpen, isPrev, onToggleOpen, onTogglePrev,
           {audio.composer && (
             <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14, color: C.ink2, marginTop: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.composer}</div>
           )}
-          <div style={{ fontFamily: F.sans, fontSize: 11.5, color: C.muted, marginTop: 6 }}>{fmt(audio.duration ?? 0)}</div>
+          <div style={{ fontFamily: F.sans, fontSize: 11.5, color: C.muted, marginTop: 6 }}>{fmtClock(audio.duration ?? 0)}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -657,7 +657,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
                     <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
                   )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
                     {(audio.tags || []).map((tag) => (
                       <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>

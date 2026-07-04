@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from "re
 import { C, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, IV_BAND_H, IV_BAND_GAP } from "../lib/sessionConstants.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock, fmtPrecise } from "../lib/time.js";
 import { generateWaveform } from "../lib/audio.js";
 import { figureOf } from "../lib/figures.js";
 import { SCHEMA_HND_VISUAL_W } from "../lib/schema.js";
@@ -175,13 +175,6 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
     display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
   });
 
-  // Formato M:SS.d para mayor precisión en el contador
-  const fmtP = (s: number) => {
-    const m  = Math.floor(s / 60);
-    const ss = (s % 60).toFixed(1).padStart(4, "0");
-    return `${m}:${ss}`;
-  };
-
   return (
     <div>
       {/* Audio element oculto */}
@@ -205,8 +198,8 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
 
         {/* Contador de tiempo */}
         <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.ink2, minWidth: 70, fontVariantNumeric: "tabular-nums" }}>
-          {fmtP(currentTime)}
-          {totalDuration ? <span style={{ color: C.muted }}> / {fmt(totalDuration)}</span> : null}
+          {fmtPrecise(currentTime)}
+          {totalDuration ? <span style={{ color: C.muted }}> / {fmtClock(totalDuration)}</span> : null}
         </span>
 
         <div style={{ flex: 1 }} />
@@ -238,12 +231,12 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
         {/* Etiquetas sobre los handles */}
         {start != null && startPct != null && (
           <div style={{ position: "absolute", top: 0, left: `clamp(0px, calc(${startPct}% - 22px), calc(100% - 44px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
-            {fmt(start)}
+            {fmtClock(start)}
           </div>
         )}
         {end != null && endPct != null && (
           <div style={{ position: "absolute", top: 0, left: `clamp(22px, calc(${endPct}% - 22px), calc(100% - 0px))`, fontSize: 10, color: C.quiz, fontFamily: FONT_SANS, whiteSpace: "nowrap", pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>
-            {fmt(end)}
+            {fmtClock(end)}
           </div>
         )}
 
@@ -318,7 +311,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
           <div style={{ flex: 1 }}>
             <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Duración</label>
             <div style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, background: C.paper2, color: C.ink2, display: "flex", alignItems: "center", fontVariantNumeric: "tabular-nums" }}>
-              {fmt(Math.max(0, end - start))}
+              {fmtClock(Math.max(0, end - start))}
             </div>
           </div>
         </div>

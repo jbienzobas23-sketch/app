@@ -3,7 +3,7 @@
 import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Button, Part } from "../lib/types.js";
 import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../lib/audio.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
@@ -459,7 +459,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                 {audioName}
               </span>
               <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
-                {fmt(effDuration)}
+                {fmtClock(effDuration)}
               </span>
               {audioLibrary.length > 0 && (
                 <button type="button" onClick={() => setShowLibraryPicker(true)}
@@ -495,7 +495,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
             </div>
           )}
           {hasExistingAudio && audioDuration !== null && (
-            <p style={{ fontSize: 11, color: C.fnT, margin: "2px 0 0" }}>Duración detectada: {fmt(audioDuration)}</p>
+            <p style={{ fontSize: 11, color: C.fnT, margin: "2px 0 0" }}>Duración detectada: {fmtClock(audioDuration)}</p>
           )}
           {hasExistingAudio && audioDuration === null && (
             <p style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>Duración no detectada — se usará la actual.</p>
@@ -512,7 +512,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                   <span style={{ fontFamily: FONT_SANS, fontSize: 10, color: C.quiz, fontWeight: 600,
                     textTransform: "none", letterSpacing: 0, background: "rgba(47,111,184,0.1)",
                     padding: "1px 6px", borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
-                    {fmt(fragStart ?? 0)} – {fmt(fragEnd ?? 0)}
+                    {fmtClock(fragStart ?? 0)} – {fmtClock(fragEnd ?? 0)}
                   </span>
                 )}
               </p>
@@ -680,7 +680,7 @@ export function ExerciseDetailView({ exercise: exerciseProp, onBack, onRecord, o
                     <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8 }}>
                       <AudioWaveIcon size={14} color={C.ink2} />
                       <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{part.audioName}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(partTotalDur)}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmtClock(partTotalDur)}</span>
                       {audioLibrary.length > 0 && (
                         <button type="button" onClick={() => setLibraryPickerForPart(part.id)} style={{ ...S.btn, padding: "2px 8px", fontSize: 11, flexShrink: 0 }}>Cambiar</button>
                       )}

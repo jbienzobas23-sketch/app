@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, S, FONT_SANS } from "../theme/tokens.js";
-import { fmt, uid } from "../lib/ids.js";
+import { uid } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
@@ -164,7 +165,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 <div key={q.id}
                   onMouseDown ={(e) => beginDragQBody(e, q.id)}
                   onTouchStart={(e) => beginDragQBody(e, q.id)}
-                  title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
+                  title={`P${idx + 1}: ${fmtClock(q.audioStart)} – ${fmtClock(q.audioEnd)}`}
                   style={{
                     position: "absolute", top: 3, bottom: 3, left: qLeft, width: qWidth,
                     background: C.quiz, opacity: isSel ? 1 : 0.7,
@@ -194,8 +195,8 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
               <div onMouseDown={(e) => e.stopPropagation()}
                 style={{ ...S.row, gap: 8, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", marginBottom: 6, fontSize: 11 }}>
                 <span style={{ fontFamily: FONT_SANS, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
-                <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmt(selQ.audioStart)} → {fmt(selQ.audioEnd)}</span>
-                <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmt(selQ.audioEnd - selQ.audioStart)}</span>
+                <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmtClock(selQ.audioStart)} → {fmtClock(selQ.audioEnd)}</span>
+                <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmtClock(selQ.audioEnd - selQ.audioStart)}</span>
                 <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
                 <button onClick={() => { setEditingQ(selQ); setSelectedQId(null); }} style={{ ...S.btn, padding: "3px 10px", fontSize: 11 }}>Editar contenido</button>
               </div>
@@ -211,7 +212,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
               <CircleButton onClick={() => seekTo(Math.min(dur, time + 5))} size={36} fontSize={10}>+5s</CircleButton>
             </div>
             <div style={{ textAlign: "right", fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums", fontSize: 18, fontWeight: 600, color: C.ink }}>
-              {fmt(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmt(dur)}</span>
+              {fmtClock(time)}<span style={{ color: C.muted2, fontWeight: 400 }}>/{fmtClock(dur)}</span>
             </div>
           </div>
         </section>
@@ -248,7 +249,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart)} – {fmt(q.audioEnd)}</span>
+                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart)} – {fmtClock(q.audioEnd)}</span>
                   {q.type === "test" && (q.points ?? 1) !== 1 && (
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
                   )}
@@ -283,7 +284,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                     style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === questions.length - 1 ? 0.4 : 1, cursor: idx === questions.length - 1 ? "default" : "pointer" }}
                     title="Bajar">↓</button>
                 </div>
-                <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmt(q.audioStart)}`}>▶ {fmt(q.audioStart)}</button>
+                <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmtClock(q.audioStart)}`}>▶ {fmtClock(q.audioStart)}</button>
                 <button onClick={() => setEditingQ(q)} style={S.btn}>Editar</button>
                 <button onClick={() => duplicateQuestion(q)} style={{ ...S.btn, fontSize: 12 }} title="Duplicar esta pregunta">⧉ Duplicar</button>
                 <button onClick={() => setConfirmDel({ id: q.id, text: q.text ?? "" })} style={S.btnDanger}>Eliminar</button>

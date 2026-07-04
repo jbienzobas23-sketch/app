@@ -1,13 +1,7 @@
 // ═══ IDS Y UTILIDADES MENORES ════════════════════════════════════════════════
-// Generación de IDs, toggle inmutable de Set y formateo de tiempo (mm:ss).
-// Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3) sin cambiar lógica.
-
-// Formatea segundos como mm:ss.
-export const fmt = (s: number): string => {
-  const m   = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-};
+// Generación de IDs y toggle inmutable de Set. Extraídas de App.jsx (Fase 0).
+// Migrado a TypeScript (Fase 3). El formateo de tiempo vive ahora en lib/time.ts
+// (fmtClock/fmtPrecise, M3.1).
 
 // ─── Generación de IDs únicos ──────────────────────────────────────────────
 // Date.now() solo puede colisionar en operaciones < 1ms; añadir un sufijo

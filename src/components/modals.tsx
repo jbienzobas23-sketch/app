@@ -4,7 +4,8 @@
 import { useState, useRef } from "react";
 import type { Category, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
 import { C, F, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
-import { fmt, uid, toggleInSet } from "../lib/ids.js";
+import { uid, toggleInSet } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelsOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
@@ -293,7 +294,7 @@ export function ExercisePickerModal({ exercises, alreadyInUnit, onAdd, onClose }
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 4 }}>{ex.title}</div>
                   <div style={{ ...S.row, gap: 6 }}>
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(ex.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(ex.duration ?? 0)}</span>
                     {(() => {
                       const isQuiz = modelsOf(ex)[0] === "cuestionario";
                       return <span style={{ ...S.badge, background: isQuiz ? "rgba(47,111,184,0.10)" : "rgba(63,155,91,0.08)", color: isQuiz ? C.quiz : C.fnT }}>{isQuiz ? "Cuestionario" : "Interactivo"}</span>;
@@ -529,7 +530,7 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }: { library:
                     <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
                     {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
-                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(audio.duration ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
                   </div>
                   <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
                     <button onClick={() => setPreviewId(isPrev ? null : audio.id)} style={{ ...S.btn, padding: "5px 9px", fontSize: 11 }}>
@@ -641,7 +642,7 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       <input type="url" style={{ ...S.input, marginBottom: 6 }}
         value={url} onChange={(e) => handleUrlChange(e.target.value)} placeholder="https://res.cloudinary.com/…" />
       {detecting && <p style={{ fontSize: 12, color: C.muted, margin: "0 0 14px" }}>Verificando audio…</p>}
-      {duration && !detecting && <p style={{ fontSize: 12, color: C.fnT, margin: "0 0 14px" }}>✓ Duración detectada: {fmt(duration ?? 0)}</p>}
+      {duration && !detecting && <p style={{ fontSize: 12, color: C.fnT, margin: "0 0 14px" }}>✓ Duración detectada: {fmtClock(duration ?? 0)}</p>}
       <ErrorMsg>{error}</ErrorMsg>
       <div style={{ marginBottom: 8 }} />
 

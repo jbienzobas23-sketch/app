@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
-import { fmt, uid } from "../lib/ids.js";
+import { uid } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
 import type { FigItem } from "../lib/figures.js";
 import { SCHEMA_MIN_DUR } from "../lib/schema.js";
@@ -414,7 +415,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
               {playing ? "❚❚" : "▶"}
             </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
+              {fmtClock(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmtClock(dur)}</span>
             </div>
           </div>
         </section>
@@ -583,7 +584,7 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }: Repe
     for (const r of reps) {
       if ((r.first.end - r.first.start) < 1) return "La 1ª vez debe durar al menos 1 s.";
       if ((r.second.end - r.first.end)   < 1) return "La 2ª vez debe durar al menos 1 s.";
-      if (r.second.end > duration + 0.5)      return `La 2ª vez supera la duración del audio (${fmt(duration)}).`;
+      if (r.second.end > duration + 0.5)      return `La 2ª vez supera la duración del audio (${fmtClock(duration)}).`;
     }
     const sorted = [...reps].sort((a, b) => a.first.start - b.first.start);
     for (let i = 0; i < sorted.length - 1; i++) {
@@ -667,8 +668,8 @@ export function RepeatManagerModal({ exercise, duration, onSave, onClose }: Repe
               onChange={e => updSecondEnd(r.id, e.target.value)} />
           </div>
           <div style={{ fontSize: 10, color: C.muted, marginTop: 6, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>
-            {fmt(r.first.start)} → {fmt(r.first.end)} → {fmt(r.second.end)}
-            &nbsp;·&nbsp;1ª: {fmt(r.first.end - r.first.start)} · 2ª: {fmt(Math.max(0, r.second.end - r.first.end))}
+            {fmtClock(r.first.start)} → {fmtClock(r.first.end)} → {fmtClock(r.second.end)}
+            &nbsp;·&nbsp;1ª: {fmtClock(r.first.end - r.first.start)} · 2ª: {fmtClock(Math.max(0, r.second.end - r.first.end))}
           </div>
         </div>
       ))}

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { C, S, F, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor, textOn } from "../lib/color.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
 type Tab = { id: string; label: string };
@@ -974,7 +974,7 @@ export function CorrectionAudioBar({ time, timeRef, duration, playing, audioRead
           <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${(time / duration) * 100}%`, background: C.fnS, borderRadius: 3, transition: "width .1s linear" }} />
           <SchemaPlayhead timeRef={timeRef} duration={duration} />
         </div>
-        <span style={{ fontSize: 12, fontFamily: FONT_SANS, color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(time)} / {fmt(duration)}</span>
+        <span style={{ fontSize: 12, fontFamily: FONT_SANS, color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmtClock(time)} / {fmtClock(duration)}</span>
       </div>
     </div>
   );

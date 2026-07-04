@@ -13,7 +13,8 @@
 import { Fragment, useRef, useState } from "react";
 import type { Block, Rep } from "../../lib/repeats.js";
 import { C } from "../../theme/tokens.js";
-import { fmt, uid } from "../../lib/ids.js";
+import { uid } from "../../lib/ids.js";
+import { fmtClock } from "../../lib/time.js";
 import { SCHEMA_MIN_DUR } from "../../lib/schema.js";
 
 type BandDrag =
@@ -197,19 +198,19 @@ export function RepeatBand({
               </div>
               {/* Asa: inicio del original */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
-                title={`Inicio original: ${fmt(rep.first.start)}`}
+                title={`Inicio original: ${fmtClock(rep.first.start)}`}
                 style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fS}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnS, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
               </div>
               {/* Asa: unión original/repetición */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "junction")} onTouchStart={e => handleBandHandleDown(e, rep, "junction")}
-                title={`Fin original / inicio repetición: ${fmt(rep.first.end)}`}
+                title={`Fin original / inicio repetición: ${fmtClock(rep.first.end)}`}
                 style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fE}% - 6px)`, width: 12, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: 4, height: 20, borderRadius: 2, background: C.ink2, boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }} />
               </div>
               {/* Asa: fin de la repetición */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "second.end")} onTouchStart={e => handleBandHandleDown(e, rep, "second.end")}
-                title={`Fin repetición: ${fmt(rep.second.end)}`}
+                title={`Fin repetición: ${fmtClock(rep.second.end)}`}
                 style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${sE}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnT, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
               </div>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import type { Exercise, Question } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { calcQuestionnaireScore } from "../lib/scoring.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
@@ -143,7 +143,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
               return (
                 <div key={q.id}
                   onMouseDown={(e) => e.stopPropagation()} onClick={() => selectQuestion(q)}
-                  title={`P${idx + 1}: ${fmt(q.audioStart)} – ${fmt(q.audioEnd)}`}
+                  title={`P${idx + 1}: ${fmtClock(q.audioStart)} – ${fmtClock(q.audioEnd)}`}
                   style={{ position: "absolute", top: 3, bottom: 3, left: `${(q.audioStart / dur) * 100}%`, width: `${Math.max(0, (q.audioEnd - q.audioStart) / dur) * 100}%`, background: answered ? C.fnT : C.quiz, opacity: isLock ? 1 : 0.5, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", border: isLock ? `1.5px solid rgba(255,255,255,0.9)` : "none", boxSizing: "border-box", overflow: "hidden" }}>
                   <span style={{ fontSize: 8, color: "#fff", fontWeight: 700, fontFamily: F.sans, pointerEvents: "none" }}>{idx + 1}</span>
                 </div>
@@ -155,7 +155,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
           {lockedQuestion ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
-                🔒 Fragmento {fmt(lockedQuestion.audioStart)} – {fmt(lockedQuestion.audioEnd)} · bucle
+                🔒 Fragmento {fmtClock(lockedQuestion.audioStart)} – {fmtClock(lockedQuestion.audioEnd)} · bucle
               </span>
               <button onClick={unlockAudio} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
             </div>
@@ -170,7 +170,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
               {playing ? "❚❚" : "▶"}
             </CircleButton>
             <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-              {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(dur)}</span>
+              {fmtClock(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmtClock(dur)}</span>
             </div>
           </div>
         </section>
@@ -190,7 +190,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
                     {answered ? "✓" : idx + 1}
                   </span>
                   <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: C.muted }}>
-                    {q.type === "test" ? "Opción múltiple" : q.type === "corta" ? "Respuesta corta" : "Respuesta abierta"} · {fmt(q.audioStart)}–{fmt(q.audioEnd)}
+                    {q.type === "test" ? "Opción múltiple" : q.type === "corta" ? "Respuesta corta" : "Respuesta abierta"} · {fmtClock(q.audioStart)}–{fmtClock(q.audioEnd)}
                   </span>
                   <div style={{ marginLeft: "auto" }}><Chevron open={isExpanded} /></div>
                 </div>

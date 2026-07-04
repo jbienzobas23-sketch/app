@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
 import { textOn, scoreColor } from "../lib/color.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { SCHEMA_LEVELS } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../lib/palette.js";
 import { answerFor, btnOf, partsOf, partToExercise, modelsOf, resultPartsOf, questionsSnapshotOf, attemptsOf } from "../lib/domain.js";
@@ -218,7 +218,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                       <div key={i} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 14px", borderLeft: `3px solid ${bg}` }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <span style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 13, color: bg }}>{b.label}</span>
-                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(b.start)}–{fmtClock(b.end)}</span>
                         </div>
                         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{b.bodyText}</div>
                       </div>
@@ -333,7 +333,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                           <div key={b.id} style={{ background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
                             <div style={{ ...S.row, gap: 6, marginBottom: 6 }}>
                               <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{b.label}</span>
-                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(b.start)}–{fmt(b.end)}</span>
+                              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(b.start)}–{fmtClock(b.end)}</span>
                               <span style={{ fontSize: 10, background: (lv?.color || C.muted) + "20", color: lv?.color || C.muted, padding: "1px 6px", borderRadius: 3 }}>{lv?.sub}</span>
                             </div>
                             <textarea value={blkComments[b.id] || ""}
@@ -445,7 +445,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                   <div key={blockId} style={{ marginBottom: 6, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
                     <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
                       <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
-                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(block.start)}–{fmt(block.end)}</span>
+                      <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(block.start)}–{fmtClock(block.end)}</span>
                     </div>
                     <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
                   </div>
@@ -533,7 +533,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                   <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                     <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                     <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
                     {hasAudio && (
                       <button onClick={() => playQuestionFragment(q)} className="fa-pressable"
                         style={{ ...S.badge, background: activeFragmentQId === q.id && playing ? C.quiz : "transparent", color: activeFragmentQId === q.id && playing ? "#fff" : C.quiz, border: `1px solid ${C.quiz}55`, cursor: "pointer" }}>
@@ -717,7 +717,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                 <div style={{ ...S.row, gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmt(q.audioStart ?? 0)}–{fmt(q.audioEnd ?? 0)}</span>
+                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart ?? 0)}–{fmtClock(q.audioEnd ?? 0)}</span>
                   {(q.type === "test" || q.type === "corta") && (
                     <span style={{ ...S.badge, background: isCorrect ? "rgba(63,155,91,0.16)" : isWrong ? "rgba(184,74,58,0.16)" : C.line, color: isCorrect ? C.fnT : isWrong ? C.danger : C.muted }}>
                       {!studentAnswer ? "Sin respuesta" : isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
@@ -908,7 +908,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
               </div>
             ))}
             <div style={{ ...S.row, justifyContent: "space-between", fontSize: 10, color: C.muted2 }}>
-              {Array.from({ length: Math.floor(dur / 5) + 1 }, (_, i) => i * 5).map((t) => <span key={t}>{fmt(t)}</span>)}
+              {Array.from({ length: Math.floor(dur / 5) + 1 }, (_, i) => i * 5).map((t) => <span key={t}>{fmtClock(t)}</span>)}
             </div>
           </div>
         )}
@@ -939,7 +939,7 @@ function CorrectionViewSingle({ exercise, result, onBack, isTeacherMode = false,
                 {diagnostics.tramos.map((tr, i) => (
                   <button key={i} onClick={() => seekTo(tr.start)} className="fa-pressable"
                     style={{ display: "flex", width: "100%", boxSizing: "border-box", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, padding: "6px 0", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}>
-                    <span style={{ fontFamily: FONT_SANS, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{fmt(tr.start)}–{fmt(tr.end)}</span>
+                    <span style={{ fontFamily: FONT_SANS, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{fmtClock(tr.start)}–{fmtClock(tr.end)}</span>
                     <span style={{ color: C.muted, fontSize: 12 }}>esperado {tr.esperado} · marcado {tr.marcado ?? "—"}</span>
                   </button>
                 ))}

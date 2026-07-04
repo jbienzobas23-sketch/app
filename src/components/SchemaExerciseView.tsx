@@ -16,7 +16,8 @@ import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "rea
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
-import { fmt, uid } from "../lib/ids.js";
+import { uid } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { harmonyBlockColors } from "../lib/harmony.js";
 import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC } from "../lib/schema.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFromPalette, phraseColorFromPalette, schemaBlockColor, snapToNearest } from "../lib/palette.js";
@@ -1179,7 +1180,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                   {playing ? "❚❚" : "▶"}
                 </CircleButton>
                 <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                  {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
+                  {fmtClock(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmtClock(duration)}</span>
                 </div>
               </div>
               {playCount > 0 && <div style={{ textAlign: "center", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>Reproducido {playCount} {playCount === 1 ? "vez" : "veces"} desde el inicio</div>}
@@ -1220,7 +1221,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 {playing ? "❚❚" : "▶"}
               </CircleButton>
               <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
-                {fmt(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmt(duration)}</span>
+                {fmtClock(time)}<span style={{ color: C.muted, fontWeight: 400 }}>/{fmtClock(duration)}</span>
               </div>
             </div>
           )}
@@ -1362,7 +1363,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                           onMouseDown={e => handleMarkDown(e, globalIdx)} onTouchStart={e => handleMarkDown(e, globalIdx)}>
                           <div style={{ width: 2, height: "100%", background: "rgba(184,74,58,0.6)", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }} />
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: C.danger, border: "2px solid white", marginTop: 4, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", position: "relative", zIndex: 1, flexShrink: 0 }} />
-                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_SANS, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>{fmt(mt)}</span>
+                          <span style={{ fontSize: 8, color: C.danger, fontFamily: FONT_SANS, position: "relative", zIndex: 1, lineHeight: 1.2, marginTop: 1, pointerEvents: "none", fontVariantNumeric: "tabular-nums" }}>{fmtClock(mt)}</span>
                         </div>
                       );
                     })}
@@ -1481,7 +1482,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     {ticks.map(({ t, frac }) => (
                       <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
                         <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
-                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmt(t)}</span>
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmtClock(t)}</span>
                       </div>
                     ))}
                   </div>
@@ -1680,7 +1681,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
               <span style={{ width: 10, height: 10, borderRadius: 3, background: selLv.color, flexShrink: 0 }} />
               <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>{selBlock.label}</span>
               <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
-                {selLv.sub} · {fmt(selBlock.start)}–{fmt(selBlock.end)} · dur.&nbsp;{fmt(selBlock.end - selBlock.start)}
+                {selLv.sub} · {fmtClock(selBlock.start)}–{fmtClock(selBlock.end)} · dur.&nbsp;{fmtClock(selBlock.end - selBlock.start)}
               </span>
               {/* Selector de color */}
               {selBlock.level !== 4 && (() => {
@@ -1727,7 +1728,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: C.fnS, display: "inline-block", flexShrink: 0 }} />
                 <span style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: C.ink }}>Repetición</span>
                 <span style={{ fontSize: 11, color: C.muted, flex: 1, minWidth: 90 }}>
-                  {fmt(rep.first.start)}–{fmt(rep.first.end)} · {fmt(rep.second.start)}–{fmt(rep.second.end)}
+                  {fmtClock(rep.first.start)}–{fmtClock(rep.first.end)} · {fmtClock(rep.second.start)}–{fmtClock(rep.second.end)}
                 </span>
                 <button className="fa-pressable"
                   onClick={() => { deleteRepeat(selectedRepId); setSelectedRepId(null); }}

@@ -8,7 +8,7 @@
 import { useState, type ReactNode } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { fmt } from "../lib/ids.js";
+import { fmtClock } from "../lib/time.js";
 import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf, resultStatusOf } from "../lib/domain.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { Chevron, ScoreBadge, EyeButton, EditIconButton, PreviewIconButton, RemoveIconButton } from "./primitives.jsx";
@@ -78,7 +78,7 @@ export function ExerciseItem({
   const parts  = partsOf(ex);
   const partsN = parts.length;
   const isMultiPart = partsN > 1;
-  const durationLabel = isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex));
+  const durationLabel = isMultiPart ? `${partsN} audios · ${fmtClock(durationOf(ex))}` : fmtClock(durationOf(ex));
   const metaLine = [composerLabel, durationLabel].filter(Boolean).join(" · ");
 
   // ── Claves por (parte, modelo): para el desglose de excepción del profesor ──
