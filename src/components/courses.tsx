@@ -8,7 +8,7 @@ import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/typ
 import { C, F, S } from "../theme/tokens.js";
 import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, GhostButton, CtaButton, Menu } from "./primitives.jsx";
+import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, CtaButton, Menu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
@@ -274,10 +274,29 @@ export function CourseExercisesPanel({
               ))}
             </div>
           : <div style={{ marginBottom: 10 }}><EmptyExercises role={role} /></div>}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <DashedAddButton onClick={() => onCreateNewExInUnit(unit.id)}>+ Nuevo ejercicio</DashedAddButton>
-          <GhostButton full onClick={() => onPickFromBank(unit.id)}>+ Añadir del banco</GhostButton>
-        </div>
+        {/* Un único "añadir" (Jon, 2026-07-04): al pulsarlo pregunta si crear
+            un ejercicio nuevo o traer uno del banco. Menú en portal para no
+            quedar recortado por contenedores con overflow. */}
+        <Menu portal align="left" ariaLabel="Añadir ejercicio a la unidad" panelStyle={{ minWidth: 224 }}
+          trigger={({ open, toggle, triggerRef }) => (
+            <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
+              style={{ width: "100%", boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: open ? C.field : "transparent", border: `1.5px dashed ${C.rail}`, color: "#555", borderRadius: 10, padding: "12px", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              + Añadir ejercicio
+            </button>
+          )}>
+          {({ close }) => (
+            <>
+              <button role="menuitem" onClick={() => { close(); onCreateNewExInUnit(unit.id); }}
+                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
+                Crear ejercicio nuevo
+              </button>
+              <button role="menuitem" onClick={() => { close(); onPickFromBank(unit.id); }}
+                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
+                Añadir del banco…
+              </button>
+            </>
+          )}
+        </Menu>
       </div>
     );
   }
@@ -337,7 +356,7 @@ export function UnitsList({ course, units, exercises, role, results, selUnitId, 
   return (
     <div>
       <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 4px 10px" }}>Unidades</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 4px 8px" }}>Este curso no tiene unidades todavía.</p>
           : cu.map((u) => {
@@ -345,12 +364,15 @@ export function UnitsList({ course, units, exercises, role, results, selUnitId, 
               const on = u.id === selUnitId;
               const select = () => onSelectUnit(u.id);
               return (
+                // Jerarquía (Jon, 2026-07-04): las unidades son tarjetas de papel
+                // al nivel visual de las filas de ejercicio — la seleccionada se
+                // marca con borde de tinta, no con un realce tímido.
                 <div key={u.id} onClick={select} role="button" tabIndex={0}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
-                  style={{ boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 11, border: `1px solid ${on ? C.rail : "transparent"}`, cursor: "pointer", background: on ? C.paper : "transparent", boxShadow: on ? "0 2px 10px rgba(0,0,0,0.05)" : "none" }}>
-                  <ProgressRing ready={s.num} total={s.total} size={34} stroke={3.5} />
+                  style={{ boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "12px 12px", borderRadius: 12, border: on ? `1.5px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer", background: C.paper, boxShadow: on ? "0 4px 14px rgba(26,25,21,0.08)" : "none" }}>
+                  <ProgressRing ready={s.num} total={s.total} size={38} stroke={3.5} />
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontFamily: F.serif, fontSize: 16, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
+                    <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
                     {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
                   </span>
                   {role === "teacher" && on && (
@@ -418,7 +440,7 @@ export function CourseDetail({
       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888", margin: "-4px 0 18px" }}>{course.description}</div>}
 
       {/* Dos columnas: barra lateral de unidades (210px) + pila de ejercicios (sin tarjeta) */}
-      <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", gap: 18, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "236px 1fr", gap: 18, alignItems: "start" }}>
         <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit}
           onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm} />
         <div style={{ minWidth: 0 }}>
