@@ -2,17 +2,15 @@
 // Lista + detalle de cursos/unidades (profesor y alumno), incl. flujo móvil.
 // Extraída de teacher.jsx (Fase 2, subdivisión). Los modales los gestiona el
 // componente padre (TeacherDash) vía callbacks.
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { modelsOf, courseUnitList, unitExList, keyReadyOf, durationOf, questionsCountOf, partsOf } from "../lib/domain.js";
-import { modelMeta } from "../lib/modelMeta.js";
-import { fmt } from "../lib/ids.js";
+import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, StatusCircle, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, RemoveIconButton, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
-import { ExerciseRow } from "./student.jsx";
-import { ExercisePlate } from "./TypePlate.jsx";
+import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, GhostButton, CtaButton } from "./primitives.jsx";
+import { ExerciseItem } from "./ExerciseItem.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -37,6 +35,12 @@ interface CoursesCallbacks {
   onCreateNewExInUnit?: (unitId: string) => void;
   onRemoveExFromUnit?: (unitId: string, exId: string) => void;
   onSelectExercise?: (exId: string) => void;
+  // Acciones de ExerciseItem (M2) — mismo conjunto que en el banco de
+  // ejercicios (ExercisesTab), disponibles también dentro de una unidad.
+  onToggleVisibility?: (ex: Exercise) => void;
+  onPreview?: (ex: Exercise) => void;
+  onDuplicate?: (ex: Exercise) => void;
+  onDeleteExercise?: (ex: Exercise) => void;
   onEditUnit?: (unit: Unit) => void;
   onUpdateUnit?: (unit: Unit) => void;
   onDeleteUnit?: (unitId: string, courseId: string) => void;
@@ -205,50 +209,6 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
   );
 }
 
-// — Fila de ejercicio a ancho completo (profesor, dentro de una unidad) —
-// Placa de tipo + título; al desplegar, metadatos y acciones (editar el
-// ejercicio / quitarlo de la unidad). La clave de corrección queda visible en el
-// desplegable (el profesor no lleva insignia de estado en la cabecera).
-export function TeacherExCard({ ex, isMobile, unitId, onSelectExercise, onRemoveExFromUnit, askConfirm }: { ex: Exercise; isMobile: boolean; unitId: string; onSelectExercise: (exId: string) => void; onRemoveExFromUnit: (unitId: string, exId: string) => void; askConfirm: AskConfirm }) {
-  const [open, setOpen]   = useState(false);
-  const meta     = modelMeta(ex);
-  const hasQuiz  = modelsOf(ex).includes("cuestionario");
-  const exQsN    = questionsCountOf(ex);
-  const keyReady = keyReadyOf(ex);
-  // Multiparte (F4, T4.5): «3 audios · 4:32» en vez de solo la duración total.
-  const partsN     = partsOf(ex).length;
-  const isMultiPart = partsN > 1;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: isMobile ? 10 : 14, overflow: "hidden" }}>
-      <div onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}
-        style={{ display: "flex", alignItems: "center", gap: isMobile ? 9 : 14, ...(isMobile ? {} : { minHeight: 66 }), boxSizing: "border-box", padding: isMobile ? "11px 13px" : "12px 16px", cursor: "pointer", userSelect: "none" }}>
-        <ExercisePlate ex={ex} size={isMobile ? 30 : 36} radius={isMobile ? 9 : 10} />
-        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: isMobile ? 16 : 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", ...(isMobile ? { whiteSpace: "nowrap" as const } : { display: "-webkit-box" as const, WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }) }}>{ex.title}</div>
-        <Chevron open={open} />
-      </div>
-      <div className={`fa-expand${open ? " fa-open" : ""}`}>
-        <div className="fa-expand-inner">
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
-            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
-            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
-            <MetaItem label="Clave de corrección">
-              <StatusCircle done={keyReady} size={13} />
-              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-            </MetaItem>
-            {/* Acciones: editar el ejercicio o quitarlo de esta unidad */}
-            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <EditIconButton onClick={() => onSelectExercise(String(ex.id))} title={`Editar "${ex.title}"`} />
-              <RemoveIconButton onClick={() => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, () => onRemoveExFromUnit(unitId, String(ex.id)))} title={`Quitar "${ex.title}" de la unidad`} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function EmptyExercises({ role }: { role: Role }) {
   return (
     <div style={{ padding: "44px 20px", textAlign: "center", border: `1px dashed ${C.rail}`, borderRadius: 12 }}>
@@ -272,6 +232,10 @@ interface CourseExercisesPanelProps {
   onCreateNewExInUnit?: (unitId: string) => void;
   onRemoveExFromUnit?: (unitId: string, exId: string) => void;
   onSelectExercise?: (exId: string) => void;
+  onToggleVisibility?: (ex: Exercise) => void;
+  onPreview?: (ex: Exercise) => void;
+  onDuplicate?: (ex: Exercise) => void;
+  onDeleteExercise?: (ex: Exercise) => void;
   onEditUnit?: (unit: Unit) => void;
   onUpdateUnit?: (unit: Unit) => void;
   onDeleteUnit?: (unitId: string, courseId: string) => void;
@@ -285,6 +249,7 @@ export function CourseExercisesPanel({
   unit, exercises, role, results, isMobile,
   onExercise, onViewCorrection,
   onPickFromBank = noop, onCreateNewExInUnit = noop, onRemoveExFromUnit = noop, onSelectExercise = noop,
+  onToggleVisibility, onPreview, onDuplicate, onDeleteExercise,
   askConfirm = noop,
 }: CourseExercisesPanelProps) {
   if (!unit) {
@@ -300,7 +265,16 @@ export function CourseExercisesPanel({
         <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>
         {exs.length
           ? <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
-              {exs.map((ex) => <TeacherExCard key={ex.id} ex={ex} isMobile={isMobile} unitId={unit.id} onSelectExercise={onSelectExercise} onRemoveExFromUnit={onRemoveExFromUnit} askConfirm={askConfirm} />)}
+              {exs.map((ex) => (
+                <ExerciseItem key={ex.id} ex={ex} role="teacher" variant="row" compact={isMobile}
+                  onEdit={(e) => onSelectExercise(String(e.id))}
+                  onPreview={onPreview}
+                  onToggleVisibility={onToggleVisibility}
+                  onDuplicate={onDuplicate}
+                  onDelete={onDeleteExercise}
+                  onRemoveFromUnit={() => onRemoveExFromUnit(unit.id, String(ex.id))}
+                  askConfirm={askConfirm} />
+              ))}
             </div>
           : <div style={{ marginBottom: 10 }}><EmptyExercises role={role} /></div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -318,7 +292,10 @@ export function CourseExercisesPanel({
       <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>
       {exs.length
         ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
-            {exs.map((ex) => <ExerciseRow key={String(ex.id)} ex={ex} result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} compact={isMobile} />)}
+            {exs.map((ex) => (
+              <ExerciseItem key={String(ex.id)} ex={ex} role="student" variant="row" compact={isMobile}
+                result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />
+            ))}
           </div>
         : <EmptyExercises role={role} />}
     </div>
@@ -328,25 +305,37 @@ export function CourseExercisesPanel({
 // — Menú "⋯" reutilizable (acciones de curso / unidad) —
 interface KebabItem { label: string; onClick: () => void; danger?: boolean; }
 export function KebabMenu({ items, size = 28, title = "Acciones" }: { items: KebabItem[]; size?: number; title?: string }) {
-  const [open, setOpen] = useState(false);
+  // El desplegable se porta a document.body con posición fija calculada desde
+  // el botón (en vez de "absolute" anclado al propio wrapper): si el kebab
+  // vive dentro de un contenedor con overflow:hidden (p.ej. .fa-expand-inner,
+  // que comparten todos los paneles desplegables para su animación de alto),
+  // un "absolute" quedaría recortado ahí. null = cerrado.
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const open = pos != null;
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 5, right: window.innerWidth - r.right });
+  };
   return (
     <div style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-      <button onClick={() => setOpen((o) => !o)} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}
+      <button ref={btnRef} onClick={() => (open ? setPos(null) : openMenu())} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}
         style={{ width: size, height: size, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, color: "#888", cursor: "pointer" }}>
         <svg width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="4" cy="10" r="1.7" fill="currentColor" /><circle cx="10" cy="10" r="1.7" fill="currentColor" /><circle cx="16" cy="10" r="1.7" fill="currentColor" /></svg>
       </button>
-      {open && (
+      {pos && createPortal(
         <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-          <div role="menu" style={{ position: "absolute", top: "100%", right: 0, marginTop: 5, zIndex: 41, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", padding: 5, minWidth: 178, boxSizing: "border-box" }}>
+          <div onClick={() => setPos(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div role="menu" style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 41, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", padding: 5, minWidth: 178, boxSizing: "border-box" }}>
             {items.map((it, i) => (
-              <button key={i} role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}
+              <button key={i} role="menuitem" onClick={() => { setPos(null); it.onClick(); }}
                 style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: it.danger ? C.danger : C.ink2 }}>
                 {it.label}
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
@@ -418,6 +407,7 @@ export function CourseDetail({
   onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop,
   onCreateUnit = noop, onEditUnit, onDeleteUnit, onUpdateUnit,
   onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit, onSelectExercise,
+  onToggleVisibility, onPreview, onDuplicate, onDeleteExercise,
   onExercise, onViewCorrection, askConfirm = noop,
 }: CourseDetailProps) {
   const course = courses.find((c) => c.id === courseId);
@@ -454,6 +444,7 @@ export function CourseDetail({
             unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile={false}
             onExercise={onExercise} onViewCorrection={onViewCorrection}
             onPickFromBank={onPickFromBank} onCreateNewExInUnit={onCreateNewExInUnit} onRemoveExFromUnit={onRemoveExFromUnit} onSelectExercise={onSelectExercise}
+            onToggleVisibility={onToggleVisibility} onPreview={onPreview} onDuplicate={onDuplicate} onDeleteExercise={onDeleteExercise}
             askConfirm={askConfirm} />
         </div>
       </div>
@@ -648,6 +639,7 @@ export function MobileCoursesFlow(props: CoursesPagesProps) {
     panelProps={{
       onExercise: props.onExercise, onViewCorrection: props.onViewCorrection,
       onPickFromBank: props.onPickFromBank, onCreateNewExInUnit: props.onCreateNewExInUnit, onRemoveExFromUnit: props.onRemoveExFromUnit, onSelectExercise: props.onSelectExercise,
+      onToggleVisibility: props.onToggleVisibility, onPreview: props.onPreview, onDuplicate: props.onDuplicate, onDeleteExercise: props.onDeleteExercise,
       askConfirm: props.askConfirm,
     }} />;
 }

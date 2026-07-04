@@ -8,7 +8,7 @@ import { modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { TabBar, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
-import { ExerciseRow, ExerciseCard } from "./student.jsx";
+import { ExerciseItem } from "./ExerciseItem.jsx";
 import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
 
@@ -131,12 +131,14 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
               : isMobile
                 ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {filteredExercises.map((ex) => (
-                      <ExerciseRow key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} compact />
+                      <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="row" compact
+                        result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                     ))}
                   </div>
                 : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
                     {filteredExercises.map((ex) => (
-                      <ExerciseCard key={String(ex.id ?? "")} ex={ex} result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                      <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="grid"
+                        result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
                     ))}
                   </div>
             }

@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MultiPartSessionView } from "./components/MultiPartSessionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
-import { ExerciseRow } from "./components/student.jsx";
+import { ExerciseItem } from "./components/ExerciseItem.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
 import type { Exercise, ExerciseResult } from "./lib/types.js";
 
@@ -129,10 +129,10 @@ describe("Flujo de estado de una entrega de esquema", () => {
     const exercise = mk({ id: "sch-1", title: "Esquema demo", duration: 40, model: "esquema", categories: [] });
     const submitted: ExerciseResult = { type: "esquema", blocks: [{ id: "b1", level: 1, start: 0, end: 10, label: "A" }], score: null };
 
-    // ExerciseRow renderiza dos insignias (cabecera + sección "Resultado" al
-    // expandir): ambas presentes en el DOM, la segunda solo oculta por CSS.
-    const { rerender } = render(<ExerciseRow ex={exercise} result={submitted} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getAllByText("Pendiente").length).toBeGreaterThan(0);
+    // ExerciseItem (M2) NUNCA repite la insignia en la sección expandida — solo
+    // aparece una vez, en la cabecera colapsada.
+    const { rerender } = render(<ExerciseItem ex={exercise} role="student" variant="row" result={submitted} onOpen={() => {}} onViewCorrection={() => {}} />);
+    expect(screen.getAllByText("Pendiente").length).toBe(1);
 
     // El profesor corrige (CorrectionView, modo profesor) y guarda una puntuación.
     let saved: { studentId?: string; exerciseId: unknown; correction: { totalScore: number | null } } | null = null;
@@ -152,8 +152,8 @@ describe("Flujo de estado de una entrega de esquema", () => {
     // Mismo merge que saveCorrection en App.tsx (no exportado): la corrección
     // se añade y el resultado pasa a "corregido" con la nota normalizada.
     const corrected: ExerciseResult = { ...submitted, teacherCorrection: { ...saved!.correction, corrected: true }, score: 85 };
-    rerender(<ExerciseRow ex={exercise} result={corrected} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getAllByText("85% ✓").length).toBeGreaterThan(0);
+    rerender(<ExerciseItem ex={exercise} role="student" variant="row" result={corrected} onOpen={() => {}} onViewCorrection={() => {}} />);
+    expect(screen.getAllByText("85% ✓").length).toBe(1);
     expect(screen.queryByText("Pendiente")).not.toBeInTheDocument();
   });
 });

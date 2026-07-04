@@ -634,6 +634,25 @@ export function EyeButton({ visible, onClick, title }: { visible: boolean; onCli
   );
 }
 
+// Previsualizar (como alumno) → contorno neutro, glifo de ojo-en-pantalla para
+// no confundirse con EyeButton (esa es el estado visible/oculto).
+export function PreviewIconButton({ onClick, title = "Previsualizar" }: IconButtonProps) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      aria-label={title}
+      className="fa-pressable"
+      style={{ ...ICON_BTN_BASE, border: `1px solid ${C.line}`, background: C.paper, color: C.muted }}
+    >
+      <svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2.5" y="4" width="15" height="12" rx="2" />
+        <path d="M8.5 7.5l4 2.5-4 2.5z" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
+  );
+}
+
 // Editar → acción principal: relleno oscuro sólido (destaca sobre los otros dos).
 export function EditIconButton({ onClick, title = "Editar" }: IconButtonProps) {
   return (

@@ -8,16 +8,15 @@ import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
 import { fmt } from "../lib/ids.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "../lib/palette.js";
-import { modelsOf, audioComposers, audioTags, resultStatusOf, keyReadyOf, durationOf, questionsCountOf, partsOf, composersOf } from "../lib/domain.js";
-import { modelMeta } from "../lib/modelMeta.js";
+import { modelsOf, audioComposers, audioTags, resultStatusOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { ConfirmModal, TabBar, ScoreBadge, Chevron, StatusCircle, CategoryDots, EyeButton, EditIconButton, DeleteIconButton, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, MetaItem } from "./primitives.jsx";
-import { ExercisePlate } from "./TypePlate.jsx";
+import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab } from "./courses.js";
 import { ExerciseDetailView } from "./ExerciseDetailView.js";
+import { ExerciseItem } from "./ExerciseItem.js";
 
 // ── Tipos compartidos de las vistas del profesor ─────────────────────────────
 // El id de ejercicio es opcional en el modelo (semillas/datos), así que lo
@@ -38,158 +37,20 @@ interface User {
 }
 
 // ── Pestaña: Ejercicios ────────────────────────────────────────────────────
-interface TeacherExerciseRowProps {
-  ex: Exercise;
-  onSelect: (id: ExId) => void;
-  onDelete: (ex: Exercise) => void;
-  onToggleVisibility: (ex: Exercise) => void;
-  composerName?: string | null;
-  // Entregas de este ejercicio, sobre `results` (F6, T6.1) — cuántas en total
-  // y cuántas siguen pendientes de corrección manual.
-  submissionsCount?: number;
-  pendingCount?: number;
-}
-export function TeacherExerciseRow({ ex, onSelect, onDelete, onToggleVisibility, composerName, submissionsCount = 0, pendingCount = 0 }: TeacherExerciseRowProps) {
-  const [open, setOpen] = useState(false);
-  const meta    = modelMeta(ex);
-  const hasQuiz = modelsOf(ex).includes("cuestionario");
-  const exQsN   = questionsCountOf(ex);
-  const allBtns = (ex.categories ?? []).flatMap((c) => c.buttons || []);
-  const keyReady = keyReadyOf(ex);
-  const isHidden = !!ex.hidden;
-  // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
-  // difieren entre partes; con una parte, el `composerName` de siempre (viene
-  // resuelto del audio de biblioteca, no cambia).
-  const partsN     = partsOf(ex).length;
-  const isMultiPart = partsN > 1;
-  const composers  = isMultiPart ? composersOf(ex) : (composerName ? [composerName] : []);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.55 : 1, transition: "opacity .2s" }}>
-      <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 66, boxSizing: "border-box", padding: "12px 16px", cursor: "pointer", userSelect: "none" }}>
-        <ExercisePlate ex={ex} size={36} radius={10} />
-        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
-        {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
-        <Chevron open={open} />
-      </div>
-      <div className={`fa-expand${open ? " fa-open" : ""}`}>
-        <div className="fa-expand-inner">
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
-            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
-            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
-            {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {composers.length > 0 && (
-              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
-                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
-              </MetaItem>
-            )}
-            <MetaItem label="Clave de corrección">
-              <StatusCircle done={keyReady} size={13} />
-              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-            </MetaItem>
-            {submissionsCount > 0 && (
-              <MetaItem label="Entregas">
-                {submissionsCount}{pendingCount > 0 && <span style={{ color: C.danger, fontWeight: 600 }}> · Pendientes: {pendingCount}</span>}
-              </MetaItem>
-            )}
-            <MetaItem label="Visible para alumnos">
-              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
-            </MetaItem>
-            {/* Acciones (mostrar/ocultar, editar, eliminar) dentro del desplegable */}
-            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
-              <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
-              <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Versión "tarjeta" de la fila de ejercicio para la vista de ordenador (rejilla).
-// Mismo contenido y comportamiento que TeacherExerciseRow, pero dispuesto como
-// tarjeta. El tipo del ejercicio se comunica con la placa (icono + color).
-export function TeacherExerciseCard({ ex, onSelect, onDelete, onToggleVisibility, composerName, submissionsCount = 0, pendingCount = 0 }: TeacherExerciseRowProps) {
-  const [open, setOpen]   = useState(false);
-  const [hover, setHover] = useState(false);
-  const meta    = modelMeta(ex);
-  const hasQuiz = modelsOf(ex).includes("cuestionario");
-  const exQsN   = questionsCountOf(ex);
-  const allBtns = (ex.categories ?? []).flatMap((c) => c.buttons || []);
-  const keyReady = keyReadyOf(ex);
-  const isHidden = !!ex.hidden;
-  // Multiparte (F4, T4.5): «3 audios · 4:32» y «Compositores: varios» cuando
-  // difieren entre partes; con una parte, el `composerName` de siempre (viene
-  // resuelto del audio de biblioteca, no cambia).
-  const partsN     = partsOf(ex).length;
-  const isMultiPart = partsN > 1;
-  const composers  = isMultiPart ? composersOf(ex) : (composerName ? [composerName] : []);
-
-  // Alto mínimo de la cabecera → rejilla regular (placa + título + estado).
-  const HEAD_H = 76;
-
-  return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", opacity: isHidden ? 0.6 : 1, boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s, opacity .2s" }}>
-      <div onClick={() => setOpen((o) => !o)} {...rowButtonProps(() => setOpen((o) => !o))} aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 12, minHeight: HEAD_H, boxSizing: "border-box", padding: "14px 16px", cursor: "pointer", userSelect: "none" }}>
-        <ExercisePlate ex={ex} size={38} radius={10} />
-        <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: isHidden ? C.muted : C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{ex.title}</div>
-        {isHidden && <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, letterSpacing: "0.08em", flexShrink: 0 }}>OCULTO</span>}
-        <Chevron open={open} />
-      </div>
-      <div className={`fa-expand${open ? " fa-open" : ""}`}>
-        <div className="fa-expand-inner">
-          <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 18px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px 22px", background: C.bg }}>
-            <MetaItem label="Tipo"><span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />{meta.label}</MetaItem>
-            <MetaItem label="Duración">{isMultiPart ? `${partsN} audios · ${fmt(durationOf(ex))}` : fmt(durationOf(ex))}</MetaItem>
-            {hasQuiz && <MetaItem label="Preguntas">{exQsN || "—"}</MetaItem>}
-            {allBtns.length > 0 && <MetaItem label="Categorías"><CategoryDots buttons={allBtns} /></MetaItem>}
-            {composers.length > 0 && (
-              <MetaItem label={composers.length > 1 ? "Compositores" : "Compositor"}>
-                <span style={{ fontStyle: "italic" }}>{composers.length > 1 ? "Varios" : composers[0]}</span>
-              </MetaItem>
-            )}
-            <MetaItem label="Clave de corrección">
-              <StatusCircle done={keyReady} size={13} />
-              <span style={{ color: keyReady ? C.ink : C.muted }}>{keyReady ? "Configurada" : "Pendiente"}</span>
-            </MetaItem>
-            {submissionsCount > 0 && (
-              <MetaItem label="Entregas">
-                {submissionsCount}{pendingCount > 0 && <span style={{ color: C.danger, fontWeight: 600 }}> · Pendientes: {pendingCount}</span>}
-              </MetaItem>
-            )}
-            <MetaItem label="Visible para alumnos">
-              <span style={{ color: isHidden ? C.danger : C.fnT }}>{isHidden ? "No" : "Sí"}</span>
-            </MetaItem>
-            {/* Acciones (mostrar/ocultar, editar, eliminar) dentro del desplegable */}
-            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <EyeButton visible={!isHidden} onClick={() => onToggleVisibility(ex)} />
-              <EditIconButton onClick={() => onSelect(ex.id)} title={`Editar "${ex.title}"`} />
-              <DeleteIconButton onClick={() => onDelete(ex)} title={`Eliminar "${ex.title}"`} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface ExercisesTabProps {
   exercises: Exercise[];
   audioLibrary?: AudioItem[];
   results?: Record<string, Record<string, ExerciseResult>>;
   onNew: () => void;
   onSelect: (id: ExId) => void;
+  onPreview?: (ex: Exercise) => void;
   onToggleVisibility: (ex: Exercise) => void;
+  onDuplicate?: (ex: Exercise) => void;
+  onCorrect?: (ex: Exercise) => void;
   askConfirm: AskConfirm;
   onDelete: (id: ExId) => void;
 }
-export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew, onSelect, onToggleVisibility, askConfirm, onDelete }: ExercisesTabProps) {
+export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew, onSelect, onPreview, onToggleVisibility, onDuplicate, onCorrect, askConfirm, onDelete }: ExercisesTabProps) {
   const isMobile = useIsMobile();
   const [filterModel,     setFilterModel]     = useState("all");
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
@@ -293,22 +154,30 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
           : isMobile
             ? <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {filtered.map((ex) => (
-                  <TeacherExerciseRow key={String(ex.id)} ex={ex} onSelect={onSelect}
-                    composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                  <ExerciseItem key={String(ex.id)} ex={ex} role="teacher" variant="row"
+                    onEdit={(e) => onSelect(e.id as ExId)}
+                    onPreview={onPreview}
+                    onToggleVisibility={onToggleVisibility}
+                    onDuplicate={onDuplicate}
+                    onCorrect={onCorrect}
                     submissionsCount={submissionStats[String(ex.id)]?.total ?? 0}
                     pendingCount={submissionStats[String(ex.id)]?.pending ?? 0}
-                    onToggleVisibility={onToggleVisibility}
-                    onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
+                    onDelete={(e) => onDelete(e.id as ExId)}
+                    askConfirm={askConfirm} />
                 ))}
               </div>
             : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
                 {filtered.map((ex) => (
-                  <TeacherExerciseCard key={String(ex.id)} ex={ex} onSelect={onSelect}
-                    composerName={ex.audioUrl ? (audioByUrl[ex.audioUrl as string]?.composer || null) : null}
+                  <ExerciseItem key={String(ex.id)} ex={ex} role="teacher" variant="grid"
+                    onEdit={(e) => onSelect(e.id as ExId)}
+                    onPreview={onPreview}
+                    onToggleVisibility={onToggleVisibility}
+                    onDuplicate={onDuplicate}
+                    onCorrect={onCorrect}
                     submissionsCount={submissionStats[String(ex.id)]?.total ?? 0}
                     pendingCount={submissionStats[String(ex.id)]?.pending ?? 0}
-                    onToggleVisibility={onToggleVisibility}
-                    onDelete={(e) => askConfirm(`¿Eliminar "${e.title}"?`, () => onDelete(e.id as ExId))} />
+                    onDelete={(e) => onDelete(e.id as ExId)}
+                    askConfirm={askConfirm} />
                 ))}
               </div>}
     </>
@@ -920,6 +789,7 @@ interface TeacherDashProps {
   onPreview: (ex: Exercise, partId?: string) => void;
   onManageQuestions: (ex: Exercise, partId?: string) => void;
   onAdd: (ex: Record<string, unknown>) => void;
+  onDuplicateExercise?: (ex: Exercise) => void;
   onLogout: () => void;
   categories: Category[];
   onAddCategory: (c: Category) => void;
@@ -963,7 +833,7 @@ export function TeacherDash({
   users, onAddUser, onRemoveUser, onUpdateUser,
   exercises, onUpdateExercise, onDeleteExercise,
   results,
-  onRecord, onPreview, onManageQuestions, onAdd, onLogout,
+  onRecord, onPreview, onManageQuestions, onAdd, onDuplicateExercise, onLogout,
   categories, onAddCategory, onUpdateCategory, onDeleteCategory, onToggleGlobalCategory,
   courses, units,
   onAddCourse, onUpdateCourse, onDeleteCourse,
@@ -983,6 +853,20 @@ export function TeacherDash({
     (users || []).filter((u) => u.role === "student" && (isAdmin || u.createdBy === currentUser?.id || u.teacherId === currentUser?.id)),
     [users, currentUser, isAdmin]
   );
+  // Primer alumno pendiente de un ejercicio (M2, "→ Corregir" desde la lista):
+  // mismo criterio que pendingQueue más abajo (fecha de entrega descendente),
+  // pero por ejercicio en vez de por el ejercicio que ya se está corrigiendo.
+  const findFirstPendingStudent = (ex: Exercise): string | undefined => {
+    const pending = students
+      .map((s) => ({ id: s.id, r: (results[s.id] || {})[String(ex.id)] }))
+      .filter((e): e is { id: string; r: ExerciseResult } => Boolean(e.r) && resultStatusOf(e.r, ex) === "pendiente")
+      .sort((a, b) => (b.r.timestamp ?? 0) - (a.r.timestamp ?? 0));
+    return pending[0]?.id;
+  };
+  const onCorrectExercise = (ex: Exercise) => {
+    const sid = findFirstPendingStudent(ex);
+    if (sid && onViewStudentAnswer) onViewStudentAnswer(sid, ex.id);
+  };
   const teachers      = useMemo(() => (users || []).filter((u) => u.role === "teacher"), [users]);
   const teacherGroups = useMemo(() =>
     (groups || []).filter((g) => isAdmin || g.teacherId === currentUser?.id),
@@ -1176,7 +1060,10 @@ export function TeacherDash({
           <ExercisesTab exercises={exercises} audioLibrary={audioLibrary} results={results}
             onNew={() => setSelectedExerciseId("new")}
             onSelect={setSelectedExerciseId}
+            onPreview={onPreview}
             onToggleVisibility={(ex) => onUpdateExercise(ex.id, { hidden: !ex.hidden })}
+            onDuplicate={onDuplicateExercise}
+            onCorrect={onCorrectExercise}
             onDelete={(id) => { onDeleteExercise(id); setSelectedExerciseId(null); }}
             askConfirm={askConfirm} />
         )}
@@ -1197,6 +1084,10 @@ export function TeacherDash({
             onCreateNewExInUnit={(unitId) => { setNewExInUnit(unitId); setSelectedExerciseId("new"); }}
             onRemoveExFromUnit={onRemoveExerciseFromUnit}
             onSelectExercise={setSelectedExerciseId}
+            onToggleVisibility={(ex) => onUpdateExercise(ex.id, { hidden: !ex.hidden })}
+            onPreview={onPreview}
+            onDuplicate={onDuplicateExercise}
+            onDeleteExercise={(ex) => onDeleteExercise(ex.id)}
             askConfirm={askConfirm}
             cursoId={cursoId}
             unidadId={unidadId}

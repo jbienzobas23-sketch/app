@@ -351,6 +351,15 @@ export default function App() {
     if (current) dbUpsertExercise(normalizeExercise({ ...current, ...patch } as Exercise));
   };
 
+  // Copia completa, sin publicar (M2): id nuevo, oculta para alumnos y fuera de
+  // toda unidad — el profesor decide explícitamente dónde y cuándo mostrarla,
+  // en vez de que la copia aparezca ya visible junto al original.
+  const duplicateExercise = (ex: Exercise) => {
+    const copy = normalizeExercise({ ...ex, id: Date.now(), title: `${ex.title} (copia)`, hidden: true });
+    setExercises((prev) => [...prev, copy]);
+    dbUpsertExercise(copy);
+  };
+
   const deleteExercise = (id: Exercise["id"]) => {
     const sid = String(id);
     setExercises((prev) => prev.filter((e) => e.id !== id));
@@ -1041,6 +1050,7 @@ export default function App() {
       onManageQuestions={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/preguntas` : `/profesor/ejercicio/${ex.id}/preguntas`)}
       onPreview={(ex, partId) => navigate(partId ? `/profesor/ejercicio/${ex.id}/parte/${partId}/previsualizar` : `/profesor/ejercicio/${ex.id}/previsualizar`)}
       onAdd={addExercise}
+      onDuplicateExercise={duplicateExercise}
       onLogout={onLogout}
       categories={categories}
       onAddCategory={addCategory}
