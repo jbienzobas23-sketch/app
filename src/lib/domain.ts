@@ -171,6 +171,16 @@ export const durationOf = (exercise?: Exercise | null): number =>
 export const questionsCountOf = (exercise?: Exercise | null): number =>
   partsOf(exercise).reduce((sum, p) => sum + (p.questions?.length ?? 0), 0);
 
+// Ámbito de una pregunta (M6): el campo explícito `scope` manda; si falta (datos
+// antiguos), se infiere de los tiempos — con audioStart Y audioEnd numéricos es
+// de fragmento; sin ellos, de obra. Así, una pregunta legada con tiempos sigue
+// siendo de fragmento y una sin tiempos pasa a tratarse como de obra, que es
+// como ya se reproducía (desde 0, sin acotar).
+export const questionScopeOf = (q?: Question | null): "fragmento" | "obra" => {
+  if (q?.scope === "fragmento" || q?.scope === "obra") return q.scope;
+  return (typeof q?.audioStart === "number" && typeof q?.audioEnd === "number") ? "fragmento" : "obra";
+};
+
 // ¿Esta parte concreta tiene lista la clave de todos los modelos del combo?
 // Extraído para que keyReadyOf (todas las partes) y quien necesite apuntar a
 // la primera parte incompleta (p.ej. el botón "Grabar clave" genérico) usen

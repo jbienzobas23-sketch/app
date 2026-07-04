@@ -34,6 +34,11 @@ export interface Question {
   correctOptionId?: string | null;
   audioStart?: number;
   audioEnd?: number;
+  // Ámbito de la pregunta (M6): "fragmento" ⇒ acota un tramo del audio
+  // (audioStart/audioEnd); "obra" ⇒ atañe a la obra entera y no lleva tiempos.
+  // Opcional por compatibilidad: las preguntas antiguas sin este campo se
+  // infieren con questionScopeOf (con tiempos ⇒ fragmento; sin ellos ⇒ obra).
+  scope?: "fragmento" | "obra";
   // Explicación del profesor (F5, T5.1): en test se muestra siempre tras
   // entregar (alumno y profesor); en desarrollo, solo al profesor — sirve de
   // pauta de corrección, no de respuesta que el alumno pueda ver antes de hora.

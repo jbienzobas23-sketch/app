@@ -3,7 +3,7 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
-  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise,
+  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf,
 } from "./domain.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
@@ -202,6 +202,28 @@ describe("questionsCountOf", () => {
   it("multiparte: suma las preguntas de todas las partes", () => {
     const ex = { parts: [{ id: "a", questions: [{ id: "q1" }] }, { id: "b", questions: [{ id: "q2" }, { id: "q3" }] }] };
     expect(questionsCountOf(ex)).toBe(3);
+  });
+});
+
+// M6: el ámbito explícito manda; sin él, se infiere de los tiempos, de modo que
+// las preguntas antiguas conservan su comportamiento (con tiempos ⇒ fragmento).
+describe("questionScopeOf", () => {
+  it("respeta el campo `scope` explícito por encima de los tiempos", () => {
+    expect(questionScopeOf({ id: "q", scope: "obra", audioStart: 3, audioEnd: 9 })).toBe("obra");
+    expect(questionScopeOf({ id: "q", scope: "fragmento" })).toBe("fragmento");
+  });
+  it("sin `scope`, con audioStart Y audioEnd numéricos ⇒ fragmento (fixtures legadas)", () => {
+    expect(questionScopeOf({ id: "q", audioStart: 4, audioEnd: 12 })).toBe("fragmento");
+    expect(questionScopeOf({ id: "q", audioStart: 0, audioEnd: 8 })).toBe("fragmento");
+  });
+  it("sin `scope` y sin tiempos completos ⇒ obra", () => {
+    expect(questionScopeOf({ id: "q" })).toBe("obra");
+    expect(questionScopeOf({ id: "q", audioStart: 4 })).toBe("obra");
+    expect(questionScopeOf({ id: "q", audioEnd: 12 })).toBe("obra");
+  });
+  it("tolera nulo/indefinido ⇒ obra (sin tiempos)", () => {
+    expect(questionScopeOf(null)).toBe("obra");
+    expect(questionScopeOf(undefined)).toBe("obra");
   });
 });
 

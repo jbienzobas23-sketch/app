@@ -123,6 +123,20 @@ describe("calcQuestionnaireScore", () => {
     const qs = [q("a", "A"), { id: "b", type: "desarrollo", points: 5 }];
     expect(calcQuestionnaireScore(qs, { a: "A", b: "cualquier cosa" })).toBe(100);
   });
+
+  // M6: el ámbito (fragmento/obra) NO afecta a la nota — solo cambia dónde se
+  // escucha el audio. Una pregunta de obra puntúa exactamente igual que la misma
+  // de fragmento; scoring.ts no lee `scope` ni audioStart/audioEnd.
+  it("el ámbito (scope obra/fragmento) no altera la puntuación", () => {
+    const frag = { id: "a", type: "test", correctOptionId: "A", scope: "fragmento", audioStart: 3, audioEnd: 9 };
+    const obra = { id: "a", type: "test", correctOptionId: "A", scope: "obra" };
+    expect(calcQuestionnaireScore([obra], { a: "A" })).toBe(calcQuestionnaireScore([frag], { a: "A" }));
+    expect(calcQuestionnaireScore([obra], { a: "X" })).toBe(calcQuestionnaireScore([frag], { a: "X" }));
+    // combinadas: da igual el ámbito de cada una, solo cuentan tipo y acierto
+    const mixed  = [q("a", "A"), { id: "b", type: "test", correctOptionId: "B", scope: "obra" }];
+    const allFrag = [q("a", "A"), { id: "b", type: "test", correctOptionId: "B", audioStart: 0, audioEnd: 4 }];
+    expect(calcQuestionnaireScore(mixed, { a: "A", b: "X" })).toBe(calcQuestionnaireScore(allFrag, { a: "A", b: "X" }));
+  });
 });
 
 describe("gradeShort", () => {
