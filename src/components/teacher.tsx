@@ -3,6 +3,7 @@
 // audios, ajustes, usuarios), vista de cursos, ExerciseDetailView y
 // QuestionManagerView. Extraídas de App.jsx (Fase 2). TODO: subdividir en teacher/ y courses/.
 import { useState, useRef, useMemo } from "react";
+import type { ReactNode } from "react";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "../lib/types.js";
 import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
@@ -11,7 +12,7 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPalet
 import { modelsOf, audioComposers, audioTags, resultStatusOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton } from "./primitives.jsx";
+import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab, KebabMenu } from "./courses.js";
@@ -658,6 +659,17 @@ export function SettingsTab({ currentUser, onUpdateUser }: SettingsTabProps) {
   return <PalettePreferenceCard current={current} onSelect={setPalette} />;
 }
 
+// Sección con título de la página de Ajustes (Categorías / Preferencias /
+// Usuarios) — un solo encabejado serif por bloque, separación generosa.
+function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section style={{ marginBottom: 34 }}>
+      <h2 style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", margin: "0 0 14px" }}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 // Tarjeta reutilizable de selección de paleta por defecto (profesor y alumno).
 export function PalettePreferenceCard({ current, onSelect }: { current?: string; onSelect: (id: string) => void }) {
   return (
@@ -998,49 +1010,45 @@ export function TeacherDash({
     );
   }
 
+  // Pestañas principales, centradas en el encabezado (Jon, 2026-07-04):
+  // Ejercicios · Cursos · Alumnos · Audios. Categorías y Usuarios se anidan
+  // dentro de Ajustes, que se abre con el engranaje a la izquierda de «Salir».
   const primaryTabs = [
     { id: "exercises", label: "Ejercicios" },
     { id: "courses",   label: "Cursos" },
     // Punto rojo mientras quede algo por corregir (no se puede cerrar).
     { id: "students",  label: "Alumnos", dot: pendingQueue.length > 0 },
-  ];
-  const secondaryTabs = [
-    { id: "categories", label: "Categorías" },
-    { id: "audios",     label: "Audios" },
-    { id: "settings",   label: "Ajustes" },
-    ...(isAdmin ? [{ id: "users", label: "Usuarios" }] : []),
+    { id: "audios",    label: "Audios" },
   ];
 
   return (
     <div style={S.app}>
       <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
-        {/* Cabecera editorial */}
-        <div style={{ marginBottom: isMobile ? 18 : 24, paddingBottom: isMobile ? 14 : 20, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+        {/* Cabecera editorial: identidad a la izquierda, engranaje (Ajustes) +
+            Salir a la derecha. Las pestañas van centradas debajo. */}
+        <div style={{ marginBottom: isMobile ? 12 : 14, paddingBottom: isMobile ? 12 : 16, borderBottom: `2px solid ${C.ink}`, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <Overline>{isAdmin ? "Administrador" : "Profesor"}</Overline>
             <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</h1>
           </div>
-          <div style={{ flexShrink: 0 }}><GhostButton onClick={onLogout}>Salir</GhostButton></div>
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => setTab("settings")} title="Ajustes" aria-label="Ajustes"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 9, border: `1px solid ${tab === "settings" ? C.ink : C.line}`, background: tab === "settings" ? C.paper2 : "transparent", color: tab === "settings" ? C.ink : "#666", cursor: "pointer" }}>
+              <GearIcon size={18} />
+            </button>
+            <GhostButton onClick={onLogout}>Salir</GhostButton>
+          </div>
         </div>
 
-        {isMobile ? (
-          // Móvil: una sola tira de pestañas con scroll horizontal (sin separador
-          // que colapse ni pestañas recortadas). El borde inferior se mantiene.
-          <div className="fa-noscroll" style={{
-            display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`,
-            marginBottom: 22, gap: 0, overflowX: "auto", flexWrap: "nowrap",
-            WebkitOverflowScrolling: "touch", scrollbarWidth: "none",
-          }}>
-            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
-            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "flex-end", borderBottom: `1px solid ${C.line}`, marginBottom: 26, gap: 0 }}>
-            <TabBar tabs={primaryTabs}   value={tab} onChange={setTab} variant="primary" />
-            <div style={{ flex: 1 }} />
-            <TabBar tabs={secondaryTabs} value={tab} onChange={setTab} variant="secondary" />
-          </div>
-        )}
+        {/* Pestañas principales centradas (Jon, 2026-07-04). En móvil, tira con
+            scroll horizontal alineada a la izquierda para no recortar. */}
+        <div className="fa-noscroll" style={{
+          display: "flex", alignItems: "flex-end", justifyContent: isMobile ? "flex-start" : "center",
+          borderBottom: `1px solid ${C.line}`, marginBottom: isMobile ? 22 : 26, gap: 0,
+          overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none",
+        }}>
+          <TabBar tabs={primaryTabs} value={tab} onChange={setTab} variant="primary" />
+        </div>
 
         {/* Bandeja única de correcciones (Jon, 2026-07-04): el único lugar donde
             se anuncia lo pendiente — las tarjetas y las filas quedan limpias.
@@ -1116,16 +1124,6 @@ export function TeacherDash({
           />
         )}
 
-        {tab === "categories" && (
-          <CategoriesTab categories={categories}
-            isAdmin={isAdmin}
-            onAdd={() => setEditingCategory("new")}
-            onEdit={(m) => setEditingCategory(m)}
-            onDelete={onDeleteCategory}
-            onToggleGlobal={onToggleGlobalCategory}
-            askConfirm={askConfirm} />
-        )}
-
         {tab === "audios" && (
           <AudiosTab audioLibrary={audioLibrary} isAdmin={isAdmin}
             onAdd={() => setEditingAudio("new")}
@@ -1134,14 +1132,32 @@ export function TeacherDash({
             askConfirm={askConfirm} />
         )}
 
-        {tab === "settings" && <SettingsTab currentUser={currentUser} onUpdateUser={onUpdateUser} />}
-
-        {tab === "users" && isAdmin && (
-          <UsersTab currentUser={currentUser} teachers={teachers}
-            onAddTeacher={() => { setAddingUserRole("teacher"); setShowAddUser(true); }}
-            onResetCred={(t) => { setResetCredTarget(t); setShowResetCred(true); }}
-            onRemove={onRemoveUser}
-            askConfirm={askConfirm} />
+        {/* Ajustes (Jon, 2026-07-04): página con secciones — Categorías,
+            preferencias (paleta) y, para el admin, Usuarios. */}
+        {tab === "settings" && (
+          <>
+            <SettingsSection title="Categorías">
+              <CategoriesTab categories={categories}
+                isAdmin={isAdmin}
+                onAdd={() => setEditingCategory("new")}
+                onEdit={(m) => setEditingCategory(m)}
+                onDelete={onDeleteCategory}
+                onToggleGlobal={onToggleGlobalCategory}
+                askConfirm={askConfirm} />
+            </SettingsSection>
+            <SettingsSection title="Preferencias">
+              <SettingsTab currentUser={currentUser} onUpdateUser={onUpdateUser} />
+            </SettingsSection>
+            {isAdmin && (
+              <SettingsSection title="Usuarios">
+                <UsersTab currentUser={currentUser} teachers={teachers}
+                  onAddTeacher={() => { setAddingUserRole("teacher"); setShowAddUser(true); }}
+                  onResetCred={(t) => { setResetCredTarget(t); setShowResetCred(true); }}
+                  onRemove={onRemoveUser}
+                  askConfirm={askConfirm} />
+              </SettingsSection>
+            )}
+          </>
         )}
 
         {/* Modales */}

@@ -595,6 +595,16 @@ export function PencilIcon({ size = 15 }: { size?: number }) {
   );
 }
 
+// Icono de engranaje (Ajustes) — trazo fino coherente con el resto de iconos.
+export function GearIcon({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" />
+    </svg>
+  );
+}
+
 // Icono de papelera (eliminar) — trazo fino coherente con el resto de iconos
 export function TrashIcon({ size = 15 }: { size?: number }) {
   return (
