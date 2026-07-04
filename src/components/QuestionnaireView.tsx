@@ -32,10 +32,12 @@ interface QuestionnaireViewProps {
   loopRegionRef?: { current: Question | null } | null;
   initialDraft?: CuestionarioDraft | null;
   onDraftChange?: (draft: CuestionarioDraft) => void;
+  // M4.1: false cuando la vista está montada pero oculta (combo keep-mounted).
+  active?: boolean;
 }
 
 // Vista del alumno para ejercicios tipo "cuestionario"
-export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null, initialDraft = null, onDraftChange }: QuestionnaireViewProps) {
+export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, loopRegionRef: externalLoopRef = null, initialDraft = null, onDraftChange, active = true }: QuestionnaireViewProps) {
   const dur       = exercise.duration as number;
   const questions = (exercise.questions ?? []) as QuizQuestion[];
 
@@ -49,7 +51,9 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
   // reproductor compartido vea los cambios de fragmento bloqueado
   const ownLoopRegionRef = useRef<Question | null>(null);
   const loopRegionRef    = externalLoopRef || ownLoopRegionRef;
-  loopRegionRef.current  = lockedQuestion;   // sincronizado cada render
+  // M4.1: una vista oculta (combo keep-mounted) NO pisa el loopRegion del
+  // reproductor compartido — solo la activa fija su fragmento bloqueado.
+  if (active) loopRegionRef.current = lockedQuestion;   // sincronizado cada render
 
   const localOnWaveform = (!sharedAudioPlayer && !exercise.waveformData) ? (wd: number[]) => setLocalWaveformData(wd) : null;
   const localPlayer = useAudioPlayer(
@@ -74,6 +78,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
   const togglePlayRef = useRef(togglePlay);
   useEffect(() => { togglePlayRef.current = togglePlay; });
   useEffect(() => {
+    if (!active) return;   // M4.1: vista oculta → sin escucha de Espacio
     const down = (e: KeyboardEvent) => {
       if (e.key === " " && !["INPUT", "TEXTAREA", "BUTTON"].includes((e.target as HTMLElement).tagName)) {
         e.preventDefault();
@@ -82,7 +87,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, []);
+  }, [active]);
 
   // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
   useEffect(() => { onDraftChange?.(answers); }, [answers]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,7 +137,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
             <WaveformDisplay time={time} timeRef={timeRef} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
               exerciseId={exercise.id} waveformData={waveformData}
-              colorByFn={{}} questionRegion={questionRegion}
+              colorByFn={{}} questionRegion={questionRegion} active={active}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 

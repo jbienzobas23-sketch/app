@@ -48,9 +48,12 @@ interface ExerciseViewProps {
   sharedAudioPlayer?: SharedAudioPlayer | null;
   initialDraft?: InteractivoDraft | null;
   onDraftChange?: (draft: InteractivoDraft) => void;
+  // M4.1: false cuando la vista está montada pero oculta (combo keep-mounted).
+  // Con active=false ignora el teclado (Espacio/grados) y no dibuja la onda.
+  active?: boolean;
 }
 
-export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange }: ExerciseViewProps) {
+export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange, active = true }: ExerciseViewProps) {
   const dur          = exercise.duration as number;
   const exCategories = useMemo(() => exercise.categories ?? [], [exercise.categories]);
   const initialCategoryId = useMemo(() => {
@@ -165,6 +168,9 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   const togglePlayRef = useRef(togglePlay);
   useEffect(() => { togglePlayRef.current = togglePlay; });
   useEffect(() => {
+    // M4.1: vista oculta (combo keep-mounted) → sin escucha de teclado, para no
+    // capturar Espacio/grados del modelo visible.
+    if (!active) return;
     const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const btn = exCategory.buttons.find((b) => b.key === e.key.toLowerCase());
@@ -207,7 +213,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     window.addEventListener("keyup",   up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exCategory]);
+  }, [exCategory, active]);
 
   // Entrar/salir del modo colorear (desde el botón del banner inferior).
   // Al entrar: pincel = grado actualmente activo (o el primero); si reproduce, pausa.
@@ -382,7 +388,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
               selectedIvId={selected} pressingRef={pressingRef}
               hintIntervals={hintIntervals}
               paintFn={paintFn} onPaintCommit={handlePaintCommit}
-              onBandPointerDown={handleBandPointerDown}
+              onBandPointerDown={handleBandPointerDown} active={active}
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 

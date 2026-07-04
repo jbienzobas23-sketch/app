@@ -40,8 +40,7 @@ import { CorrectionView } from "./components/CorrectionView.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
 import { StudentDash } from "./components/StudentDash.jsx";
 import type { StudentUser } from "./components/StudentDash.js";
-import { MultiModelSessionView } from "./components/MultiModelSessionView.jsx";
-import { MultiPartSessionView } from "./components/MultiPartSessionView.jsx";
+import { SessionShell } from "./components/SessionShell.jsx";
 
 // Carga diferida (code-splitting) de lo pesado que no hace falta en el arranque:
 // el subsistema de profesor (los alumnos no lo cargan) y la vista de esquema
@@ -895,7 +894,7 @@ export default function App() {
     // Con una sola parte, ni se monta: sigue el camino de siempre, sin cambios.
     if (exCtx.mode === "student" && partsOf(exCtx.exercise).length > 1) {
       const onBackMulti = () => navigate(getLastPanelPath("/alumno"));
-      return <MultiPartSessionView exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBackMulti} />;
+      return <SessionShell exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBackMulti} />;
     }
     // Autoría por parte (F4, T4.2): grabar/previsualizar apuntan a la parte
     // de la URL (o la primera si no hay).
@@ -907,9 +906,10 @@ export default function App() {
     // Paleta efectiva = la del ejercicio, o la preferida por el usuario, o P1.
     const sessionPalette = effectivePaletteId(baseExercise, user?.defaultPalette);
     const sessionExercise = applyPaletteToExercise(baseExercise, sessionPalette) || baseExercise;
-    // Ejercicio con dos modelos: wrapper de alternancia (alumno y preview del profesor)
+    // Ejercicio con dos modelos: shell de alternancia keep-mounted (alumno y
+    // preview del profesor). Con una sola parte, el shell no muestra chips.
     if (exModels.length > 1 && (exCtx.mode === "student" || exCtx.mode === "preview")) {
-      return <MultiModelSessionView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
+      return <SessionShell exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
     }
     // Ejercicio de un solo modelo (o modo record/preview con el modelo primario)
     const m = exModels[0];

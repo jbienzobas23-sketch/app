@@ -355,6 +355,11 @@ interface WaveformDisplayProps {
   onScrubBegin: () => void;
   onScrubTo: (t: number) => void;
   onScrubEnd: () => void;
+  // M4.1: false cuando la vista está montada pero oculta (combo keep-mounted).
+  // Con active=false no se arranca el bucle de dibujo (rAF) — ni se anima un
+  // lienzo con display:none (rect 0×0). Al volver a active, el efecto se
+  // reejecuta y hace el primer dibujo síncrono (mismo patrón que M0.8).
+  active?: boolean;
 }
 
 function waveformPropsEqual(a: WaveformDisplayProps, b: WaveformDisplayProps) {
@@ -368,6 +373,7 @@ function waveformPropsEqual(a: WaveformDisplayProps, b: WaveformDisplayProps) {
     && a.selectedIvId === b.selectedIvId
     && a.hintIntervals === b.hintIntervals
     && a.paintFn === b.paintFn
+    && a.active === b.active
     && a.questionRegion === b.questionRegion;
   // pressing ya no se comprueba: el canvas lo lee de pressingRef (síncrono),
   // así WaveformDisplay no se re-renderiza al pisar/soltar un botón.
@@ -382,7 +388,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
   pressingRef: pressingRefProp = null,
   hintIntervals = [],
   paintFn = null, onPaintCommit = null,
-  onScrubBegin, onScrubTo, onScrubEnd,
+  onScrubBegin, onScrubTo, onScrubEnd, active = true,
 }: WaveformDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintPreviewRef = useRef<{ fn: string; start: number; end: number } | null>(null);   // mientras se pinta
@@ -404,6 +410,9 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // M4.1: vista oculta (combo keep-mounted) → sin bucle de dibujo. Al volver
+    // a active el efecto se reejecuta (active está en las deps) y redibuja.
+    if (!active) return;
 
     const NUM_BARS = 120;
     const secPerBar = VISIBLE_SECS / NUM_BARS;
@@ -671,7 +680,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     draw();  // primer frame síncrono: evita el destello blanco al montar
 
     return () => { cancelAnimationFrame(rafId); if (ro) ro.disconnect(); window.removeEventListener("resize", resize); };
-  }, []);
+  }, [active]);
 
   const handlePointerDown = (e: any) => {
     const canvas = canvasRef.current;

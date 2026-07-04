@@ -5,7 +5,7 @@
 // límites) y sin snapshots de estilos.
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MultiPartSessionView } from "./components/MultiPartSessionView.jsx";
+import { SessionShell } from "./components/SessionShell.jsx";
 import { QuestionnaireView } from "./components/QuestionnaireView.jsx";
 import { ExerciseItem } from "./components/ExerciseItem.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
@@ -25,7 +25,7 @@ describe("Borradores multiparte (F4, T4.3)", () => {
           questions: [{ id: "q2", type: "test", text: "¿Pregunta 2?", options: [{ id: "A", text: "Sí" }, { id: "B", text: "No" }], correctOptionId: "B" }] },
       ],
     });
-    render(<MultiPartSessionView exercise={exercise} mode="student" onSubmit={() => {}} onBack={() => {}} />);
+    render(<SessionShell exercise={exercise} mode="student" onSubmit={() => {}} onBack={() => {}} />);
 
     // Responder la parte 1 (expandir la pregunta, elegir una opción).
     fireEvent.click(screen.getByText("¿Pregunta 1?"));
@@ -48,7 +48,7 @@ describe("Borradores multiparte (F4, T4.3)", () => {
       models: ["cuestionario", "interactivo"], categories: [], answers: {},
       questions: [{ id: "q1", type: "test", text: "¿Qué función es?", options: [{ id: "A", text: "Tónica" }, { id: "B", text: "Dominante" }], correctOptionId: "A" }],
     });
-    render(<MultiPartSessionView exercise={exercise} mode="student" onSubmit={() => {}} onBack={() => {}} />);
+    render(<SessionShell exercise={exercise} mode="student" onSubmit={() => {}} onBack={() => {}} />);
 
     fireEvent.click(screen.getByText("¿Qué función es?"));
     fireEvent.click(screen.getByRole("button", { name: /Tónica/ }));
@@ -108,7 +108,7 @@ describe('El payload de sesión es el "sobre correcto" que espera submitAnswer',
       ],
     });
     let submitted: { type: string; parts: Record<string, { points: number; byModel: Record<string, unknown> }> } | null = null;
-    render(<MultiPartSessionView exercise={exercise} mode="student" onSubmit={(r) => { submitted = r as typeof submitted; }} onBack={() => {}} />);
+    render(<SessionShell exercise={exercise} mode="student" onSubmit={(r) => { submitted = r as typeof submitted; }} onBack={() => {}} />);
 
     fireEvent.click(screen.getByText("¿P1?"));
     fireEvent.click(screen.getByRole("button", { name: /Sí/ }));

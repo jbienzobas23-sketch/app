@@ -50,9 +50,11 @@ interface SchemaExerciseViewProps {
   sharedAudioPlayer?: SharedAudioPlayer | null;
   initialDraft?: EsquemaDraft | null;
   onDraftChange?: (draft: EsquemaDraft) => void;
+  // M4.1: false cuando la vista está montada pero oculta (combo keep-mounted).
+  active?: boolean;
 }
 
-export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange }: SchemaExerciseViewProps) {
+export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode = null, sharedAudioPlayer = null, initialDraft = null, onDraftChange, active = true }: SchemaExerciseViewProps) {
   const duration = exercise.duration as number;
   const [localWaveformData, setLocalWaveformData] = useState<number[] | null>(exercise.waveformData || null);
   const waveformData = sharedAudioPlayer?.waveformData ?? localWaveformData;
@@ -279,6 +281,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   // Delete / Backspace — borrar bloque o repetición seleccionada
   useEffect(() => {
+    if (!active) return;   // M4.1: vista oculta → sin escucha de teclado
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -298,7 +301,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     return () => window.removeEventListener("keydown", onKey);
     // deleteRepeat lee localRepsRef.current (siempre actualizado); no necesita estar en deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, selectedRepId]);
+  }, [selected, selectedRepId, active]);
 
   // ── Resize de barras de repetición arrastrando en la regla ─────────────
   const RESIZE_PX = 22; // zona de detección de borde (px desde cada extremo de la fila)
