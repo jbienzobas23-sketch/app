@@ -6,6 +6,7 @@ import { C, S, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { startPointerDrag } from "../lib/pointer.js";
+import { questionScopeOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal, CircleButton } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
@@ -67,14 +68,21 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
       return next;
     });
   };
-  const sortByTime = () => setQuestions((prev) => [...prev].sort((a, b) => a.audioStart - b.audioStart));
+  // Ordena por inicio de fragmento; las de obra (sin tiempos) van al final (M6).
+  const sortByTime = () => setQuestions((prev) => {
+    const frag = prev.filter((q) => questionScopeOf(q) === "fragmento").sort((a, b) => a.audioStart - b.audioStart);
+    const obra = prev.filter((q) => questionScopeOf(q) === "obra");
+    return [...frag, ...obra];
+  });
   const duplicateQuestion = (q: QuizQuestion) => {
     const shift = 0.5;
+    const isObra = questionScopeOf(q) === "obra";
     const dup: QuizQuestion = {
       ...q,
       id: uid("q"),
-      audioStart: Math.min(dur, q.audioStart + shift),
-      audioEnd:   Math.min(dur, q.audioEnd + shift),
+      // La copia de una pregunta de obra conserva su ámbito (sin tiempos).
+      audioStart: isObra ? q.audioStart : Math.min(dur, q.audioStart + shift),
+      audioEnd:   isObra ? q.audioEnd   : Math.min(dur, q.audioEnd + shift),
     };
     setQuestions((prev) => {
       const idx = prev.findIndex((x) => x.id === q.id);
@@ -145,7 +153,8 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
           <div style={{ background: C.paper2, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 6 }}>
             {(() => {
               const selQ    = questions.find((q) => q.id === selectedQId);
-              const qRegion = selQ ? { start: selQ.audioStart, end: selQ.audioEnd, color: C.quiz } : null;
+              // Solo las de fragmento pintan región en la onda; las de obra, no.
+              const qRegion = selQ && questionScopeOf(selQ) === "fragmento" ? { start: selQ.audioStart, end: selQ.audioEnd, color: C.quiz } : null;
               return (
                 <WaveformDisplay time={time} duration={dur} waveformDuration={audioDuration} allIntervals={[]}
                   exerciseId={exercise.id} waveformData={exercise.waveformData || null}
@@ -155,25 +164,44 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             })()}
           </div>
 
-          {/* Minimapa de preguntas (editable — arrastrar mueve, bordes ajustan) */}
-          <QuestionMinimap editable minimapRef={minimapRef} questions={questions} duration={dur} time={time}
-            onBackgroundDown={() => setSelectedQId(null)}
-            blockState={(q) => ({ fill: C.quiz, active: selectedQId === q.id })}
-            label={(i) => `P${i + 1}`}
-            onDragBody={(e, q) => beginDragQBody(e, q.id)}
-            onDragEdge={(e, q, which) => beginDragQEdge(e, q.id, which)} />
+          {/* Minimapa de preguntas (editable — arrastrar mueve, bordes ajustan).
+              Las de fragmento van en la línea; las de obra, en la bandeja «Obra»
+              bajo ella (M6). La numeración P{n} es la global (orden de la lista). */}
+          {(() => {
+            const fragmentQs = questions.filter((q) => questionScopeOf(q) === "fragmento");
+            const obraQs      = questions.filter((q) => questionScopeOf(q) === "obra");
+            const pOf = (id: string) => questions.findIndex((q) => q.id === id) + 1;
+            return (
+              <QuestionMinimap editable minimapRef={minimapRef} questions={fragmentQs} duration={dur} time={time}
+                onBackgroundDown={() => setSelectedQId(null)}
+                blockState={(q) => ({ fill: C.quiz, active: selectedQId === q.id })}
+                label={(i) => `P${pOf(fragmentQs[i].id)}`}
+                onDragBody={(e, q) => beginDragQBody(e, q.id)}
+                onDragEdge={(e, q, which) => beginDragQEdge(e, q.id, which)}
+                obraQuestions={obraQs}
+                onSelectObra={(q) => setSelectedQId(q.id)}
+                obraActiveId={selectedQId} />
+            );
+          })()}
 
           {selectedQId && (() => {
             const selQ   = questions.find((q) => q.id === selectedQId);
             const selIdx = questions.findIndex((q) => q.id === selectedQId);
             if (!selQ) return null;
+            const selObra = questionScopeOf(selQ) === "obra";
             return (
               <div onMouseDown={(e) => e.stopPropagation()}
                 style={{ ...S.row, gap: 8, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", marginBottom: 6, fontSize: 11 }}>
                 <span style={{ fontFamily: FONT_SANS, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
-                <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmtClock(selQ.audioStart)} → {fmtClock(selQ.audioEnd)}</span>
-                <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmtClock(selQ.audioEnd - selQ.audioStart)}</span>
-                <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
+                {selObra ? (
+                  <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, flex: "1 1 160px" }}>Obra completa</span>
+                ) : (
+                  <>
+                    <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmtClock(selQ.audioStart)} → {fmtClock(selQ.audioEnd)}</span>
+                    <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmtClock(selQ.audioEnd - selQ.audioStart)}</span>
+                    <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
+                  </>
+                )}
                 <button onClick={() => { setEditingQ(selQ); setSelectedQId(null); }} style={{ ...S.btn, padding: "3px 10px", fontSize: 11 }}>Editar contenido</button>
               </div>
             );
@@ -225,7 +253,11 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                 <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
                   <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart)} – {fmtClock(q.audioEnd)}</span>
+                  {questionScopeOf(q) === "obra" ? (
+                    <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>Obra completa</span>
+                  ) : (
+                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart)} – {fmtClock(q.audioEnd)}</span>
+                  )}
                   {q.type === "test" && (q.points ?? 1) !== 1 && (
                     <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
                   )}
@@ -260,7 +292,11 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
                     style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === questions.length - 1 ? 0.4 : 1, cursor: idx === questions.length - 1 ? "default" : "pointer" }}
                     title="Bajar">↓</button>
                 </div>
-                <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmtClock(q.audioStart)}`}>▶ {fmtClock(q.audioStart)}</button>
+                {questionScopeOf(q) === "obra" ? (
+                  <button onClick={() => seekTo(0)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title="Escuchar desde el principio">▶ Obra</button>
+                ) : (
+                  <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmtClock(q.audioStart)}`}>▶ {fmtClock(q.audioStart)}</button>
+                )}
                 <button onClick={() => setEditingQ(q)} style={S.btn}>Editar</button>
                 <button onClick={() => duplicateQuestion(q)} style={{ ...S.btn, fontSize: 12 }} title="Duplicar esta pregunta">⧉ Duplicar</button>
                 <button onClick={() => setConfirmDel({ id: q.id, text: q.text ?? "" })} style={S.btnDanger}>Eliminar</button>
