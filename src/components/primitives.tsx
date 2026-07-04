@@ -142,7 +142,7 @@ export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarPro
         whiteSpace:   "nowrap",
       }}>
         {dot && (
-          <span aria-hidden="true" style={{ position: "absolute", top: 7, left: 7, width: 6, height: 6, borderRadius: "50%", background: C.danger }} />
+          <span aria-hidden="true" style={{ position: "absolute", top: 7, right: 7, width: 6, height: 6, borderRadius: "50%", background: C.danger }} />
         )}
         {label}
       </button>
