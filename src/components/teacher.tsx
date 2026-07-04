@@ -524,8 +524,9 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
   const toggleTag      = (val: string) => setFilterTags((p) => p.includes(val) ? p.filter((x) => x !== val) : [...p, val]);
 
   // Organizado por compositor, en apartados (Jon, 2026-07-04): un grupo por
-  // compositor (orden alfabético, como el desplegable), «Sin compositor» al
-  // final. Respeta el filtrado vigente — un grupo desaparece si queda vacío.
+  // compositor, ordenados por APELLIDO (última palabra del nombre — "Ludwig
+  // van Beethoven" ordena por "Beethoven", no por "Ludwig"), «Sin compositor»
+  // al final. Respeta el filtrado vigente — un grupo desaparece si queda vacío.
   const groupedByComposer = useMemo(() => {
     const byComposer = new Map<string, AudioItem[]>();
     filtered.forEach((a) => {
@@ -533,7 +534,9 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
       if (!byComposer.has(key)) byComposer.set(key, []);
       byComposer.get(key)!.push(a);
     });
-    const withComposer = [...byComposer.keys()].filter((k) => k !== "Sin compositor").sort();
+    const surname = (fullName: string) => fullName.trim().split(/\s+/).pop() || fullName;
+    const withComposer = [...byComposer.keys()].filter((k) => k !== "Sin compositor")
+      .sort((a, b) => surname(a).localeCompare(surname(b), "es", { sensitivity: "base" }));
     const groups = withComposer.map((composer) => ({ composer, items: byComposer.get(composer)! }));
     if (byComposer.has("Sin compositor")) groups.push({ composer: "Sin compositor", items: byComposer.get("Sin compositor")! });
     return groups;
@@ -602,11 +605,12 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
             <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{items.length} {items.length === 1 ? "audio" : "audios"}</span>
           </div>
           {!isMobile ? (
-            // auto-fit (no auto-fill): con menos audios que columnas posibles,
-            // las tarjetas existentes se estiran a todo el ancho en vez de
-            // dejar hueco vacío a la derecha (Jon: "que dos audios ocupen todo
-            // el ancho").
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+            // auto-fill con un mínimo de 340px: a este ancho de página (~932px
+            // de contenido) caben exactamente DOS columnas — así un grupo de 2
+            // audios llena la fila entera de forma natural (sin hueco), y un
+            // grupo de 1 audio ocupa una sola columna del MISMO ancho que las
+            // demás tarjetas, sin estirarse a todo el ancho (Jon, 2026-07-04).
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14, alignItems: "start" }}>
               {items.map((audio) => (
                 <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
                   isOpen={openId === audio.id} isPrev={previewId === audio.id}
