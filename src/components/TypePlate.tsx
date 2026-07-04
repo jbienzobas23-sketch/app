@@ -88,41 +88,49 @@ const modelLabel = (models: string[]): string => {
   return `${labels.slice(0, -1).join(", ")} y ${labels[labels.length - 1]}`;
 };
 
-// Placa combinada (M2.5): dos o tres modelos en el mismo cuadrado, cada uno
-// con su tinte y su glifo — sectores en vez de dividir el espacio en placas
-// más pequeñas (que dejarían de ser legibles). SVG 48×48 con clip redondeado;
-// el tamaño real (`size`) solo escala el lienzo, la geometría es siempre
-// relativa a ese viewBox. Orden de sectores = orden de `models[]`.
+// Caja de diseño nativa de cada glifo (la onda dibuja en 20×16; lista y
+// bloques en 18×18) — para poder CENTRAR un glifo en (cx,cy) a escala k.
+const glyphBox = (m: string) => (m === "cuestionario" || m === "esquema") ? { w: 18, h: 18 } : { w: 20, h: 16 };
+const glyphAt = (m: string, cx: number, cy: number, k: number) => {
+  const { w, h } = glyphBox(m);
+  return `translate(${cx - (w * k) / 2} ${cy - (h * k) / 2}) scale(${k})`;
+};
+
+// Placa combinada (M2.5, rediseñada según la maqueta de Jon 2026-07-04): UNA
+// sola placa cuyo fondo es el tinte del modelo principal, con una "baldosa"
+// redondeada del tinte secundario asomando por la esquina inferior derecha
+// (sin costura blanca: los tintes se tocan en una curva suave). El glifo
+// principal va grande arriba-izquierda; el secundario, menor, centrado en su
+// baldosa — jerarquía clara y ambos legibles, nada de sectores con glifos
+// enanos. Con 3 modelos (puerta M7): baldosas arriba-derecha y abajo.
 interface ModelPlateProps { models: string[]; size?: number; radius?: number; style?: CSSProperties; }
 export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlateProps) {
-  // Mínimo 36px: por debajo, los glifos de una placa híbrida dejan de leerse.
+  // Mínimo 36px: por debajo, el glifo secundario deja de leerse.
   const s = Math.max(36, size);
   const clipId = useId();
   const rx = (radius * 48) / s;
-  const tint = (m: string) => MODEL_META[m]?.plateBg || MODEL_META.interactivo.plateBg;
-  const accent = (m: string) => MODEL_META[m]?.color || MODEL_META.interactivo.color;
+  const tint   = (m: string) => MODEL_META[m]?.plateBg || MODEL_META.interactivo.plateBg;
+  const accent = (m: string) => MODEL_META[m]?.color   || MODEL_META.interactivo.color;
+  const [m0, m1, m2] = models;
   return (
     <svg width={s} height={s} viewBox="0 0 48 48" role="img" aria-label={modelLabel(models)}
       style={{ display: "block", flexShrink: 0, ...style }}>
-      <defs><clipPath id={clipId}><rect x="0" y="0" width="48" height="48" rx={rx} /></clipPath></defs>
+      <defs><clipPath id={clipId}><rect width="48" height="48" rx={rx} /></clipPath></defs>
       <g clipPath={`url(#${clipId})`}>
+        <rect width="48" height="48" fill={tint(m0)} />
         {models.length >= 3 ? (
           <>
-            <path d="M0,0 H24 V24 H0 Z" fill={tint(models[0])} />
-            <path d="M24,0 H48 V24 H24 Z" fill={tint(models[1])} />
-            <path d="M0,24 H48 V48 H0 Z" fill={tint(models[2])} />
-            <path d="M24,0 V24 M0,24 H48" stroke="#fff" strokeWidth="1.2" />
-            <g transform="translate(13,13) scale(0.78)" style={{ color: accent(models[0]) }}><Glyph model={models[0]} /></g>
-            <g transform="translate(35,13) scale(0.78)" style={{ color: accent(models[1]) }}><Glyph model={models[1]} /></g>
-            <g transform="translate(24,36) scale(0.78)" style={{ color: accent(models[2]) }}><Glyph model={models[2]} /></g>
+            <rect x="25" y="-9" width="33" height="33" rx="12" fill={tint(m1)} />
+            <rect x="15" y="27" width="42" height="30" rx="12" fill={tint(m2)} />
+            <g transform={glyphAt(m0, 13, 12, 0.8)}    style={{ color: accent(m0) }}><Glyph model={m0} /></g>
+            <g transform={glyphAt(m1, 37, 10.5, 0.58)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
+            <g transform={glyphAt(m2, 33.5, 38.5, 0.58)} style={{ color: accent(m2) }}><Glyph model={m2} /></g>
           </>
         ) : (
           <>
-            <path d="M0,0 H48 L0,48 Z" fill={tint(models[0])} />
-            <path d="M48,0 V48 H0 Z" fill={tint(models[1])} />
-            <path d="M48,0 L0,48" stroke="#fff" strokeWidth="1.2" />
-            <g transform="translate(16,15) scale(0.9)" style={{ color: accent(models[0]) }}><Glyph model={models[0]} /></g>
-            <g transform="translate(32,33) scale(0.9)" style={{ color: accent(models[1]) }}><Glyph model={models[1]} /></g>
+            <rect x="23" y="23" width="34" height="34" rx="12" fill={tint(m1)} />
+            <g transform={glyphAt(m0, 15.5, 14.5, 0.95)} style={{ color: accent(m0) }}><Glyph model={m0} /></g>
+            <g transform={glyphAt(m1, 35.5, 35.5, 0.72)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
           </>
         )}
       </g>
@@ -136,7 +144,8 @@ export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlate
 // un color) y se repite, en detalle, en el MetaItem de Duración de cada tarjeta.
 export function ExercisePlate({ ex, size = 36, radius, style }: { ex: Exercise; size?: number; radius?: number; style?: CSSProperties }) {
   const models = modelsOf(ex);
-  const plate = models.length >= 2
+  const isCombo = models.length >= 2;
+  const plate = isCombo
     ? <ModelPlate models={models} size={size} radius={radius} style={style} />
     : <TypePlate model={models[0]} size={size} radius={radius} style={style} />;
   const partsN = partsOf(ex).length;
@@ -145,7 +154,9 @@ export function ExercisePlate({ ex, size = 36, radius, style }: { ex: Exercise; 
     <div style={{ position: "relative", flexShrink: 0 }}>
       {plate}
       <span style={{
-        position: "absolute", bottom: -4, right: -4,
+        // En placa combinada la esquina inferior derecha la ocupa la baldosa del
+        // modelo secundario → la insignia sube a la superior, que queda libre.
+        position: "absolute", right: -4, ...(isCombo ? { top: -4 } : { bottom: -4 }),
         background: C.ink, color: C.paper, fontFamily: FONT_SANS, fontSize: Math.max(9, Math.round(size * 0.26)),
         fontWeight: 700, lineHeight: 1, padding: "2px 4px", borderRadius: 999, border: `1.5px solid ${C.paper}`,
       }}>×{partsN}</span>

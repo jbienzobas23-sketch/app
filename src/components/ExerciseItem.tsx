@@ -5,7 +5,7 @@
 // contenido definitiva (M2.1) para las tres listas (alumno, banco, unidades) y
 // los dos roles. La forma visual (tarjeta/fila, tamaño compacto) es el único
 // eje que varía por contexto — el contenido es idéntico.
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
@@ -46,15 +46,6 @@ interface ExerciseItemProps {
 const fmtDate = (ts: number): string =>
   new Date(ts).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
 
-// Chip pequeño de excepción (colapsada, solo profesor) — nunca se muestra si
-// todo está en orden: "Borrador"/"Oculto"/"N pendientes" son las únicas tres
-// razones para interrumpir al profesor desde la lista.
-function ExceptionChip({ tone, children }: { tone: "neutral" | "amber"; children: ReactNode }) {
-  const bg = tone === "amber" ? "rgba(212,120,0,0.12)" : C.paper2;
-  const color = tone === "amber" ? "#d47800" : C.muted;
-  return <span style={{ ...S.badge, background: bg, color, fontWeight: 600 }}>{children}</span>;
-}
-
 export function ExerciseItem({
   ex, variant, compact = false, role,
   result = null, onOpen, onViewCorrection,
@@ -78,8 +69,9 @@ export function ExerciseItem({
   const parts  = partsOf(ex);
   const partsN = parts.length;
   const isMultiPart = partsN > 1;
-  const durationLabel = isMultiPart ? `${partsN} audios · ${fmtClock(durationOf(ex))}` : fmtClock(durationOf(ex));
-  const metaLine = [composerLabel, durationLabel].filter(Boolean).join(" · ");
+  // M2.1 revisado (Jon, 2026-07-04): la duración NO va en la línea colapsada
+  // (no aporta a primera vista y roba sitio al título) — baja al detalle.
+  const durationDetail = isMultiPart ? `${partsN} audios · ${fmtClock(durationOf(ex))}` : `Duración ${fmtClock(durationOf(ex))}`;
 
   // ── Claves por (parte, modelo): para el desglose de excepción del profesor ──
   const models = modelsOf(ex);
@@ -91,6 +83,15 @@ export function ExerciseItem({
   });
   const totalSlots = parts.length * models.length;
   const keyReady = totalSlots > 0 && readySlots === totalSlots;
+
+  // Estado del profesor en la línea de metadatos, como texto sutil (sin chips:
+  // ocupaban media tarjeta y aplastaban el título). Solo las tres excepciones;
+  // si todo está en orden, no se muestra nada.
+  const statusBits: { text: string; amber?: boolean }[] = role === "teacher" ? [
+    ...(!keyReady ? [{ text: "Borrador" }] : []),
+    ...(isHidden ? [{ text: "Oculto" }] : []),
+    ...(pendingCount > 0 ? [{ text: `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`, amber: true }] : []),
+  ] : [];
 
   const isDone = result != null;
   const isCorrected = result?.teacherCorrection?.corrected;
@@ -127,19 +128,25 @@ export function ExerciseItem({
           }}>
             {ex.title}
           </div>
-          {metaLine && (
-            <div style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 400, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{metaLine}</div>
+          {composerLabel && (
+            <div style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 400, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerLabel}</div>
           )}
         </div>
-        {role === "student" ? (
+        {role === "student" && (
           isDone
             ? <ScoreBadge score={result!.score ?? null} status={resultStatusOf(result, ex)} />
             : <span style={{ fontFamily: F.sans, fontSize: 11, fontWeight: 600, color: C.muted, flexShrink: 0, whiteSpace: "nowrap" }}>Pendiente</span>
-        ) : (
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            {!keyReady && <ExceptionChip tone="neutral">Borrador</ExceptionChip>}
-            {isHidden && <ExceptionChip tone="neutral">Oculto</ExceptionChip>}
-            {pendingCount > 0 && <ExceptionChip tone="amber">{pendingCount} pendiente{pendingCount === 1 ? "" : "s"}</ExceptionChip>}
+        )}
+        {/* Estado del profesor: un nivel jerárquico POR DEBAJO del compositor
+            (Jon, 2026-07-04) — versalitas de 9px muy apagadas junto al chevron,
+            nunca mezclado con los metadatos de contenido de la obra. */}
+        {statusBits.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+            {statusBits.map((b) => (
+              <span key={b.text} style={{ fontFamily: F.sans, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: b.amber ? "#d47800" : C.chevron, whiteSpace: "nowrap" }}>
+                {b.text}
+              </span>
+            ))}
           </div>
         )}
         <Chevron open={open} />
@@ -148,6 +155,10 @@ export function ExerciseItem({
       <div className={`fa-expand${open ? " fa-open" : ""}`}>
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: compact ? "11px 13px 13px" : "11px 16px 14px", display: "flex", flexDirection: "column", gap: 10, background: C.bg }}>
+
+            {/* La duración vive aquí desde el rediseño de 2026-07-04 (no en la
+                línea colapsada): se consulta al desplegar, no interrumpe antes. */}
+            <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{durationDetail}</div>
 
             {role === "student" ? (
               <>

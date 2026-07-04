@@ -27,15 +27,13 @@ describe("ModelPlate", () => {
     const svg = container.querySelector("svg")!;
     expect(svg.getAttribute("width")).toBe("44");
   });
-  it("dos modelos: dos sectores (triángulos) sin costura de sector central", () => {
+  it("dos modelos: un glifo posicionado por modelo (principal grande + secundario en su baldosa)", () => {
     const { container } = render(<ModelPlate models={["interactivo", "esquema"]} />);
-    const paths = container.querySelectorAll("path[fill]");
-    expect(paths.length).toBe(2);
+    expect(container.querySelectorAll("g[transform]").length).toBe(2);
   });
-  it("tres modelos: tres sectores, uno por modelo", () => {
+  it("tres modelos (puerta M7): tres glifos, uno por modelo", () => {
     const { container } = render(<ModelPlate models={["interactivo", "cuestionario", "esquema"]} />);
-    const paths = container.querySelectorAll("path[fill]");
-    expect(paths.length).toBe(3);
+    expect(container.querySelectorAll("g[transform]").length).toBe(3);
   });
 });
 
