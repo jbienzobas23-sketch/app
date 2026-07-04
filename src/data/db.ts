@@ -80,7 +80,12 @@ export function createDb({ getClient, pendingSavesRef, onError, sleep = defaultS
   const dbUpsertUnit = async (u: AnyRecord & { id: string }) => { await write("fa_units", (sb) => sb.from("fa_units").upsert({ id: u.id, data: u })); };
   const dbDeleteUnit = async (id: string) => { await write("fa_units", (sb) => sb.from("fa_units").delete().eq("id", id)); };
 
+  // El invitado (id sintético "guest-<timestamp>", sin sesión ni fila en
+  // fa_users) comparte el mismo `results` en memoria que un alumno real — sin
+  // rama propia (M1.3) — pero sus entregas nunca se persisten: no hay sesión
+  // que las respalde y RLS las rechazaría igualmente. No-op silencioso, no error.
   const dbUpsertResult = async (userId: string, exerciseId: string, data: AnyRecord) => {
+    if (userId.startsWith("guest-")) return;
     await write("fa_results", (sb) => sb.from("fa_results").upsert({ user_id: userId, exercise_id: exerciseId, data }));
   };
   const dbDeleteResultsForUser = async (userId: string) => { await write("fa_results", (sb) => sb.from("fa_results").delete().eq("user_id", userId)); };

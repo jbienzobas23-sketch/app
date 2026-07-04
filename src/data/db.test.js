@@ -114,3 +114,30 @@ describe("createDb — reintento exponencial (F7, T7.4)", () => {
     expect(pendingSavesRef.current).toBe(0);
   });
 });
+
+// M1.3: el invitado (id sintético "guest-<timestamp>") comparte `results` en
+// memoria con un alumno real, sin rama propia en App.tsx — pero sus entregas
+// nunca se persisten (no hay sesión que las respalde). La condición baja aquí.
+describe("dbUpsertResult — invitado sin rama (M1.3)", () => {
+  it("id de invitado: no-op silencioso, ni siquiera intenta escribir", async () => {
+    const client = makeFakeClient([{ error: null }]);
+    const pendingSavesRef = { current: 0 };
+    const onError = vi.fn();
+    const { dbUpsertResult } = createDb({ getClient: () => client, pendingSavesRef, onError });
+
+    await dbUpsertResult("guest-1234567890", "ex-1", { score: 80 });
+
+    expect(client._upsert).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(pendingSavesRef.current).toBe(0);
+  });
+  it("id de alumno real: sí escribe, como siempre", async () => {
+    const client = makeFakeClient([{ error: null }]);
+    const pendingSavesRef = { current: 0 };
+    const { dbUpsertResult } = createDb({ getClient: () => client, pendingSavesRef });
+
+    await dbUpsertResult("student-1", "ex-1", { score: 80 });
+
+    expect(client._upsert).toHaveBeenCalledTimes(1);
+  });
+});

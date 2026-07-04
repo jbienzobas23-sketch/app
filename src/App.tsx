@@ -124,7 +124,6 @@ export default function App() {
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
   const [lastResult,   setLastResult]     = useState<ExerciseResult | null>(null);
-  const [guestResults, setGuestResults]   = useState<Record<string, ExerciseResult>>({});
   const redirectAfterLogin = useRef<string | null>(null);   // enlace profundo a recuperar tras login
 
   const [pendingLoginUser, setPendingLoginUser] = useState<UserProfile | null>(null); // alumno esperando configurar correo de recuperación
@@ -494,9 +493,7 @@ export default function App() {
     // userResults` declarado más abajo en el cuerpo del componente, lo que
     // evita una referencia frágil en la zona muerta temporal (TDZ).
     const exId = String(ex.id);
-    const stored = user?.isGuest
-      ? guestResults[exId]
-      : (user ? (results[user.id] || {})[exId] : undefined);
+    const stored = user ? (results[user.id] || {})[exId] : undefined;
     if (!stored) return;
     setLastResult(stored);
     navigate(`/alumno/ejercicio/${ex.id}/correccion`);
@@ -558,13 +555,12 @@ export default function App() {
     if (!exCtx) return;
     const ex      = freshExercise(exCtx.exercise);
     const exId    = String(ex.id);
-    const isGuest = user?.isGuest;
     // Intentos (F6, T6.3): "Repetir" no debe sobrescribir la entrega anterior
     // — addAttempt la conserva en `attempts` y expone score = mejor de todos.
     // Ninguno de los cuatro sitios donde se guarda más abajo es modo "record"
     // (ese siempre escribe en el ejercicio, no en `results`, y ya ha vuelto
     // antes de llegar aquí en sus propias ramas).
-    const existingResult = isGuest ? guestResults[exId] : (user ? (results[user.id] || {})[exId] : undefined);
+    const existingResult = user ? (results[user.id] || {})[exId] : undefined;
     const activePalette = effectivePaletteId(ex, user?.defaultPalette);
     // Autoría por parte (F4, T4.2): grabar clave (esquema/interactivo) escribe
     // en la parte de la URL cuando el ejercicio es genuinamente multiparte —
@@ -637,9 +633,7 @@ export default function App() {
         timestamp: Date.now(),
         parts: partsEnvelope,
       });
-      if (isGuest) {
-        setGuestResults((prev) => ({ ...prev, [exId]: data }));
-      } else if (user) {
+      if (user) {
         setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
         dbUpsertResult(user.id, exId, data);
       }
@@ -654,9 +648,7 @@ export default function App() {
       // resultStatusOf la leen en vez de las preguntas vigentes del ejercicio,
       // así una edición posterior del profesor no descoloca entregas pasadas.
       const data = addAttempt(existingResult, { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) });
-      if (isGuest) {
-        setGuestResults((prev) => ({ ...prev, [exId]: data }));
-      } else if (user) {
+      if (user) {
         setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
         dbUpsertResult(user.id, exId, data);
       }
@@ -681,15 +673,13 @@ export default function App() {
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], payload.blocks || [], ex.schemaMargin ?? 3);
+      const placementScore = calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], payload.blocks || [], ex.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
       const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real. Intentos (F6, T6.3): la
         // previsualización del profesor NUNCA se mezcla con el historial real.
         const savedData = addAttempt(existingResult, data);
-        if (isGuest) {
-          setGuestResults((prev) => ({ ...prev, [exId]: savedData }));
-        } else if (user) {
+        if (user) {
           setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: savedData } }));
           dbUpsertResult(user.id, exId, savedData);
         }
@@ -752,9 +742,7 @@ export default function App() {
       timestamp:  Date.now(),
     });
 
-    if (isGuest) {
-      setGuestResults((prev) => ({ ...prev, [exId]: data }));
-    } else if (user) {
+    if (user) {
       setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
       dbUpsertResult(user.id, exId, data);
     }
@@ -875,8 +863,8 @@ export default function App() {
   }
 
   // Vistas autenticadas
-  const onLogout = () => { setUser(null); setGuestResults({}); navigate("/"); };
-  const userResults = user.isGuest ? guestResults : (results[user.id] || {});
+  const onLogout = () => { setUser(null); navigate("/"); };
+  const userResults = results[user.id] || {};
   const isStudent = user.role === "student";
 
   // Mensaje cuando el ejercicio referenciado por la URL no existe (o no cargó)
@@ -967,7 +955,7 @@ export default function App() {
     let result = lastResult;
     if (!result && !wasPreview) {
       const exId = String(exCtx.exercise.id);
-      result = user?.isGuest ? guestResults[exId] : (results[user?.id] || {})[exId];
+      result = (results[user?.id] || {})[exId];
     }
     if (!result) {
       // La previsualización del profesor sí es efímera y no se puede reconstruir.
