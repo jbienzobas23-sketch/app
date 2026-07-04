@@ -155,12 +155,11 @@ export function ExerciseItem({
         <div className="fa-expand-inner">
           <div style={{ borderTop: `1px solid ${C.line}`, padding: compact ? "11px 13px 13px" : "11px 16px 14px", display: "flex", flexDirection: "column", gap: 10, background: C.bg }}>
 
-            {/* La duración vive aquí desde el rediseño de 2026-07-04 (no en la
-                línea colapsada): se consulta al desplegar, no interrumpe antes. */}
-            <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{durationDetail}</div>
-
             {role === "student" ? (
               <>
+                {/* La duración vive aquí desde el rediseño de 2026-07-04 (no en
+                    la línea colapsada): se consulta al desplegar. */}
+                <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{durationDetail}</div>
                 {isDone && (
                   <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.ink2 }}>
                     {result!.timestamp ? `Entregado el ${fmtDate(result!.timestamp)}` : "Entregado"}
@@ -184,15 +183,34 @@ export function ExerciseItem({
               </>
             ) : (
               <>
-                {!keyReady && (
-                  <button onClick={() => onEdit?.(ex)} className="fa-pressable"
-                    style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", fontFamily: F.sans, fontSize: 12.5, color: C.ink2 }}>
-                    Claves {readySlots} de {totalSlots}
-                    {/* Nombrar la parte solo si hay más de una — con una sola
-                        parte sintetizada, su título ES el del ejercicio (redundante). */}
-                    {isMultiPart && firstIncompletePart && ` — falta ${(firstIncompletePart as { title?: string }).title || `Audio ${parts.indexOf(firstIncompletePart) + 1}`}`}
-                  </button>
-                )}
+                {/* Una sola fila de metadatos (Jon, 2026-07-04): duración y
+                    claves juntas, con el ⋯ aprovechando el hueco a la derecha
+                    — antes eran tres filas (duración / claves / ⋯ huérfano). */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, flex: 1, minWidth: 0 }}>
+                    {durationDetail}
+                    {!keyReady && (
+                      <>
+                        {" · "}
+                        <button onClick={() => onEdit?.(ex)} className="fa-pressable"
+                          title="Faltan claves de corrección — abrir el editor"
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 12, color: C.ink2, textDecoration: "underline", textUnderlineOffset: 2 }}>
+                          Claves {readySlots} de {totalSlots}
+                          {/* Nombrar la parte solo si hay más de una — con una sola
+                              parte sintetizada, su título ES el del ejercicio. */}
+                          {isMultiPart && firstIncompletePart && ` — falta ${(firstIncompletePart as { title?: string }).title || `Audio ${parts.indexOf(firstIncompletePart) + 1}`}`}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {(onDuplicate || onDelete || onRemoveFromUnit) && askConfirm && (
+                    <KebabMenu title={`Más acciones de "${ex.title}"`} items={[
+                      ...(onDuplicate ? [{ label: "Duplicar ejercicio", onClick: () => onDuplicate(ex) }] : []),
+                      ...(onRemoveFromUnit ? [{ label: "Quitar de la unidad", onClick: () => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, onRemoveFromUnit) }] : []),
+                      ...(onDelete ? [{ label: "Eliminar ejercicio", danger: true, onClick: () => askConfirm(`¿Eliminar "${ex.title}"?\n\nEsta acción no se puede deshacer.`, () => onDelete(ex)) }] : []),
+                    ]} />
+                  )}
+                </div>
                 {submissionsCount > 0 && (
                   <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.ink2, display: "flex", alignItems: "center", gap: 6 }}>
                     <span>
@@ -230,13 +248,6 @@ export function ExerciseItem({
                       style={{ ...S.btn, fontSize: 12.5, padding: "8px 14px" }}>
                       {isHidden ? "Mostrar" : "Ocultar"}
                     </button>
-                  )}
-                  {(onDuplicate || onDelete || onRemoveFromUnit) && askConfirm && (
-                    <KebabMenu title={`Más acciones de "${ex.title}"`} items={[
-                      ...(onDuplicate ? [{ label: "Duplicar ejercicio", onClick: () => onDuplicate(ex) }] : []),
-                      ...(onRemoveFromUnit ? [{ label: "Quitar de la unidad", onClick: () => askConfirm(`¿Quitar "${ex.title}" de esta unidad?\n\nEl ejercicio permanecerá en el banco global.`, onRemoveFromUnit) }] : []),
-                      ...(onDelete ? [{ label: "Eliminar ejercicio", danger: true, onClick: () => askConfirm(`¿Eliminar "${ex.title}"?\n\nEsta acción no se puede deshacer.`, () => onDelete(ex)) }] : []),
-                    ]} />
                   )}
                 </div>
               </>

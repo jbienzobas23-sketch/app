@@ -891,9 +891,22 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
   const toggleTag      = (val: string) => setFilterTags(filterTags.includes(val) ? filterTags.filter((x) => x !== val) : [...filterTags, val]);
   const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
 
+  // Tipo como desplegable (Jon, 2026-07-04): mismo control que Compositor y
+  // Etiquetas. Semántica de radio: un solo tipo activo; repetirlo (o Limpiar)
+  // vuelve a "Todos".
+  const typeOpts = TYPE_CHIPS.filter((c) => c.id !== "all");
+  const typeLabelToId = (lbl: string) => typeOpts.find((c) => c.label === lbl)?.id || "all";
+  const typeIdToLabel = (id: string) => typeOpts.find((c) => c.id === id)?.label;
+
   return (
     <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <TypeFilterChips value={filterModel} onChange={setFilterModel} />
+      <FilterDropdown
+        label="Tipo"
+        options={typeOpts.map((c) => c.label)}
+        selected={filterModel === "all" ? [] : [typeIdToLabel(filterModel)].filter(Boolean) as string[]}
+        onToggle={(lbl) => { const id = typeLabelToId(lbl); setFilterModel(filterModel === id ? "all" : id); }}
+        onClear={() => setFilterModel("all")}
+      />
 
       <FilterDropdown
         label="Compositor"
