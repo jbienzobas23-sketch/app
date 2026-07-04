@@ -8,7 +8,9 @@ import { scoreBg, scoreColor, textOn } from "../lib/color.js";
 import { fmtClock } from "../lib/time.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
-type Tab = { id: string; label: string };
+// `dot`: aviso rojo en la esquina superior izquierda de la pestaña (p. ej.
+// "Alumnos" mientras haya entregas por corregir — Jon, 2026-07-04).
+type Tab = { id: string; label: string; dot?: boolean };
 type Option = { id: string; label: string; accent?: string };
 
 interface ModalShellProps { children: ReactNode; width?: number; align?: "center"|"top"; zIndex?: number; onClose?: () => void; label?: string; }
@@ -120,10 +122,13 @@ export function ErrorMsg({ children, style }: ErrorMsgProps) {
 // "secondary" para tabs de configuración (más pequeñas, color atenuado).
 export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarProps) {
   const isPrim = variant === "primary";
-  return tabs.map(({ id, label }) => {
+  return tabs.map(({ id, label, dot }) => {
     const active = value === id;
     return (
-      <button key={id} onClick={() => onChange(id)} style={{
+      <button key={id} onClick={() => onChange(id)}
+        title={dot ? "Hay entregas por corregir" : undefined}
+        style={{
+        position: "relative",
         background: "none", border: "none",
         borderBottom: `2px solid ${active ? (isPrim ? C.ink : C.muted) : "transparent"}`,
         color:        active ? (isPrim ? C.ink : C.ink2) : (isPrim ? C.muted : C.muted2),
@@ -136,6 +141,9 @@ export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarPro
         transition:   "color .12s, border-color .12s",
         whiteSpace:   "nowrap",
       }}>
+        {dot && (
+          <span aria-hidden="true" style={{ position: "absolute", top: 7, left: 7, width: 6, height: 6, borderRadius: "50%", background: C.danger }} />
+        )}
         {label}
       </button>
     );

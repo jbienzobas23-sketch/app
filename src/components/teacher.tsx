@@ -879,6 +879,18 @@ export function TeacherDash({
     const target = pendingQueue[idx];
     if (target && onViewStudentAnswer) onViewStudentAnswer(target.student.id, target.exercise.id);
   };
+  // El aviso de la bandeja puede cerrarse durante la sesión del navegador
+  // (sessionStorage: reaparece al cerrar y volver a entrar), SALVO en la
+  // pestaña Alumnos, donde se muestra siempre que haya pendientes (Jon,
+  // 2026-07-04). El punto rojo de la pestaña Alumnos no se cierra nunca.
+  const [inboxDismissed, setInboxDismissed] = useState<boolean>(() => {
+    try { return sessionStorage.getItem("fa-inbox-dismissed") === "1"; } catch { return false; }
+  });
+  const dismissInbox = () => {
+    setInboxDismissed(true);
+    try { sessionStorage.setItem("fa-inbox-dismissed", "1"); } catch { /* sin storage: solo estado */ }
+  };
+  const showInbox = pendingQueue.length > 0 && (tab === "students" || !inboxDismissed);
 
   // Modal state
   const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
@@ -989,7 +1001,8 @@ export function TeacherDash({
   const primaryTabs = [
     { id: "exercises", label: "Ejercicios" },
     { id: "courses",   label: "Cursos" },
-    { id: "students",  label: "Alumnos" },
+    // Punto rojo mientras quede algo por corregir (no se puede cerrar).
+    { id: "students",  label: "Alumnos", dot: pendingQueue.length > 0 },
   ];
   const secondaryTabs = [
     { id: "categories", label: "Categorías" },
@@ -1031,8 +1044,9 @@ export function TeacherDash({
 
         {/* Bandeja única de correcciones (Jon, 2026-07-04): el único lugar donde
             se anuncia lo pendiente — las tarjetas y las filas quedan limpias.
-            «Corregir» abre la cola global y se recorre con Siguiente. */}
-        {pendingQueue.length > 0 && (
+            «Corregir» abre la cola global y se recorre con Siguiente. Se puede
+            cerrar durante la sesión salvo en Alumnos (ahí sale siempre). */}
+        {showInbox && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(212,120,0,0.07)", border: "1px solid rgba(212,120,0,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d47800", flexShrink: 0 }} aria-hidden="true" />
             <span style={{ fontFamily: F.sans, fontSize: 13.5, color: C.ink, flex: 1, minWidth: 0 }}>
@@ -1041,6 +1055,12 @@ export function TeacherDash({
             <button onClick={() => goToQueueIdx(0)} className="fa-pressable" style={{ ...S.btnPrimary, padding: "8px 16px", fontSize: 12.5, flexShrink: 0 }}>
               Corregir →
             </button>
+            {tab !== "students" && (
+              <button onClick={dismissInbox} title="Ocultar este aviso durante la sesión" aria-label="Cerrar aviso"
+                style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14, lineHeight: 1, padding: "4px 2px", flexShrink: 0 }}>
+                ✕
+              </button>
+            )}
           </div>
         )}
 
