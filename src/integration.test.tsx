@@ -123,17 +123,18 @@ describe('El payload de sesión es el "sobre correcto" que espera submitAnswer',
   });
 });
 
-// ── 3. Flujo de estado: esquema entregado → ✓ discreto → corregir → sin nota ──
-// Rediseño de 2026-07-04 (Jon): la lista del alumno NO muestra "Pendiente" ni
-// la nota — solo una marca ✓ de "hecho"; el número vive en la corrección.
+// ── 3. Flujo de estado: esquema entregado → reloj → corregir → ✓ sin nota ────
+// Rediseño de 2026-07-04 (Jon): la lista del alumno no muestra la nota — un
+// RELOJ mientras la entrega espera corrección y un ✓ cuando ya está corregida;
+// el número vive solo en la vista de corrección.
 describe("Flujo de estado de una entrega de esquema", () => {
-  it("✓ discreto en la lista del alumno; tras corregir, sigue sin nota en la lista", () => {
+  it("reloj (pendiente) en la lista del alumno; tras corregir, ✓ y sigue sin nota", () => {
     const exercise = mk({ id: "sch-1", title: "Esquema demo", duration: 40, model: "esquema", categories: [] });
     const submitted: ExerciseResult = { type: "esquema", blocks: [{ id: "b1", level: 1, start: 0, end: 10, label: "A" }], score: null };
 
-    // Entregado (aún sin corregir): marca de hecho, sin "Pendiente" ni nota.
+    // Entregado (aún sin corregir): reloj de espera, sin "Pendiente" ni nota.
     const { rerender } = render(<ExerciseItem ex={exercise} role="student" variant="row" result={submitted} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getByLabelText("Entregado")).toBeInTheDocument();
+    expect(screen.getByLabelText("Entregado, pendiente de corrección")).toBeInTheDocument();
     expect(screen.queryByText("Pendiente")).not.toBeInTheDocument();
 
     // El profesor corrige (CorrectionView, modo profesor) y guarda una puntuación.
@@ -152,11 +153,12 @@ describe("Flujo de estado de una entrega de esquema", () => {
     expect(saved!.correction.totalScore).toBe(85);
 
     // Mismo merge que saveCorrection en App.tsx (no exportado): la corrección
-    // se añade — pero la LISTA sigue sin mostrar la nota (vive en la
-    // corrección); la tarjeta mantiene la marca ✓ y ofrece "Ver corrección ✓".
+    // se añade — el reloj pasa a ✓ pero la LISTA sigue sin mostrar la nota
+    // (vive en la corrección); la puerta es "Ver corrección ✓".
     const corrected: ExerciseResult = { ...submitted, teacherCorrection: { ...saved!.correction, corrected: true }, score: 85 };
     rerender(<ExerciseItem ex={exercise} role="student" variant="row" result={corrected} onOpen={() => {}} onViewCorrection={() => {}} />);
-    expect(screen.getByLabelText("Entregado")).toBeInTheDocument();
+    expect(screen.getByLabelText("Corregido")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Entregado, pendiente de corrección")).not.toBeInTheDocument();
     expect(screen.queryByText(/85%/)).not.toBeInTheDocument();
     expect(screen.getByText("Ver corrección ✓")).toBeInTheDocument();
     expect(screen.queryByText("Pendiente")).not.toBeInTheDocument();

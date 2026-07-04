@@ -1,13 +1,15 @@
 // ═══ STUDENTDASH (DASHBOARD DEL ALUMNO) ══════════════════════════════════════
-// Cabecera, pestañas (todos los ejercicios / por cursos) y filtros. Extraída (Fase 2).
+// Cabecera y UNA sola página (Jon, 2026-07-04): sección "Cursos" primero y
+// "Todos los ejercicios" debajo, colapsable — ya no hay pestañas.
 import { useState, useMemo } from "react";
 import type { Exercise, ExerciseResult, Unit } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 import { modelsOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
+import { rowButtonProps } from "../lib/a11y.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
-import { TabBar, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
+import { Chevron, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
@@ -36,10 +38,15 @@ interface StudentDashProps {
   onNavigateCourses?: (cursoId?: string | null, unidadId?: string | null) => void;
 }
 
-export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, tab = "all", onTab, cursoId = null, unidadId = null, onNavigateCourses }: StudentDashProps) {
+export function StudentDash({ user, exercises, results, courses, units, groups = [], onExercise, onViewCorrection, onLogout, onChangeTeacher, onUpdatePalette, cursoId = null, unidadId = null, onNavigateCourses }: StudentDashProps) {
   const isMobile = useIsMobile();
-  const view    = tab;             // controlado por la URL
-  const setView = onTab || (() => {});
+  // "Todos los ejercicios" colapsable, persistido en la query (?todos=0) igual
+  // que los filtros (T3.6): sobrevive a entrar en un ejercicio y volver.
+  const [allOpen, setAllOpenState] = useState(() => parseHashQuery().todos !== "0");
+  const toggleAllOpen = () => { const v = !allOpen; setAllOpenState(v); setHashQuery({ todos: v ? null : "0" }); };
+  // Con un curso (o unidad móvil) abierto, la página profunda del curso ocupa
+  // todo; la página raíz unificada solo se muestra sin curso seleccionado.
+  const inCourseDetail = cursoId != null || unidadId != null;
   // Filtros persistidos en la query (T3.6): sobreviven a entrar a un
   // ejercicio y volver, porque StudentDash se desmonta al navegar a la sesión
   // y al remontar vuelve a leer ?tipo=/?estado= de la URL.
@@ -106,45 +113,10 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
           </div>
         </div>
 
-        {/* Pestañas */}
-        <div className="fa-noscroll" style={{ display: "flex", borderBottom: `1px solid ${C.line}`, marginBottom: 22, overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
-          <TabBar tabs={[{ id: "all", label: "Todos los ejercicios" }, { id: "courses", label: "Por cursos" }]} value={view} onChange={setView} />
-        </div>
-
-        {/* ── Todos los ejercicios ── */}
-        {view === "all" && (
-          <>
-            {showFilterBar && (
-              <StudentFilterBar
-                filterModel={filterModel} setFilterModel={setFilterModel}
-                filterDone={filterDone}   setFilterDone={setFilterDone}
-              />
-            )}
-            {filteredExercises.length === 0
-              ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
-                  {exercises.length === 0
-                    ? "Tu profesor aún no ha publicado ejercicios."
-                    : "Ningún ejercicio coincide con los filtros."}
-                </p>
-              : isMobile
-                ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {filteredExercises.map((ex) => (
-                      <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="row" compact
-                        result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
-                    ))}
-                  </div>
-                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
-                    {filteredExercises.map((ex) => (
-                      <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="grid"
-                        result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
-                    ))}
-                  </div>
-            }
-          </>
-        )}
-
-        {/* ── Por cursos (rediseño en páginas) ── */}
-        {view === "courses" && (
+        {/* ── Página única (Jon, 2026-07-04): Cursos primero, "Todos los
+            ejercicios" debajo y colapsable. Con un curso abierto, su página
+            profunda ocupa todo (se vuelve con "‹ Volver a cursos"). ── */}
+        {inCourseDetail ? (
           <CoursesPages
             role="student"
             courses={teacherCourses}
@@ -158,6 +130,69 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
             unidadId={unidadId}
             onNavigate={onNavigateCourses || (() => {})}
           />
+        ) : (
+          <>
+            {teacherCourses.length > 0 && (
+              <section style={{ marginBottom: 34 }}>
+                <h2 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 14px" }}>Cursos</h2>
+                <CoursesPages
+                  role="student"
+                  courses={teacherCourses}
+                  units={units}
+                  exercises={exercises}
+                  groups={groups}
+                  results={results}
+                  onExercise={onExercise}
+                  onViewCorrection={onViewCorrection}
+                  cursoId={null}
+                  unidadId={null}
+                  onNavigate={onNavigateCourses || (() => {})}
+                />
+              </section>
+            )}
+
+            <section>
+              {/* Cabecera colapsable solo si hay cursos encima; sin cursos, la
+                  lista es la página entera y el pliegue sería ruido. */}
+              {teacherCourses.length > 0 ? (
+                <div onClick={toggleAllOpen} {...rowButtonProps(toggleAllOpen)} aria-expanded={allOpen}
+                  style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", userSelect: "none", marginBottom: allOpen ? 14 : 0 }}>
+                  <h2 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, margin: 0 }}>Todos los ejercicios</h2>
+                  <Chevron open={allOpen} size={15} />
+                </div>
+              ) : null}
+              {(teacherCourses.length === 0 || allOpen) && (
+                <>
+                  {showFilterBar && (
+                    <StudentFilterBar
+                      filterModel={filterModel} setFilterModel={setFilterModel}
+                      filterDone={filterDone}   setFilterDone={setFilterDone}
+                    />
+                  )}
+                  {filteredExercises.length === 0
+                    ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2rem 1rem", fontSize: 13 }}>
+                        {exercises.length === 0
+                          ? "Tu profesor aún no ha publicado ejercicios."
+                          : "Ningún ejercicio coincide con los filtros."}
+                      </p>
+                    : isMobile
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {filteredExercises.map((ex) => (
+                            <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="row" compact
+                              result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                          ))}
+                        </div>
+                      : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
+                          {filteredExercises.map((ex) => (
+                            <ExerciseItem key={String(ex.id ?? "")} ex={ex} role="student" variant="grid"
+                              result={results[String(ex.id ?? "")]} onOpen={onExercise} onViewCorrection={onViewCorrection} />
+                          ))}
+                        </div>
+                  }
+                </>
+              )}
+            </section>
+          </>
         )}
       </div>
     </div>

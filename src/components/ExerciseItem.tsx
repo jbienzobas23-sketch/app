@@ -9,7 +9,7 @@ import { useState } from "react";
 import type { Exercise, ExerciseResult } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
-import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf } from "../lib/domain.js";
+import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf, resultStatusOf } from "../lib/domain.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { Chevron } from "./primitives.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
@@ -127,13 +127,25 @@ export function ExerciseItem({
             <div style={{ fontFamily: F.sans, fontSize: 11.5, fontWeight: 400, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{composerLabel}</div>
           )}
         </div>
-        {/* Alumno (Jon, 2026-07-04): solo una marca discreta de "hecho" — la
-            nota y el feedback viven en la vista de corrección, no en la lista. */}
+        {/* Alumno (Jon, 2026-07-04): marca discreta según estado — ✓ cuando ya
+            está corregido (por el profesor o automático) y un RELOJ de línea
+            fina cuando la entrega espera corrección. Gris, no ámbar: para el
+            alumno no es accionable, solo informa. La nota vive en la corrección. */}
         {role === "student" && isDone && (
-          <span title="Entregado" aria-label="Entregado"
-            style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 700, color: C.fnT, flexShrink: 0, lineHeight: 1 }}>
-            ✓
-          </span>
+          resultStatusOf(result, ex) === "pendiente" ? (
+            <span title="Entregado — pendiente de corrección" aria-label="Entregado, pendiente de corrección"
+              style={{ display: "inline-flex", flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke={C.muted} strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.2" />
+                <path d="M8 4.8V8l2.2 1.6" />
+              </svg>
+            </span>
+          ) : (
+            <span title="Corregido" aria-label="Corregido"
+              style={{ fontFamily: F.sans, fontSize: 14, fontWeight: 700, color: C.fnT, flexShrink: 0, lineHeight: 1 }}>
+              ✓
+            </span>
+          )
         )}
         <Chevron open={open} />
       </div>
@@ -152,6 +164,7 @@ export function ExerciseItem({
                     <span style={{ color: C.ink2 }}>
                       {" · "}
                       {result!.timestamp ? `Entregado el ${fmtDate(result!.timestamp)}` : "Entregado"}
+                      {resultStatusOf(result, ex) === "pendiente" && <span style={{ color: C.muted }}> · pendiente de corrección</span>}
                     </span>
                   )}
                 </div>

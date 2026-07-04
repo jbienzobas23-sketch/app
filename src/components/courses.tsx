@@ -154,12 +154,15 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
 export function CoursesLanding({ role, courses, units, exercises, results, groups, onOpen, onCreateCourse }: CoursesData & { onOpen: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Sin segundo encabezado "Cursos": la cabecera del panel + pestañas ya dan
-          contexto. Aquí solo una línea de conteo (+ acción de crear en profesor). */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
-        <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
-        {role === "teacher" && <CtaButton onClick={onCreateCourse}>+ Nuevo curso</CtaButton>}
-      </div>
+      {/* Sin segundo encabezado "Cursos": la cabecera del panel ya da contexto.
+          El alumno tampoco ve la línea de conteo (ruido, Jon 2026-07-04) — la
+          fila solo existe para el profesor, que necesita conteo + crear. */}
+      {role === "teacher" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
+          <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
+          <CtaButton onClick={onCreateCourse}>+ Nuevo curso</CtaButton>
+        </div>
+      )}
       {courses.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>{role === "student" ? "El profesor aún no ha creado ningún curso." : "Aún no hay cursos. Crea el primero para organizar tus ejercicios."}</p>
         : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
@@ -469,10 +472,13 @@ export function MobileTopBar({ title, onBack }: { title: string; onBack?: () => 
 export function MobileCoursesScreen({ role, courses, units, exercises, results, groups, onOpenCourse, onCreateCourse }: CoursesData & { onOpenCourse: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Sin segundo encabezado "Cursos" (la cabecera + pestañas ya dan contexto). */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
-        <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
-      </div>
+      {/* Sin segundo encabezado "Cursos" ni línea de conteo para el alumno
+          (ruido, Jon 2026-07-04); el profesor conserva su conteo. */}
+      {role === "teacher" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
+        </div>
+      )}
       {courses.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2.5rem 1rem" }}>{role === "student" ? "El profesor aún no ha creado ningún curso." : "Aún no hay cursos. Crea el primero."}</p>
         : <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
