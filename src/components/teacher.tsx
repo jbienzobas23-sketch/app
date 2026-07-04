@@ -1062,10 +1062,14 @@ export function TeacherDash({
               {tabsStrip}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "flex-end", gap: 20, ...headerSep, marginBottom: 28, paddingBottom: 2 }}>
-              <div style={{ paddingBottom: 12 }}>{identity}</div>
+            // Sin paddingBottom en el grid: así el subrayado de la pestaña
+            // activa (2px tinta) cae JUSTO sobre el filete de separación, como
+            // un tramo grueso de esa misma línea (Jon, 2026-07-04). La identidad
+            // y las acciones llevan su propio padding para no tocar la línea.
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "flex-end", gap: 20, ...headerSep, marginBottom: 28 }}>
+              <div style={{ paddingBottom: 14 }}>{identity}</div>
               {tabsStrip}
-              <div style={{ paddingBottom: 10 }}>{actions}</div>
+              <div style={{ paddingBottom: 12 }}>{actions}</div>
             </div>
           );
         })()}
