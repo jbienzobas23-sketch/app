@@ -15,7 +15,7 @@ import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilte
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab } from "./courses.js";
-import { ExerciseDetailView } from "./ExerciseDetailView.js";
+import { EditorShell } from "./editor/EditorShell.js";
 import { ExerciseItem } from "./ExerciseItem.js";
 
 // ── Tipos compartidos de las vistas del profesor ─────────────────────────────
@@ -979,7 +979,7 @@ export function TeacherDash({
   // Vista de detalle/creación
   if (selectedExerciseId === "new") {
     return (
-      <ExerciseDetailView
+      <EditorShell
         exercise={null}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={() => {}}
@@ -988,6 +988,7 @@ export function TeacherDash({
         onDelete={() => {}}
         categories={categories}
         audioLibrary={audioLibrary}
+        units={units}
       />
     );
   }
@@ -998,7 +999,7 @@ export function TeacherDash({
 
   if (selectedExercise) {
     return (
-      <ExerciseDetailView
+      <EditorShell
         exercise={selectedExercise}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
@@ -1009,6 +1010,10 @@ export function TeacherDash({
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
         categories={categories}
         audioLibrary={audioLibrary}
+        units={units}
+        onToggleVisibility={() => onUpdateExercise(selectedExercise.id, { hidden: !selectedExercise.hidden })}
+        onAddToUnit={(unitId) => onAddExercisesToUnit(unitId, [selectedExercise.id as ExId])}
+        onRemoveFromUnit={(unitId) => onRemoveExerciseFromUnit(unitId, String(selectedExercise.id))}
       />
     );
   }
