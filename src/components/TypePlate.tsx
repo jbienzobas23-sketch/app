@@ -96,13 +96,12 @@ const glyphAt = (m: string, cx: number, cy: number, k: number) => {
   return `translate(${cx - (w * k) / 2} ${cy - (h * k) / 2}) scale(${k})`;
 };
 
-// Placa combinada (M2.5, rediseñada según la maqueta de Jon 2026-07-04): UNA
-// sola placa cuyo fondo es el tinte del modelo principal, con una "baldosa"
-// redondeada del tinte secundario asomando por la esquina inferior derecha
-// (sin costura blanca: los tintes se tocan en una curva suave). El glifo
-// principal va grande arriba-izquierda; el secundario, menor, centrado en su
-// baldosa — jerarquía clara y ambos legibles, nada de sectores con glifos
-// enanos. Con 3 modelos (puerta M7): baldosas arriba-derecha y abajo.
+// Placa combinada (M2.5, según la maqueta de Jon 2026-07-04): UNA sola placa
+// partida en zonas de ÁREA IGUAL que se tocan en una curva suave (sin costura
+// blanca), y un glifo DEL MISMO TAMAÑO centrado en cada zona — sin jerarquía
+// entre modelos. Con dos: mitades diagonales (principal arriba-izquierda,
+// secundario abajo-derecha). Con tres (puerta M7): izquierda, arriba-derecha
+// y abajo. La curva sale del rx grande de la "baldosa" superpuesta.
 interface ModelPlateProps { models: string[]; size?: number; radius?: number; style?: CSSProperties; }
 export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlateProps) {
   // Mínimo 36px: por debajo, el glifo secundario deja de leerse.
@@ -120,17 +119,20 @@ export function ModelPlate({ models, size = 36, radius = 10, style }: ModelPlate
         <rect width="48" height="48" fill={tint(m0)} />
         {models.length >= 3 ? (
           <>
-            <rect x="25" y="-9" width="33" height="33" rx="12" fill={tint(m1)} />
-            <rect x="15" y="27" width="42" height="30" rx="12" fill={tint(m2)} />
-            <g transform={glyphAt(m0, 13, 12, 0.8)}    style={{ color: accent(m0) }}><Glyph model={m0} /></g>
-            <g transform={glyphAt(m1, 37, 10.5, 0.58)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
-            <g transform={glyphAt(m2, 33.5, 38.5, 0.58)} style={{ color: accent(m2) }}><Glyph model={m2} /></g>
+            {/* Tres tercios: izquierda · arriba-derecha · abajo-derecha, glifos iguales. */}
+            <rect x="24" y="-10" width="36" height="34" rx="14" fill={tint(m1)} />
+            <rect x="20" y="26" width="40" height="32" rx="14" fill={tint(m2)} />
+            <g transform={glyphAt(m0, 12, 22, 0.72)}   style={{ color: accent(m0) }}><Glyph model={m0} /></g>
+            <g transform={glyphAt(m1, 36.5, 11, 0.72)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
+            <g transform={glyphAt(m2, 35, 37, 0.72)}   style={{ color: accent(m2) }}><Glyph model={m2} /></g>
           </>
         ) : (
           <>
-            <rect x="23" y="23" width="34" height="34" rx="12" fill={tint(m1)} />
-            <g transform={glyphAt(m0, 15.5, 14.5, 0.95)} style={{ color: accent(m0) }}><Glyph model={m0} /></g>
-            <g transform={glyphAt(m1, 35.5, 35.5, 0.72)} style={{ color: accent(m1) }}><Glyph model={m1} /></g>
+            {/* Mitades diagonales de área igual (la curva es el rx grande de la
+                baldosa) y glifos del MISMO tamaño, uno centrado en cada mitad. */}
+            <rect x="14" y="14" width="44" height="44" rx="20" fill={tint(m1)} />
+            <g transform={glyphAt(m0, 15, 14.5, 0.9)} style={{ color: accent(m0) }}><Glyph model={m0} /></g>
+            <g transform={glyphAt(m1, 34, 34, 0.9)}   style={{ color: accent(m1) }}><Glyph model={m1} /></g>
           </>
         )}
       </g>
