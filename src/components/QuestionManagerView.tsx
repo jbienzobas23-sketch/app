@@ -1,17 +1,20 @@
 // ═══ QUESTIONMANAGERVIEW (EDICIÓN DE PREGUNTAS) ══════════════════════════════
 // Extraída de teacher.jsx (Fase 2, subdivisión).
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import type { Exercise, Question } from "../lib/types.js";
-import { C, S, FONT_SANS } from "../theme/tokens.js";
+import { C, S, F, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { questionScopeOf } from "../lib/domain.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
-import { ConfirmModal, CircleButton } from "./primitives.jsx";
+import { ConfirmModal, CircleButton, Menu } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { QuestionMinimap } from "./QuestionMinimap.js";
 import { QuestionEditorModal } from "./modals.js";
+
+// Ítem del menú ⋯ de cada pregunta (mover/duplicar/eliminar).
+const MENU_ITEM: CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", textAlign: "left", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12.5, color: C.ink2 };
 
 // En el gestor de preguntas cada pregunta tiene fragmento (start/end) definido.
 type QuizQuestion = Question & { audioStart: number; audioEnd: number };
@@ -68,12 +71,6 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
       return next;
     });
   };
-  // Ordena por inicio de fragmento; las de obra (sin tiempos) van al final (M6).
-  const sortByTime = () => setQuestions((prev) => {
-    const frag = prev.filter((q) => questionScopeOf(q) === "fragmento").sort((a, b) => a.audioStart - b.audioStart);
-    const obra = prev.filter((q) => questionScopeOf(q) === "obra");
-    return [...frag, ...obra];
-  });
   const duplicateQuestion = (q: QuizQuestion) => {
     const shift = 0.5;
     const isObra = questionScopeOf(q) === "obra";
@@ -139,14 +136,17 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
 
   return (
     <div style={S.app}>
-      <div style={S.page}>
+      {/* Clic fuera de las tarjetas (y fuera del área de audio) → deselecciona
+          la pregunta que estuviera activa (Jon 2026-07-06). Las tarjetas y la
+          sección de audio cortan la propagación para conservar su propia lógica. */}
+      <div style={S.page} onClick={() => setSelectedQId(null)}>
         <div style={{ ...S.row, justifyContent: "space-between", marginBottom: 18 }}>
           <button onClick={guardedOnBack} style={{ ...S.btn, padding: "6px 14px", fontSize: 13 }}>← Volver</button>
           <div style={{ fontWeight: 600, color: C.ink, fontSize: 15, textAlign: "center", flex: 1 }}>{exercise.title} — Preguntas</div>
           <button onClick={() => onSave(questions)} style={S.btnPrimary}>Guardar</button>
         </div>
 
-        <section style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 20 }}>
+        <section onClick={(e) => e.stopPropagation()} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 14px 12px", marginBottom: 20 }}>
           {hasAudio && !audioReady && !audioError && <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>Cargando audio…</div>}
           {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 8 }}>{audioError}</div>}
 
@@ -184,29 +184,6 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             );
           })()}
 
-          {selectedQId && (() => {
-            const selQ   = questions.find((q) => q.id === selectedQId);
-            const selIdx = questions.findIndex((q) => q.id === selectedQId);
-            if (!selQ) return null;
-            const selObra = questionScopeOf(selQ) === "obra";
-            return (
-              <div onMouseDown={(e) => e.stopPropagation()}
-                style={{ ...S.row, gap: 8, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", marginBottom: 6, fontSize: 11 }}>
-                <span style={{ fontFamily: FONT_SANS, fontWeight: 700, color: C.quiz }}>P{selIdx + 1}</span>
-                {selObra ? (
-                  <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz, flex: "1 1 160px" }}>Obra completa</span>
-                ) : (
-                  <>
-                    <span style={{ fontFamily: FONT_SANS, color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{fmtClock(selQ.audioStart)} → {fmtClock(selQ.audioEnd)}</span>
-                    <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>{fmtClock(selQ.audioEnd - selQ.audioStart)}</span>
-                    <span style={{ color: C.muted, fontSize: 10, flex: "1 1 160px" }}>Arrastra el bloque para mover · arrastra los bordes para ajustar</span>
-                  </>
-                )}
-                <button onClick={() => { setEditingQ(selQ); setSelectedQId(null); }} style={{ ...S.btn, padding: "3px 10px", fontSize: 11 }}>Editar contenido</button>
-              </div>
-            );
-          })()}
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12 }}>
             <div />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -221,24 +198,14 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
           </div>
         </section>
 
-        <div style={{ ...S.row, justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-          <h2 style={{ ...S.h2, margin: 0 }}>Preguntas ({questions.length})</h2>
-          <div style={{ ...S.row, gap: 8 }}>
-            {questions.length > 1 && (
-              <button onClick={sortByTime} style={{ ...S.btn, fontSize: 12.5 }} title="Reordena las preguntas según su inicio en el audio">
-                Ordenar por tiempo
-              </button>
-            )}
-            {/* BUG FIX: el original usaba timeRef.current (undefined en este componente).
-                Ahora se pasa `time` directamente, que ya está disponible del hook. */}
-            <button onClick={() => setEditingQ({ _new: true, defaultStart: time })} style={S.btnPrimary}>
-              + Añadir aquí
-            </button>
-          </div>
+        <div style={{ ...S.row, justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          <h2 style={{ ...S.h2, margin: 0 }}>Preguntas</h2>
+          {/* BUG FIX: el original usaba timeRef.current (undefined en este componente).
+              Ahora se pasa `time` directamente, que ya está disponible del hook. */}
+          <button onClick={() => setEditingQ({ _new: true, defaultStart: time })} style={S.btnPrimary}>
+            + Nueva pregunta
+          </button>
         </div>
-        <p style={{ color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
-          Sitúate en el punto del audio deseado y pulsa "+ Añadir aquí" para usar ese instante como inicio sugerido del fragmento.
-        </p>
 
         {questions.length === 0 && (
           <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem" }}>
@@ -246,64 +213,67 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
           </div>
         )}
 
-        {questions.map((q, idx) => (
-          <div key={q.id} style={S.card}>
-            <div style={{ ...S.row, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                <div style={{ ...S.row, gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                  <span style={{ ...S.badge, background: C.line, color: C.muted }}>P{idx + 1}</span>
-                  <span style={{ ...S.badge, background: q.type === "test" ? "rgba(63,155,91,0.12)" : q.type === "corta" ? "rgba(154,79,184,0.12)" : "rgba(47,111,184,0.12)", color: q.type === "test" ? C.fnT : q.type === "corta" ? C.fnI : C.quiz }}>{q.type === "test" ? "Test" : q.type === "corta" ? "Corta" : "Desarrollo"}</span>
-                  {questionScopeOf(q) === "obra" ? (
-                    <span style={{ ...S.badge, background: "rgba(47,111,184,0.10)", color: C.quiz }}>Obra completa</span>
-                  ) : (
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(q.audioStart)} – {fmtClock(q.audioEnd)}</span>
-                  )}
-                  {q.type === "test" && (q.points ?? 1) !== 1 && (
-                    <span style={{ ...S.badge, background: C.paper2, color: C.muted }}>{q.points} pts</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 14, color: C.ink, marginBottom: q.type === "desarrollo" ? 0 : 6 }}>{q.text}</div>
-                {q.type === "test" && (
-                  <div style={{ ...S.row, gap: 6, flexWrap: "wrap" }}>
-                    {(q.options ?? []).map((opt) => (
-                      <span key={opt.id} style={{
-                        ...S.badge, fontSize: 11,
-                        background: opt.id === q.correctOptionId ? "rgba(63,155,91,0.14)" : C.paper2,
-                        color:      opt.id === q.correctOptionId ? C.fnT : C.muted,
-                        border:     opt.id === q.correctOptionId ? `1px solid ${C.fnT}` : `1px solid transparent`,
-                      }}>
-                        {opt.id}) {opt.text}{opt.id === q.correctOptionId ? " ✓" : ""}
-                      </span>
-                    ))}
+        {questions.map((q, idx) => {
+          const isObra = questionScopeOf(q) === "obra";
+          const selected = selectedQId === q.id;
+          // Seleccionar una pregunta la resalta (onda + minimapa) y, SOLO si tiene
+          // fragmento, lleva el reproductor a su inicio; las de obra (sin
+          // fragmento) no mueven la reproducción — sin saltos (Jon 2026-07-06).
+          const select = () => { setSelectedQId(q.id); if (!isObra) seekTo(q.audioStart); };
+          return (
+            <div key={q.id} onClick={(e) => e.stopPropagation()}
+              style={{ ...S.card, border: `1px solid ${selected ? C.quiz : C.line}`, background: selected ? "rgba(47,111,184,0.04)" : C.paper, transition: "border-color .12s, background .12s" }}>
+              <div style={{ ...S.row, justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+                {/* El enunciado es el protagonista (serif grande). Toda esta zona
+                    es clicable: selecciona la pregunta y coloca el reproductor. */}
+                <div role="button" tabIndex={0} onClick={select}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
+                  style={{ flex: "1 1 240px", minWidth: 0, cursor: "pointer", display: "flex", gap: 12, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: 700, color: selected ? C.quiz : C.chevron, flexShrink: 0 }}>P{idx + 1}</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.28, marginBottom: q.type === "desarrollo" ? 0 : 8 }}>{q.text}</div>
+                    {q.type === "test" && (
+                      <div style={{ display: "flex", gap: 16, rowGap: 3, flexWrap: "wrap", fontSize: 12.5 }}>
+                        {(q.options ?? []).map((opt) => {
+                          const correct = opt.id === q.correctOptionId;
+                          return (
+                            <span key={opt.id} style={{ color: correct ? C.fnT : C.muted, fontWeight: correct ? 600 : 400 }}>
+                              {opt.id}) {opt.text}{correct ? " ✓" : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.type === "corta" && (
+                      <div style={{ fontSize: 12, color: C.muted }}>
+                        Aceptadas: {(q.accepted ?? []).join(" · ") || "—"}
+                      </div>
+                    )}
                   </div>
-                )}
-                {q.type === "corta" && (
-                  <div style={{ fontSize: 12, color: C.muted }}>
-                    Aceptadas: {(q.accepted ?? []).join(" · ") || "—"}
-                  </div>
-                )}
-              </div>
-              <div style={{ ...S.row, gap: 6 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <button onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}
-                    style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === 0 ? 0.4 : 1, cursor: idx === 0 ? "default" : "pointer" }}
-                    title="Subir">↑</button>
-                  <button onClick={() => moveQuestion(idx, 1)} disabled={idx === questions.length - 1}
-                    style={{ ...S.btn, padding: "1px 8px", fontSize: 11, lineHeight: 1.4, opacity: idx === questions.length - 1 ? 0.4 : 1, cursor: idx === questions.length - 1 ? "default" : "pointer" }}
-                    title="Bajar">↓</button>
                 </div>
-                {questionScopeOf(q) === "obra" ? (
-                  <button onClick={() => seekTo(0)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title="Escuchar desde el principio">▶ Obra</button>
-                ) : (
-                  <button onClick={() => seekTo(q.audioStart)} style={{ ...S.btn, padding: "6px 10px", fontSize: 12 }} title={`Ir a ${fmtClock(q.audioStart)}`}>▶ {fmtClock(q.audioStart)}</button>
-                )}
-                <button onClick={() => setEditingQ(q)} style={S.btn}>Editar</button>
-                <button onClick={() => duplicateQuestion(q)} style={{ ...S.btn, fontSize: 12 }} title="Duplicar esta pregunta">⧉ Duplicar</button>
-                <button onClick={() => setConfirmDel({ id: q.id, text: q.text ?? "" })} style={S.btnDanger}>Eliminar</button>
+                {/* Acciones mínimas: Editar; el resto (mover/duplicar/eliminar)
+                    al menú ⋯. El «▶ tiempo» se quitó: seleccionar la tarjeta ya
+                    coloca el reproductor (Jon 2026-07-06). */}
+                <div style={{ ...S.row, gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => setEditingQ(q)} style={{ ...S.btn, fontSize: 12.5 }}>Editar</button>
+                  <Menu align="right" ariaLabel="Más acciones" panelStyle={{ minWidth: 170 }}
+                    trigger={({ open, toggle, triggerRef }) => (
+                      <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label="Más acciones"
+                        style={{ ...S.btn, padding: "6px 10px", fontSize: 15, lineHeight: 1 }}>⋯</button>
+                    )}>
+                    {({ close }) => [
+                      ...(idx > 0 ? [<button key="up" role="menuitem" onClick={() => { close(); moveQuestion(idx, -1); }} style={MENU_ITEM}>Subir</button>] : []),
+                      ...(idx < questions.length - 1 ? [<button key="dn" role="menuitem" onClick={() => { close(); moveQuestion(idx, 1); }} style={MENU_ITEM}>Bajar</button>] : []),
+                      <button key="dup" role="menuitem" onClick={() => { close(); duplicateQuestion(q); }} style={MENU_ITEM}>Duplicar</button>,
+                      <hr key="hr" style={{ border: "none", borderTop: `1px solid ${C.line}`, margin: "4px 6px" }} />,
+                      <button key="del" role="menuitem" onClick={() => { close(); setConfirmDel({ id: q.id, text: q.text ?? "" }); }} style={{ ...MENU_ITEM, color: C.danger }}>Eliminar</button>,
+                    ]}
+                  </Menu>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <button onClick={() => onSave(questions)} style={{ ...S.btnPrimary, width: "100%", marginTop: 8, padding: 14, borderRadius: 12 }}>
           Guardar preguntas
