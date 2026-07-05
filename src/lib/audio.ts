@@ -40,6 +40,15 @@ export function buildFragmentWaveform(channelData: Float32Array, totalDuration: 
   return buildWaveformFromPCM(channelData.slice(startIdx, endIdx), e - s);
 }
 
+// Hash determinista de un id (string o number) a una semilla numérica, para
+// generar una onda sintética estable por parte/ejercicio (editor, M5.7).
+export function seedFromId(id: string | number | null | undefined): number {
+  const s = String(id ?? "x");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h || 1;
+}
+
 export function generateWaveform(seed: number, numSamples: number): number[] {
   let s = (seed * 1664525 + 1013904223) >>> 0;
   const raw: number[] = new Array(numSamples);

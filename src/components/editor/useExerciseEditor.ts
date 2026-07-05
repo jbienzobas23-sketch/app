@@ -132,20 +132,31 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
       [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
       return next;
     });
-  const duplicatePart = (partId: string) =>
+  // Devuelven el id de la parte nueva (o null si no procede) para que la UI
+  // pueda seleccionarla de inmediato (M5.7, selector de partes en pestañas).
+  const duplicatePart = (partId: string): string | null => {
+    if (parts.length >= MAX_PARTS) return null;
+    const idx = parts.findIndex((p) => p.id === partId);
+    if (idx < 0) return null;
+    const newId = `p${Date.now()}`;
     setParts((prev) => {
-      if (prev.length >= MAX_PARTS) return prev;
-      const idx = prev.findIndex((p) => p.id === partId);
-      if (idx < 0) return prev;
-      const clone: Part = { ...prev[idx], id: `p${Date.now()}` };
+      const i = prev.findIndex((p) => p.id === partId);
+      if (i < 0 || prev.length >= MAX_PARTS) return prev;
+      const clone: Part = { ...prev[i], id: newId };
       const next = [...prev];
-      next.splice(idx + 1, 0, clone);
+      next.splice(i + 1, 0, clone);
       return next;
     });
+    return newId;
+  };
   const removePart = (partId: string) =>
     setParts((prev) => (prev.length > 1 ? prev.filter((p) => p.id !== partId) : prev));
-  const addEmptyPart = () =>
-    setParts((prev) => prev.length < MAX_PARTS ? [...prev, { id: `p${Date.now()}`, points: 1 }] : prev);
+  const addEmptyPart = (): string | null => {
+    if (parts.length >= MAX_PARTS) return null;
+    const newId = `p${Date.now()}`;
+    setParts((prev) => prev.length < MAX_PARTS ? [...prev, { id: newId, points: 1 }] : prev);
+    return newId;
+  };
   const pickAudioForPart = (partId: string, audio: AudioItem) => {
     updatePartField(partId, {
       audioUrl: audio.url ?? null, audioName: audio.title ?? null,
@@ -175,6 +186,20 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     next.set(catId, btns);
     return next;
   });
+
+  // Categoría recién creada desde el paso Categorías (M5.8): la deja
+  // seleccionada con TODOS sus botones y siembra su entrada en el mapa (si no,
+  // aparecería marcada pero con 0 botones). Es "normal", así que si había una de
+  // cifrado (excluyente) la retira, igual que toggleCategory.
+  const selectNewCategory = (cat: Category) => {
+    setSelectedCategoryIds((prev) => {
+      const next = new Set(prev);
+      for (const cid of next) { const c = categories.find((x) => x.id === cid); if (c?.hasFigures) next.delete(cid); }
+      next.add(cat.id);
+      return next;
+    });
+    setSelectedButtonIds((prev) => new Map(prev).set(cat.id, new Set((cat.buttons ?? []).map((b) => b.id))));
+  };
 
   const urlReqRef = useRef(0);
   const handleUrlInput = (rawUrl: string) => {
@@ -290,7 +315,6 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
   const guardedOnPreview          = onPreview ? guardIfDirty(() => onPreview(exercise)) : undefined;
   const guardedOnManageOrRecord   = guardIfDirty(() => (onManageQuestions || onRecord)(exercise));
   const guardedOnRecordPart    = (partId: string) => guardIfDirty(() => onRecord(exercise, partId))();
-  const guardedOnPreviewPart   = (partId: string) => onPreview && guardIfDirty(() => onPreview(exercise, partId))();
   const guardedOnQuestionsPart = (partId: string) => guardIfDirty(() => (onManageQuestions || onRecord)(exercise, partId))();
 
   const handleSave = () => {
@@ -381,7 +405,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     // identidad
     title, setTitle,
     // categorías interactivo
-    selectedCategoryIds, selectedButtonIds, toggleCategory, toggleButton,
+    selectedCategoryIds, selectedButtonIds, toggleCategory, toggleButton, selectNewCategory,
     // audio / fragmento (single-part)
     audioUrl, audioName, audioDuration, waveformData, fragStart, setFragStart, fragEnd, setFragEnd,
     manualDuration, setManualDuration, handleUrlInput, clearAudio, handlePickFromLibrary,
@@ -400,7 +424,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     // guardado / dirty / guardias
     isDirty, canSave, handleSave, pendingAction, setPendingAction,
     guardedOnBack, guardedOnRecord, guardedOnPreview, guardedOnManageOrRecord,
-    guardedOnRecordPart, guardedOnPreviewPart, guardedOnQuestionsPart,
+    guardedOnRecordPart, guardedOnQuestionsPart,
     // borrar
     showConfirmDel, setShowConfirmDel,
     // derivados guardados

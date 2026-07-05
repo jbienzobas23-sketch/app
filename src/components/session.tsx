@@ -28,10 +28,15 @@ interface FragmentRangeSelectorProps {
   onClear: () => void;
   onDefine: () => void;
   audioUrl?: string | null;
+  // Onda de fondo (editor, M5.7): datos reales si se han decodificado, o una
+  // onda sintética determinista (seedFromId) cuando no hay. Puramente visual.
+  waveformData?: number[] | null;
+  waveformSeed?: number;
+  height?: number;
 }
 
 // Selector visual de fragmento (barra de rango con handles arrastrables)
-export function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl }: FragmentRangeSelectorProps) {
+export function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl, waveformData, waveformSeed, height = 32 }: FragmentRangeSelectorProps) {
   const barRef    = useRef<HTMLDivElement | null>(null);
   const audioRef  = useRef<HTMLAudioElement | null>(null);
   const rafRef    = useRef<number>(0);
@@ -167,6 +172,12 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   const endPct      = end   != null ? (end   / totalDuration) * 100 : null;
   const playheadPct = Math.min(100, (currentTime / totalDuration) * 100);
 
+  // Onda de fondo: real si ya se decodificó, si no una sintética estable.
+  const bars = useMemo(
+    () => (waveformData && waveformData.length ? waveformData : generateWaveform(waveformSeed ?? 1, 64)),
+    [waveformData, waveformSeed]
+  );
+
   const HANDLE_W = 12;
   const handleStyle = (pct: number): React.CSSProperties => ({
     position: "absolute", top: 0, bottom: 0,
@@ -242,7 +253,14 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
 
         {/* La barra principal (clicable para seek) */}
         <div ref={barRef} onMouseDown={beginSeek} onTouchStart={beginSeek}
-          style={{ position: "relative", height: 32, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+          style={{ position: "relative", height, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+
+          {/* Onda de fondo (decorativa) */}
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 1, padding: "4px 4px", pointerEvents: "none", overflow: "hidden", borderRadius: 6 }}>
+            {bars.map((v, i) => (
+              <div key={i} style={{ flex: 1, minWidth: 1, height: `${Math.round(v * 100)}%`, background: C.rail, borderRadius: 1 }} />
+            ))}
+          </div>
 
           {/* Región del fragmento */}
           {start != null && startPct != null && endPct != null && (

@@ -1,35 +1,48 @@
-// ═══ EDITORSHELL (M5) ═════════════════════════════════════════════════════════
-// Reescritura de ExerciseDetailView como asistente de 5 pasos (Identidad ·
-// Modelo · Audios · Claves · Revisión) según docs/especificacion_editor.html —
-// navegación libre, resumen vivo, ?paso= en la query. El estado y el guardado
-// viven en useExerciseEditor (extraídos verbatim); esto es la presentación.
-import { useState, useEffect } from "react";
-import type { Unit } from "../../lib/types.js";
+// ═══ EDITORSHELL (M5 · reordenado M5.8) ═══════════════════════════════════════
+// Reescritura de ExerciseDetailView como asistente por pasos, con navegación
+// libre, resumen vivo y ?paso= en la query. Orden pedido por Jon (2026-07-05):
+// Identidad (título + modelo) · Audios (+ compositor) · Categorías (solo
+// interactivo) · Claves · Revisión. Por eso el asistente tiene 5 pasos en
+// interactivo y 4 en cuestionario/esquema. El estado y el guardado viven en
+// useExerciseEditor (extraídos verbatim); esto es la presentación.
+import { useState } from "react";
+import type { Unit, Category } from "../../lib/types.js";
 import { C, F, S, FONT_SANS } from "../../theme/tokens.js";
 import { keyReadyOf, partsOf, partKeyReadyOf, modelsOf } from "../../lib/domain.js";
 import { parseHashQuery, setHashQuery } from "../../lib/routing.js";
+import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { ConfirmModal, Menu } from "../primitives.jsx";
 import { AudioLibraryPickerModal } from "../modals.js";
 import { useExerciseEditor, type ExerciseEditorProps, type EditorApi } from "./useExerciseEditor.js";
-import { Paso1Identidad } from "./Paso1Identidad.js";
-import { Paso2Modelo } from "./Paso2Modelo.js";
-import { Paso3Audios } from "./Paso3Audios.js";
-import { Paso4Claves } from "./Paso4Claves.js";
-import { Paso5Revision } from "./Paso5Revision.js";
+import { PasoIdentidad } from "./PasoIdentidad.js";
+import { PasoAudios } from "./PasoAudios.js";
+import { PasoCategorias } from "./PasoCategorias.js";
+import { PasoClaves } from "./PasoClaves.js";
+import { PasoRevision, type Falta } from "./PasoRevision.js";
 
-// Props de publicación (paso 5) — opcionales; se conectan desde TeacherDash.
+// Props de publicación (paso Revisión) — opcionales; se conectan desde TeacherDash.
 export interface EditorShellProps extends ExerciseEditorProps {
   units?: Unit[];
   onToggleVisibility?: () => void;
   onAddToUnit?: (unitId: string) => void;
   onRemoveFromUnit?: (unitId: string) => void;
+  onAddCategory?: (c: Category) => void;
 }
 
-const STEP_LABELS = ["Identidad", "Modelo", "Audios", "Claves", "Revisión"];
+type StepKey = "identidad" | "audios" | "categorias" | "claves" | "revision";
+const STEP_LABELS: Record<StepKey, string> = {
+  identidad: "Identidad", audios: "Audios", categorias: "Categorías", claves: "Claves", revision: "Revisión",
+};
+
+// Pasos vigentes: «categorias» solo cuando el modelo incluye interactivo.
+function stepKeysFor(ed: EditorApi): StepKey[] {
+  const hasInteractivo = ed.selectedModels.includes("interactivo");
+  return ["identidad", "audios", ...(hasInteractivo ? ["categorias" as const] : []), "claves", "revision"];
+}
 
 // ── Estado de cada paso (done · warn · todo) y sub-rótulo vivo ────────────────
 function stepStates(ed: EditorApi) {
-  const { title, selectedModels, isMultiPart, parts, hasExistingAudio, effDuration, exercise, isCreating } = ed;
+  const { title, isMultiPart, parts, hasExistingAudio, effDuration, exercise, isCreating, selectedCategoryIds } = ed;
   const partsN = isMultiPart ? parts.length : 1;
   const audiosOk = isMultiPart ? parts.every((p) => !!p.audioUrl || !!p.audioName) : (hasExistingAudio || effDuration > 0);
   // Claves: keyReadyOf sobre el ejercicio guardado (las claves se graban aparte).
@@ -41,29 +54,47 @@ function stepStates(ed: EditorApi) {
   const keysDone = !isCreating && totalKeys > 0 && readyKeys === totalKeys;
   const allReady = !isCreating && keyReadyOf(exercise) && audiosOk;
   const visible  = !isCreating && !exercise.hidden;
-  return {
-    1: { st: title.trim() ? "done" : "todo", sub: title.trim() || "Sin título" },
-    2: { st: "done", sub: selectedModels.join(" + ") },
-    3: { st: audiosOk ? "done" : "todo", sub: partsN > 1 ? `${partsN} audios` : (audiosOk ? "1 audio" : "Sin audio") },
-    4: { st: isCreating ? "todo" : (keysDone ? "done" : totalKeys ? "warn" : "todo"), sub: totalKeys ? `${readyKeys} de ${totalKeys} listas` : "—" },
-    5: { st: allReady && visible ? "done" : "todo", sub: isCreating ? "Sin guardar" : (visible ? "Visible" : "Oculto") },
-    _allReady: allReady, _visible: visible, _readyKeys: readyKeys, _totalKeys: totalKeys,
-  } as const;
+  const catN = selectedCategoryIds.size;
+  const states: Record<StepKey, { st: string; sub: string }> = {
+    identidad:  { st: title.trim() ? "done" : "todo", sub: title.trim() || "Sin título" },
+    audios:     { st: audiosOk ? "done" : "todo", sub: partsN > 1 ? `${partsN} audios` : (audiosOk ? "1 audio" : "Sin audio") },
+    categorias: { st: "done", sub: `${catN} categoría${catN === 1 ? "" : "s"}` },
+    claves:     { st: isCreating ? "todo" : (keysDone ? "done" : totalKeys ? "warn" : "todo"), sub: totalKeys ? `${readyKeys} de ${totalKeys} listas` : "—" },
+    revision:   { st: allReady && visible ? "done" : "todo", sub: isCreating ? "Sin guardar" : (visible ? "Visible" : "Oculto") },
+  };
+  return { ...states, _allReady: allReady, _visible: visible, _readyKeys: readyKeys, _totalKeys: totalKeys };
 }
 
 export function EditorShell(props: EditorShellProps) {
   const ed = useExerciseEditor(props);
-  const { units = [], onToggleVisibility, onAddToUnit, onRemoveFromUnit } = props;
+  const { units = [], onToggleVisibility, onAddToUnit, onRemoveFromUnit, onAddCategory } = props;
 
-  // ?paso= sincronizado con la query (helpers de F3).
-  const [step, setStepState] = useState<number>(() => {
-    const n = parseInt(parseHashQuery().paso || "1", 10);
-    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1;
+  const stepKeys = stepKeysFor(ed);
+
+  // ?paso= sincronizado con la query (helpers de F3), ahora por clave de paso.
+  const [step, setStepState] = useState<StepKey>(() => {
+    const p = parseHashQuery().paso as StepKey | undefined;
+    return p && (["identidad", "audios", "categorias", "claves", "revision"] as StepKey[]).includes(p) ? p : "identidad";
   });
-  const goStep = (n: number) => { setStepState(n); setHashQuery({ paso: n === 1 ? null : String(n) }); window.scrollTo(0, 0); };
+  // Si el paso vigente ya no existe (p. ej. se dejó de usar interactivo), cae al primero.
+  const activeStep: StepKey = stepKeys.includes(step) ? step : stepKeys[0];
+  const goStep = (k: string) => { setStepState(k as StepKey); setHashQuery({ paso: k === "identidad" ? null : k }); window.scrollTo(0, 0); };
 
   const states = stepStates(ed);
-  const isDesktop = useMediaMin(900);
+  const isDesktop = !useIsMobile(899);
+
+  const idx = stepKeys.indexOf(activeStep);
+  const total = stepKeys.length;
+  const prevKey = idx > 0 ? stepKeys[idx - 1] : null;
+  const nextKey = idx < total - 1 ? stepKeys[idx + 1] : null;
+
+  // Ancho ÚNICO de la columna de contenido para TODOS los pasos (Jon
+  // 2026-07-05: «iguala la anchura de todas las pestañas»). Sin esto cada paso
+  // ocupaba un ancho distinto (categorías estrecho, el resto a pantalla
+  // completa) y el contenido "saltaba" al navegar. 680 da holgura al paso más
+  // ancho (Claves en matriz, Revisión a dos columnas) sin sprawl horizontal. Se
+  // acota el paso ENTERO (contenido + pie) para que todo quede alineado.
+  const contentMax = 680;
 
   const overlineState = ed.isCreating || !states._allReady || !states._visible ? "Borrador" : "Lista ✓";
 
@@ -76,12 +107,12 @@ export function EditorShell(props: EditorShellProps) {
   ];
 
   const stepContent = (() => {
-    const common = { ed, goStep };
-    if (step === 1) return <Paso1Identidad {...common} />;
-    if (step === 2) return <Paso2Modelo {...common} />;
-    if (step === 3) return <Paso3Audios {...common} />;
-    if (step === 4) return <Paso4Claves {...common} />;
-    return <Paso5Revision {...common} units={units} onToggleVisibility={onToggleVisibility} onAddToUnit={onAddToUnit} onRemoveFromUnit={onRemoveFromUnit}
+    const common = { ed, goStep, num: idx + 1, total };
+    if (activeStep === "identidad")  return <PasoIdentidad {...common} />;
+    if (activeStep === "audios")     return <PasoAudios {...common} />;
+    if (activeStep === "categorias") return <PasoCategorias {...common} onAddCategory={onAddCategory} />;
+    if (activeStep === "claves")     return <PasoClaves {...common} />;
+    return <PasoRevision {...common} units={units} onToggleVisibility={onToggleVisibility} onAddToUnit={onAddToUnit} onRemoveFromUnit={onRemoveFromUnit}
       allReady={states._allReady} visible={states._visible} readyKeys={states._readyKeys} totalKeys={states._totalKeys} faltas={faltasList(ed, states)} />;
   })();
 
@@ -91,10 +122,10 @@ export function EditorShell(props: EditorShellProps) {
       <div style={{ position: "sticky", top: 0, zIndex: 40, background: "rgba(248,248,246,0.93)", backdropFilter: "blur(6px)", borderBottom: `1px solid ${C.line}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
         <button onClick={ed.guardedOnBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.ink2, padding: "6px 8px", borderRadius: 8, whiteSpace: "nowrap", fontFamily: F.sans }}>← Volver</button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <button onClick={() => goStep(5)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 9.5, letterSpacing: "1.4px", textTransform: "uppercase", color: C.muted, fontWeight: 600 }}>
+          <button onClick={() => goStep("revision")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 9.5, letterSpacing: "1.4px", textTransform: "uppercase", color: C.muted, fontWeight: 600 }}>
             Ejercicio · <span style={{ textDecoration: "underline", textDecorationColor: C.rail, textUnderlineOffset: 2 }}>{overlineState}</span>
           </button>
-          <button onClick={() => goStep(1)} title="Editar en Identidad" style={{ display: "block", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", maxWidth: "100%", fontFamily: F.serif, fontWeight: 700, fontSize: 19, lineHeight: 1.15, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <button onClick={() => goStep("identidad")} title="Editar en Identidad" style={{ display: "block", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", maxWidth: "100%", fontFamily: F.serif, fontWeight: 700, fontSize: 19, lineHeight: 1.15, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {ed.title.trim() || <span style={{ color: C.chevron, fontStyle: "italic" }}>Título del ejercicio</span>}
           </button>
         </div>
@@ -119,23 +150,27 @@ export function EditorShell(props: EditorShellProps) {
       </div>
 
       {/* ── Marco: carril (escritorio) + contenido ── */}
-      <div style={{ maxWidth: 1220, margin: "0 auto", padding: isDesktop ? "12px 14px 40px" : "12px 14px 96px", ...(isDesktop ? { display: "grid", gridTemplateColumns: "290px minmax(0,1fr)", gap: 22, alignItems: "start" } : {}) }}>
+      {/* Ancho del marco = rail(290) + gap(22) + contenido(680) + padding(28) =
+          1020, para que el CONJUNTO (rail + pasos) quede centrado en la página
+          (margin auto) sin hueco a la derecha (Jon 2026-07-06). */}
+      <div style={{ maxWidth: 1020, margin: "0 auto", padding: isDesktop ? "12px 14px 40px" : "12px 14px 96px", ...(isDesktop ? { display: "grid", gridTemplateColumns: "290px minmax(0,1fr)", gap: 22, alignItems: "start" } : {}) }}>
         {isDesktop ? (
           <aside style={{ position: "sticky", top: 72 }}>
             {states._allReady && states._visible && (
               <div style={{ borderRadius: 10, padding: "9px 12px", fontSize: 12.5, fontWeight: 600, background: "#eef4ee", border: "1px solid #cfe0cf", color: C.fnT, margin: "11px 11px 5px" }}>✓ Lista para alumnos</div>
             )}
-            <div style={{ ...S.card, padding: 7, marginBottom: 0 }}>
-              {[1, 2, 3, 4, 5].map((n) => {
-                const s = states[n as 1 | 2 | 3 | 4 | 5];
-                const cur = step === n;
+            <div style={{ ...S.card, padding: 8, marginBottom: 0 }}>
+              {stepKeys.map((k, i) => {
+                const s = states[k];
+                const cur = activeStep === k;
                 return (
-                  <button key={n} onClick={() => goStep(n)}
-                    style={{ display: "flex", gap: 11, alignItems: "center", width: "100%", textAlign: "left", padding: 9, borderRadius: 9, border: "none", cursor: "pointer", position: "relative", background: cur ? C.field : "transparent" }}>
-                    <StepNum n={n} st={s.st} cur={cur} />
+                  <button key={k} onClick={() => goStep(k)}
+                    style={{ display: "flex", gap: 12, alignItems: "center", width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 10, border: "none", cursor: "pointer", position: "relative", background: cur ? C.field : "transparent" }}>
+                    <StepNum n={i + 1} st={s.st} cur={cur} />
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <b style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{STEP_LABELS[n - 1]}</b>
-                      <span style={{ display: "block", fontSize: 11, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{s.sub}</span>
+                      {/* Serif para el nombre del paso (misma jerarquía que un nombre de fila en el resto de la app: alumno, grupo, unidad…), no sans-serif de UI. */}
+                      <b style={{ display: "block", fontFamily: F.serif, fontSize: 17, fontWeight: 600, lineHeight: 1.2, color: C.ink }}>{STEP_LABELS[k]}</b>
+                      <span style={{ display: "block", fontSize: 11.5, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{s.sub}</span>
                     </span>
                   </button>
                 );
@@ -144,13 +179,13 @@ export function EditorShell(props: EditorShellProps) {
           </aside>
         ) : (
           <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "2px 2px 10px" }}>
-            {[1, 2, 3, 4, 5].map((n) => {
-              const s = states[n as 1 | 2 | 3 | 4 | 5];
-              const cur = step === n;
+            {stepKeys.map((k, i) => {
+              const s = states[k];
+              const cur = activeStep === k;
               return (
-                <button key={n} onClick={() => goStep(n)}
+                <button key={k} onClick={() => goStep(k)}
                   style={{ display: "flex", gap: 7, alignItems: "center", border: `1px solid ${C.rail}`, background: cur ? C.ink : C.paper, color: cur ? C.paper : C.ink2, borderRadius: 999, padding: "6px 11px 6px 7px", fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" }}>
-                  <StepNum n={n} st={s.st} cur={cur} mobile />{STEP_LABELS[n - 1]}
+                  <StepNum n={i + 1} st={s.st} cur={cur} mobile />{STEP_LABELS[k]}
                 </button>
               );
             })}
@@ -158,24 +193,26 @@ export function EditorShell(props: EditorShellProps) {
         )}
 
         <main>
-          {stepContent}
-          {/* Pie de paso (escritorio) */}
-          {isDesktop && step < 5 && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18, gap: 10 }}>
-              <span>{step > 1 && <button onClick={() => goStep(step - 1)} style={{ ...S.btn }}>← {STEP_LABELS[step - 2]}</button>}</span>
-              <button onClick={() => goStep(step + 1)} style={{ ...S.btnPrimary }}>{STEP_LABELS[step]} →</button>
-            </div>
-          )}
+          <div style={contentMax ? { maxWidth: contentMax } : undefined}>
+            {stepContent}
+            {/* Pie de paso (escritorio) */}
+            {isDesktop && nextKey && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18, gap: 10 }}>
+                <span>{prevKey && <button onClick={() => goStep(prevKey)} style={{ ...S.btn }}>← {STEP_LABELS[prevKey]}</button>}</span>
+                <button onClick={() => goStep(nextKey)} style={{ ...S.btnPrimary }}>{STEP_LABELS[nextKey]} →</button>
+              </div>
+            )}
+          </div>
         </main>
       </div>
 
       {/* Pie inferior fijo (móvil) */}
       {!isDesktop && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(6px)", borderTop: `1px solid ${C.line}`, padding: "10px 14px calc(10px + env(safe-area-inset-bottom))", display: "flex", gap: 10 }}>
-          {step < 5 ? (
+          {nextKey ? (
             <>
-              {step > 1 && <button onClick={() => goStep(step - 1)} style={{ ...S.btn, flex: 1, padding: 11 }}>← Anterior</button>}
-              <button onClick={() => goStep(step + 1)} style={{ ...S.btnPrimary, flex: 1, padding: 11 }}>{STEP_LABELS[step]} →</button>
+              {prevKey && <button onClick={() => goStep(prevKey)} style={{ ...S.btn, flex: 1, padding: 11 }}>← Anterior</button>}
+              <button onClick={() => goStep(nextKey)} style={{ ...S.btnPrimary, flex: 1, padding: 11 }}>{STEP_LABELS[nextKey]} →</button>
             </>
           ) : (
             <>
@@ -222,25 +259,14 @@ function StepNum({ n, st, cur, mobile = false }: { n: number; st: string; cur: b
   );
 }
 
-// Lista de faltas para el paso 5 (revisión por excepciones).
-function faltasList(ed: EditorApi, states: ReturnType<typeof stepStates>): { txt: string; go: number }[] {
-  const f: { txt: string; go: number }[] = [];
-  if (!ed.title.trim()) f.push({ txt: "Falta el título", go: 1 });
+// Lista de faltas para el paso Revisión (revisión por excepciones). Cada falta
+// enlaza por CLAVE de paso (no por número), robusto al recuento dinámico.
+function faltasList(ed: EditorApi, states: ReturnType<typeof stepStates>): Falta[] {
+  const f: Falta[] = [];
+  if (!ed.title.trim()) f.push({ txt: "Falta el título", go: "identidad", actionLabel: "Ir a Identidad →" });
   const audiosOk = ed.isMultiPart ? ed.parts.every((p) => !!p.audioUrl || !!p.audioName) : (ed.hasExistingAudio || ed.effDuration > 0);
-  if (!audiosOk) f.push({ txt: "Añade el primer audio", go: 3 });
-  else if (states._totalKeys > 0 && states._readyKeys < states._totalKeys) f.push({ txt: `Claves incompletas (${states._readyKeys} de ${states._totalKeys})`, go: 4 });
-  if (!ed.isCreating && !states._visible) f.push({ txt: "Oculto para alumnos", go: 5 });
+  if (!audiosOk) f.push({ txt: "Añade el primer audio", go: "audios", actionLabel: "Ir a Audios →" });
+  else if (states._totalKeys > 0 && states._readyKeys < states._totalKeys) f.push({ txt: `Claves incompletas (${states._readyKeys} de ${states._totalKeys})`, go: "claves", actionLabel: "Ir a Claves →" });
+  if (!ed.isCreating && !states._visible) f.push({ txt: "Oculto para alumnos", go: null, vis: true, actionLabel: "Hacer visible" });
   return f;
-}
-
-// Hook minimal de media-query (escritorio ≥ px).
-function useMediaMin(px: number): boolean {
-  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia(`(min-width:${px}px)`).matches);
-  useEffect(() => {
-    const mq = window.matchMedia(`(min-width:${px}px)`);
-    const on = () => setM(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, [px]);
-  return m;
 }

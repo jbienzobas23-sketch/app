@@ -1046,6 +1046,7 @@ export function TeacherDash({
         onCreate={(newEx) => handleExerciseCreated(newEx, newExInUnit)}
         onDelete={() => {}}
         categories={categories}
+        onAddCategory={onAddCategory}
         audioLibrary={audioLibrary}
         units={units}
       />
@@ -1068,6 +1069,7 @@ export function TeacherDash({
         onCreate={() => {}}
         onDelete={() => { onDeleteExercise(selectedExercise.id); setSelectedExerciseId(null); }}
         categories={categories}
+        onAddCategory={onAddCategory}
         audioLibrary={audioLibrary}
         units={units}
         onToggleVisibility={() => onUpdateExercise(selectedExercise.id, { hidden: !selectedExercise.hidden })}

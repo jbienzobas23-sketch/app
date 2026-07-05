@@ -1,28 +1,57 @@
-// Paso 4 — Claves (M5.4): grabar la clave de corrección (interactivo/esquema) y
-// las preguntas (cuestionario), con las opciones de cada modelo. En multiparte,
-// la clave se graba por parte. Todo se reutiliza verbatim de ExerciseDetailView;
-// la grabación abre las vistas de siempre (?paso=4 se conserva al volver, M5.6).
+// Paso 4 — Claves (M5.4 + M5.7): grabar la clave de corrección (interactivo/
+// esquema) y las preguntas (cuestionario), con las opciones de cada modelo. En
+// multiparte se muestra como matriz partes×modelos en escritorio (tarjetas en
+// móvil), según docs/demo_editor_ejercicio_v3.html (stepClaves). Todo se
+// reutiliza verbatim de ExerciseDetailView; la grabación abre las vistas de
+// siempre (?paso=4 se conserva al volver, M5.6).
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { answerFor, partKeyReadyOf } from "../../lib/domain.js";
+import { MODEL_META } from "../../lib/modelMeta.js";
+import type { Exercise, Part } from "../../lib/types.js";
+import { useIsMobile } from "../../hooks/useIsMobile.js";
 import type { EditorApi } from "./useExerciseEditor.js";
 import { StepHead } from "./editorUi.js";
 
 // Bloque del esquema de referencia (clave) almacenado en el ejercicio.
 interface KeyBlock { level: number; start: number; end: number; label?: string; [k: string]: unknown; }
 
-export function Paso4Claves({ ed }: { ed: EditorApi; goStep: (n: number) => void }) {
+// Celda de la matriz (o fila, en móvil): chip de estado + acción, por parte y
+// modelo. El cuestionario se gestiona aparte (preguntas); el resto graba clave.
+function ClaveCell({ exercise, part, model, onRecordPart, onQuestionsPart }: {
+  exercise: Exercise; part: Part; model: string;
+  onRecordPart: (id: string) => void; onQuestionsPart: (id: string) => void;
+}) {
+  const ready = partKeyReadyOf(exercise, part, [model]);
+  const isQuiz = model === "cuestionario";
+  const label = model === "esquema" ? "Esquema" : isQuiz ? "Preguntas" : "Clave";
+  const color = isQuiz ? C.quiz : C.fnT;
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ ...S.badge, background: ready ? `${color}1f` : C.paper, color: ready ? color : C.muted, border: `1px solid ${ready ? `${color}4d` : C.line}`, whiteSpace: "nowrap" }}>
+        {ready ? `${label} ✓` : `Sin ${label.toLowerCase()}`}
+      </span>
+      <button type="button" onClick={() => (isQuiz ? onQuestionsPart(part.id) : onRecordPart(part.id))}
+        style={{ ...S.btn, padding: "3px 9px", fontSize: 11.5 }}>
+        {ready ? (isQuiz ? "Gestionar" : "Regrabar") : (isQuiz ? "Añadir" : "Grabar")}
+      </button>
+    </div>
+  );
+}
+
+export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: string) => void; num: number; total: number }) {
   const {
     isCreating, isMultiPart, exercise, selectedModels, onPreview,
     exMargin, setExMargin, exSchemaMargin, setExSchemaMargin,
     listenOnly, setListenOnly, immediateSchemaFeedback, setImmediateSchemaFeedback,
     schemaLevels, toggleSchemaLevel, answerStatsSaved, exQs,
     guardedOnRecord, guardedOnPreview, guardedOnManageOrRecord,
-    guardedOnRecordPart, guardedOnQuestionsPart, guardedOnPreviewPart,
+    guardedOnRecordPart, guardedOnQuestionsPart,
     parts,
   } = ed;
-  const { recorded, total } = answerStatsSaved;
+  const { recorded, total: totalCats } = answerStatsSaved;
+  const isDesktop = !useIsMobile(899);
 
   const hasInteractivo  = selectedModels.includes("interactivo");
   const hasEsquema      = selectedModels.includes("esquema");
@@ -30,56 +59,62 @@ export function Paso4Claves({ ed }: { ed: EditorApi; goStep: (n: number) => void
 
   return (
     <>
-      <StepHead n={4} title="Claves" desc={isCreating
-        ? "Guarda el ejercicio para poder grabar la clave de corrección."
-        : "Graba la clave de corrección y define las preguntas."} />
+      <StepHead num={num} total={total} title="Claves" />
 
       {isCreating ? (
         <div style={{ ...S.card, marginBottom: 0 }}>
           <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: 0 }}>
-            Aún no has guardado el ejercicio. Ve al paso 5 y pulsa «Guardar»: después podrás grabar la clave de corrección de cada modelo.
+            Aún no has guardado el ejercicio. Ve al último paso y pulsa «Guardar»: después podrás grabar la clave de corrección de cada modelo.
           </p>
         </div>
       ) : isMultiPart ? (
-        /* ── Claves por parte ── */
-        <div style={{ ...S.card, marginBottom: 0 }}>
-          <p style={{ fontSize: 12, color: C.muted, margin: "0 0 12px", lineHeight: 1.5 }}>
-            Graba la clave de cada parte; el alumno las resuelve todas en una sola entrega.
-          </p>
-          {parts.map((part, idx) => (
-            <div key={part.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 10, background: C.paper2 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Parte {idx + 1}</span>
-              <div style={{ ...S.row, gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                {selectedModels.map((m) => {
-                  const ready = partKeyReadyOf(exercise, part, [m]);
-                  const label = m === "interactivo" ? "Clave" : m === "esquema" ? "Esquema" : "Preguntas";
-                  return (
-                    <span key={m} style={{ ...S.badge, background: ready ? "rgba(63,155,91,0.12)" : C.paper, color: ready ? C.fnT : C.muted, border: `1px solid ${ready ? "rgba(63,155,91,0.3)" : C.line}` }}>
-                      {label} {ready ? "✓" : "—"}
-                    </span>
-                  );
-                })}
+        /* ── Claves por parte: matriz en escritorio, tarjetas en móvil ── */
+        isDesktop ? (
+          <div style={{ ...S.card, padding: "6px 8px", marginBottom: 0 }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: "32%", textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 9.5, letterSpacing: "1.2px", textTransform: "uppercase", color: C.muted, fontWeight: 600, fontFamily: FONT_SANS }}>Parte</th>
+                  {selectedModels.map((m) => (
+                    <th key={m} style={{ textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 9.5, letterSpacing: "1.2px", textTransform: "uppercase", color: C.muted, fontWeight: 600, fontFamily: FONT_SANS }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 3, display: "inline-block", marginRight: 6, border: "1px solid rgba(0,0,0,0.12)", background: MODEL_META[m]?.color, verticalAlign: -1 }} />
+                      {MODEL_META[m]?.label ?? m}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {parts.map((part, idx) => (
+                  <tr key={part.id}>
+                    <td style={{ padding: 10, borderBottom: `1px dashed ${C.line}`, verticalAlign: "middle" }}>
+                      <b style={{ fontSize: 13, color: C.ink }}>{idx + 1} · {part.title || `Parte ${idx + 1}`}</b>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{part.composerName || " "}</div>
+                    </td>
+                    {selectedModels.map((m) => (
+                      <td key={m} style={{ padding: 10, borderBottom: `1px dashed ${C.line}`, verticalAlign: "middle" }}>
+                        <ClaveCell exercise={exercise} part={part} model={m} onRecordPart={guardedOnRecordPart} onQuestionsPart={guardedOnQuestionsPart} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ ...S.card, marginBottom: 0 }}>
+            {parts.map((part, idx) => (
+              <div key={part.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 10, background: C.paper2 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>{idx + 1} · {part.title || `Parte ${idx + 1}`}</span>
+                {selectedModels.map((m) => (
+                  <div key={m} style={{ ...S.row, justifyContent: "space-between", padding: "6px 0", borderTop: `1px dashed ${C.line}` }}>
+                    <span style={{ fontSize: 12.5, color: C.ink2 }}>{MODEL_META[m]?.label ?? m}</span>
+                    <ClaveCell exercise={exercise} part={part} model={m} onRecordPart={guardedOnRecordPart} onQuestionsPart={guardedOnQuestionsPart} />
+                  </div>
+                ))}
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {(hasInteractivo || hasEsquema) && (
-                  <button type="button" onClick={() => guardedOnRecordPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
-                    Grabar clave
-                  </button>
-                )}
-                {hasCuestionario && (
-                  <button type="button" onClick={() => guardedOnQuestionsPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
-                    Preguntas
-                  </button>
-                )}
-                {onPreview && (
-                  <button type="button" onClick={() => guardedOnPreviewPart(part.id)} style={{ ...S.btn, flex: "1 1 auto", fontSize: 12.5, padding: "8px 12px" }}>
-                    Previsualizar
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       ) : (
         <>
           {/* ── Clave de corrección (interactivo) ── */}
@@ -112,7 +147,7 @@ export function Paso4Claves({ ed }: { ed: EditorApi; goStep: (n: number) => void
                 border:     recorded === 0 ? `1px solid ${C.ink}` : `1.5px solid ${C.line}`,
                 borderRadius: 12, padding: "13px 18px", cursor: "pointer", fontSize: 15, fontWeight: 600,
               }}>
-                <span>{recorded === 0 ? "Grabar clave" : recorded < total ? "Grabar resto" : "Regrabar clave"}</span>
+                <span>{recorded === 0 ? "Grabar clave" : recorded < totalCats ? "Grabar resto" : "Regrabar clave"}</span>
                 <span style={{ fontSize: 18, opacity: 0.55, fontWeight: 300 }}>→</span>
               </button>
             </div>
