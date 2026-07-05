@@ -6,6 +6,9 @@ import { createPortal } from "react-dom";
 import { C, S, F, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { scoreBg, scoreColor, textOn } from "../lib/color.js";
 import { fmtClock } from "../lib/time.js";
+import { nota10 } from "../lib/scoring.js";
+import { useIsMobile } from "../hooks/useIsMobile.js";
+import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
 // `dot`: aviso rojo en la esquina superior izquierda de la pestaña (p. ej.
@@ -17,7 +20,7 @@ interface ModalShellProps { children: ReactNode; width?: number; align?: "center
 interface ConfirmModalProps { message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; }
 interface ErrorMsgProps { children?: ReactNode; style?: CSSProperties; }
 interface TabBarProps { tabs: Tab[]; value: string; onChange: (id: string) => void; variant?: "primary"|"secondary"; }
-interface ScoreBadgeProps { score?: number | null; suffix?: string; emptyLabel?: string; status?: "auto" | "pendiente" | "corregido" | null; }
+interface ScoreBadgeProps { score?: number | null; emptyLabel?: string; status?: "auto" | "pendiente" | "corregido" | null; }
 interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; }
 interface CircleButtonProps { onClick?: () => void; disabled?: boolean; title?: string; children: ReactNode; size?: number; primary?: boolean; fontSize?: number; }
 interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: ReactNode; cancelLabel?: string; }
@@ -155,14 +158,15 @@ export function TabBar({ tabs, value, onChange, variant = "primary" }: TabBarPro
 // puede mostrar una nota (aún no hay una fórmula fiable para ese modelo — ver
 // resultStatusOf), así que se sustituye por una insignia ámbar con texto;
 // "corregido" añade un ✓ textual junto a la nota (nunca solo color, por la
-// regla de daltonismo del proyecto).
-export function ScoreBadge({ score, suffix = "%", emptyLabel = "—", status = null }: ScoreBadgeProps) {
+// regla de daltonismo del proyecto). `score` llega en 0–100 (almacenamiento)
+// pero se MUESTRA sobre 10 (Jon, 2026-07-05) — ver nota10 en lib/scoring.
+export function ScoreBadge({ score, emptyLabel = "—", status = null }: ScoreBadgeProps) {
   if (status === "pendiente") {
     return <span style={{ ...S.badge, background: "rgba(212,120,0,0.12)", color: "#d47800" }}>Pendiente</span>;
   }
   return (
     <span style={{ ...S.badge, background: scoreBg(score), color: scoreColor(score) }}>
-      {score == null ? emptyLabel : `${score}${suffix}${status === "corregido" ? " ✓" : ""}`}
+      {score == null ? emptyLabel : `${nota10(score)}${status === "corregido" ? " ✓" : ""}`}
     </span>
   );
 }
@@ -804,6 +808,60 @@ export function Menu({ trigger, children, align = "left", portal = false, ariaLa
   );
 }
 
+// ─── MobileHeaderMenu — menú "☰" de cuenta para la cabecera en móvil ──────────
+// Unifica en un solo desplegable (tres rayas) las acciones que en escritorio
+// viven sueltas en la cabecera: ajustes, cambiar profesor, salir y — para el
+// alumno — la paleta de color (Jon, 2026-07-05). Reduce el amontonamiento de la
+// cabecera en 375px. `palette` es opcional: si se pasa, añade la sección de
+// swatches (misma que PaletteMenuButton) al pie del menú.
+interface MobileHeaderMenuItem { label: string; onClick: () => void; danger?: boolean; }
+interface MobileHeaderMenuProps {
+  items: MobileHeaderMenuItem[];
+  palette?: { current?: string | null; onSelect: (id: string) => void };
+  ariaLabel?: string;
+}
+export function MobileHeaderMenu({ items, palette, ariaLabel = "Menú" }: MobileHeaderMenuProps) {
+  return (
+    <Menu portal align="right" ariaLabel={ariaLabel} panelStyle={{ minWidth: 200, padding: 6 }}
+      trigger={({ open, toggle, triggerRef }) => (
+        <button ref={triggerRef} onClick={toggle} title={ariaLabel} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open}
+          style={{ width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: open ? C.paper2 : "transparent", border: `1px solid ${open ? C.ink : C.line}`, color: open ? C.ink : "#555", cursor: "pointer", flexShrink: 0 }}>
+          <svg width={19} height={19} viewBox="0 0 20 20" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h14M3 10h14M3 14h14" /></svg>
+        </button>
+      )}>
+      {({ close }) => (
+        <>
+          {items.map((it, i) => (
+            <button key={i} role="menuitem" onClick={() => { close(); it.onClick(); }}
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "10px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13.5, fontWeight: 500, color: it.danger ? C.danger : C.ink2 }}>
+              {it.label}
+            </button>
+          ))}
+          {palette && (
+            <>
+              <div style={{ height: 1, background: C.line, margin: "5px 4px" }} />
+              <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, padding: "4px 8px 6px" }}>Paleta de color</div>
+              {SCHEMA_PALETTES.map((pal) => {
+                const active = (palette.current || SCHEMA_PALETTE_DEFAULT) === pal.id;
+                return (
+                  <button key={pal.id} role="menuitem" onClick={() => { palette.onSelect(pal.id); close(); }}
+                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", borderRadius: 7, cursor: "pointer", background: active ? C.paper2 : "transparent", border: "none", fontFamily: F.sans, textAlign: "left", width: "100%" }}>
+                    <span style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+                      {pal.parts.map((c, i) => <span key={i} style={{ width: 13, height: 16, background: c, display: "block" }} />)}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? C.ink : C.ink2 }}>{pal.name}</span>
+                    {active && <span style={{ fontSize: 12, color: C.ink, flexShrink: 0 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </>
+      )}
+    </Menu>
+  );
+}
+
 // ─── FilterDropdown — menú desplegable de selección múltiple para filtros ─────
 // Sobre el primitivo Menu (M3.5): comparte descarte (Escape/clic-fuera/foco) y
 // navegación por flechas. Multi-selección → tocar un ítem NO cierra (solo
@@ -884,6 +942,7 @@ const TYPE_CHIPS: Array<{ id: string; label: string; color?: string }> = [
 
 // ─── TeacherFilterBar — filtros de ejercicios para la vista del profesor ──────
 export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, filterComposers, setFilterComposers, allTags, filterTags, setFilterTags, trailing }: TeacherFilterBarProps) {
+  const isMobile = useIsMobile();
   const toggleComposer = (val: string) => setFilterComposers(filterComposers.includes(val) ? filterComposers.filter((x) => x !== val) : [...filterComposers, val]);
   const toggleTag      = (val: string) => setFilterTags(filterTags.includes(val) ? filterTags.filter((x) => x !== val) : [...filterTags, val]);
   const active = filterModel !== "all" || filterComposers.length > 0 || filterTags.length > 0;
@@ -895,9 +954,8 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
   const typeLabelToId = (lbl: string) => typeOpts.find((c) => c.label === lbl)?.id || "all";
   const typeIdToLabel = (id: string) => typeOpts.find((c) => c.id === id)?.label;
 
-  return (
-    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
+  const dropdowns = (
+    <>
       <FilterDropdown
         label="Tipo"
         options={typeOpts.map((c) => c.label)}
@@ -930,7 +988,26 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
           ✕ Limpiar
         </button>
       )}
+    </>
+  );
 
+  // Móvil (Jon, 2026-07-05): dos filas claras en vez de una fila que rompía de
+  // forma imprevisible — (1) buscador + «+ Nuevo» (lo más usado, arriba, a todo
+  // el ancho vía el flex del trailing), (2) chips de filtro. La etiqueta
+  // "Filtrar por:" sobra en 375px: los propios chips ya lo dicen.
+  if (isMobile) {
+    return (
+      <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        {trailing && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{trailing}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>{dropdowns}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
+      {dropdowns}
       {trailing && <><span style={{ flex: 1 }} />{trailing}</>}
     </div>
   );
@@ -938,6 +1015,7 @@ export function TeacherFilterBar({ filterModel, setFilterModel, allComposers, fi
 
 // ─── StudentFilterBar — filtros de ejercicios para la vista del alumno ────────
 export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setFilterDone, searchQuery, setSearchQuery }: StudentFilterBarProps) {
+  const isMobile = useIsMobile();
   const active = filterModel !== "all" || filterDone !== "all";
   // Mismos desplegables que la vista del profesor (Jon, 2026-07-04): "Tipo" y
   // "Estado" con semántica de radio — repetir la opción activa vuelve a todos.
@@ -946,9 +1024,8 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
     { id: "notdone", label: "Sin hacer" },
     { id: "done",    label: "Hechos"    },
   ];
-  return (
-    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
+  const dropdowns = (
+    <>
       <FilterDropdown
         label="Tipo"
         options={typeOpts.map((c) => c.label)}
@@ -969,21 +1046,39 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
           ✕ Limpiar
         </button>
       )}
-      {/* Buscador del alumno (Jon, 2026-07-04): mismo sitio que el del profesor
-          — al final de la fila de filtros, con su ✕ propio. */}
-      {setSearchQuery && (
-        <div style={{ position: "relative", marginLeft: "auto" }}>
-          <input type="text" value={searchQuery ?? ""} onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar…" title="Buscar por título o compositor"
-            style={{ ...S.input, width: 180, paddingRight: searchQuery ? 30 : undefined }} />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
-              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
-              ✕
-            </button>
-          )}
-        </div>
+    </>
+  );
+  // Buscador del alumno (Jon, 2026-07-04): mismo sitio que el del profesor.
+  const search = setSearchQuery && (
+    <div style={{ position: "relative", ...(isMobile ? { flex: 1, minWidth: 0 } : { marginLeft: "auto" }) }}>
+      <input type="text" value={searchQuery ?? ""} onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder="Buscar…" title="Buscar por título o compositor"
+        style={{ ...S.input, width: isMobile ? "100%" : 180, boxSizing: "border-box", paddingRight: searchQuery ? 30 : undefined }} />
+      {searchQuery && (
+        <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
+          style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
+          ✕
+        </button>
       )}
+    </div>
+  );
+
+  // Móvil (Jon, 2026-07-05): mismas dos filas que la barra del profesor —
+  // buscador a todo el ancho arriba, chips de filtro debajo, sin etiqueta.
+  if (isMobile) {
+    return (
+      <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        {search && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{search}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>{dropdowns}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, marginRight: 2 }}>Filtrar por:</span>
+      {dropdowns}
+      {search}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAt, resolveOverlap, calcScore, calcQuestionnaireScore, calcSchemaPlacementScore,
-  interactiveDiagnostics, schemaDiagnostics, aggregateParts, gradeShort,
+  interactiveDiagnostics, interactiveFigureDiagnostics, schemaDiagnostics, aggregateParts, gradeShort, nota10,
 } from "./scoring.js";
 
 // Tests de caracterización: fijan el comportamiento ACTUAL para detectar
@@ -239,6 +239,50 @@ describe("interactiveDiagnostics", () => {
   });
 });
 
+describe("interactiveFigureDiagnostics (grados vs. cifrado, Jon 2026-07-06)", () => {
+  it("null si la clave no lleva cifrado (fig ausente en todos los intervalos)", () => {
+    const key = [{ fn: "T", start: 0, end: 10 }];
+    expect(interactiveFigureDiagnostics(key, key, 10, 1)).toBeNull();
+  });
+  it("grado y cifrado correctos → pct 100, sin fallos", () => {
+    const key = [{ fn: "I", start: 0, end: 10, fig: "t1" }];
+    const d = interactiveFigureDiagnostics(key, key, 10, 1);
+    expect(d.evaluable).toBeGreaterThan(0);
+    expect(d.pct).toBe(100);
+    expect(d.fallos).toEqual([]);
+  });
+  it("grado correcto pero cifrado distinto → NO evalúa como 100, registra un fallo con el grado correspondiente", () => {
+    const key     = [{ fn: "I", start: 0, end: 10, fig: "t0" }];
+    const student = [{ fn: "I", start: 0, end: 10, fig: "t1" }];
+    const d = interactiveFigureDiagnostics(key, student, 10, 1);
+    expect(d.pct).toBe(0);
+    expect(d.fallos).toHaveLength(1);
+    expect(d.fallos[0]).toMatchObject({ fn: "I", esperadoFig: "t0", marcadoFig: "t1" });
+  });
+  it("grado INCORRECTO → el instante no es evaluable para cifrado (no cuenta ni como acierto ni como fallo)", () => {
+    const key     = [{ fn: "I", start: 0, end: 10, fig: "t0" }];
+    const student = [{ fn: "V", start: 0, end: 10, fig: "t0" }]; // mismo fig, grado distinto
+    const d = interactiveFigureDiagnostics(key, student, 10, 1);
+    expect(d.evaluable).toBe(0);
+    expect(d.pct).toBeNull();
+    expect(d.fallos).toEqual([]);
+  });
+  it("mezcla: la mitad con cifrado correcto y la mitad con cifrado erróneo → pct ≈ 50", () => {
+    const key = [
+      { fn: "I", start: 0, end: 5,  fig: "t0" },
+      { fn: "V", start: 5, end: 10, fig: "D0" },
+    ];
+    const student = [
+      { fn: "I", start: 0, end: 5,  fig: "t0" },  // cifrado correcto
+      { fn: "V", start: 5, end: 10, fig: "D1" },  // grado correcto, cifrado erróneo
+    ];
+    const d = interactiveFigureDiagnostics(key, student, 10, 1);
+    expect(d.pct).toBe(50);
+    expect(d.fallos).toHaveLength(1);
+    expect(d.fallos[0]).toMatchObject({ fn: "V", esperadoFig: "D0", marcadoFig: "D1" });
+  });
+});
+
 describe("schemaDiagnostics", () => {
   it("null si no hay bloques clave", () => {
     expect(schemaDiagnostics([], [], 3)).toBeNull();
@@ -299,5 +343,24 @@ describe("aggregateParts", () => {
     const legacyParts = [{ id: "p1", points: 3 }, { id: "p2" }]; // p2 nunca tuvo el campo
     const scores = [100, 0];
     expect(aggregateParts(scores, legacyParts.map((p) => p.points ?? 1))).toBe(75); // (300+0)/4
+  });
+});
+
+describe("nota10 (presentación 0–10 de una nota almacenada 0–100)", () => {
+  it("entero cuando la décima es exacta", () => {
+    expect(nota10(70)).toBe("7");
+    expect(nota10(100)).toBe("10");
+    expect(nota10(0)).toBe("0");
+  });
+  it("un decimal con coma española cuando no es exacta", () => {
+    expect(nota10(33)).toBe("3,3");
+    expect(nota10(75)).toBe("7,5");
+  });
+  it("redondea las centésimas antes de dividir (67% → 6,7)", () => {
+    expect(nota10(66.6)).toBe("6,7");
+  });
+  it("sin nota → null", () => {
+    expect(nota10(null)).toBeNull();
+    expect(nota10(undefined)).toBeNull();
   });
 });

@@ -3,7 +3,9 @@
 // de intervalos. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { partSlotIndex, phraseSlotIndex } from "./palette.js";
 
-export interface Interval { start: number; end: number; fn: string; }
+// `fig` (opcional): id de cifrado de bajo (inversión) en categorías con
+// hasFigures — ver lib/figures.ts. Los ejercicios sin cifrado no lo llevan.
+export interface Interval { start: number; end: number; fn: string; fig?: string | null; }
 export interface SchemaBlock { id?: string; level: number; start: number; end: number; label?: string; }
 export interface Question { id: string; type?: string; correctOptionId?: string | null; points?: number; accepted?: string[]; }
 
@@ -187,6 +189,62 @@ export const interactiveDiagnostics = (
   };
 };
 
+// Como getAt, pero devuelve el intervalo completo (con `fig`) en vez de solo `fn`.
+const getIvAt = (intervals: Interval[], t: number): Interval | null => {
+  for (const iv of intervals) if (t >= iv.start && t < iv.end) return iv;
+  return null;
+};
+
+export interface FigureTramo { start: number; end: number; fn: string; esperadoFig: string | null; marcadoFig: string | null; }
+export interface FigureDiagnostics { evaluable: number; correct: number; pct: number | null; fallos: FigureTramo[]; }
+
+// Diagnóstico de CIFRADO (Jon, 2026-07-06): en categorías con hasFigures cada
+// intervalo lleva grado (fn) Y cifrado de bajo/inversión (fig) — son dos
+// preguntas distintas ("¿qué grado es?" / "¿qué inversión lleva?") y hasta
+// ahora la corrección solo evaluaba el grado (interactiveDiagnostics, basado en
+// fn). Esta función NO toca esa nota ni su diagnóstico; añade una dimensión
+// aparte, solo sobre los instantes donde el GRADO YA ES CORRECTO — acertar la
+// cifra cuando el grado está mal no significa nada (no hay "el cifrado de qué").
+// null si la clave no usa cifrado (exercise sin `fig`, o categoría sin hasFigures).
+export const interactiveFigureDiagnostics = (
+  key: Interval[],
+  student: Interval[],
+  duration: number,
+  margin = 1,
+): FigureDiagnostics | null => {
+  if (!key.some((iv) => iv.fig != null)) return null;
+  const STEP = 0.1;
+  let evaluable = 0, correct = 0;
+  const fallos: FigureTramo[] = [];
+  let curFallo: FigureTramo | null = null;
+
+  for (let t = 0; t < duration; t += STEP) {
+    const k = getIvAt(key, t);
+    if (!k) { if (curFallo) { fallos.push(curFallo); curFallo = null; } continue; }
+    // Mismo criterio de acierto de grado que interactiveDiagnostics: el más
+    // cercano dentro del margen con el mismo fn. Si no hay match de grado, este
+    // instante no es evaluable para cifrado (no sabemos "el cifrado de qué").
+    let matched: Interval | null = null, bestOffset = Infinity;
+    for (let d = -margin; d <= margin + STEP / 2; d += STEP) {
+      const s = getIvAt(student, t + d);
+      if (s && s.fn === k.fn && Math.abs(d) < bestOffset) { matched = s; bestOffset = Math.abs(d); }
+    }
+    if (!matched) { if (curFallo) { fallos.push(curFallo); curFallo = null; } continue; }
+    evaluable++;
+    const kFig = k.fig ?? null, sFig = matched.fig ?? null;
+    if (kFig === sFig) {
+      correct++;
+      if (curFallo) { fallos.push(curFallo); curFallo = null; }
+    } else {
+      if (curFallo && curFallo.esperadoFig === kFig && curFallo.fn === k.fn) curFallo.end = t + STEP;
+      else { if (curFallo) fallos.push(curFallo); curFallo = { start: t, end: t + STEP, fn: k.fn, esperadoFig: kFig, marcadoFig: sFig }; }
+    }
+  }
+  if (curFallo) fallos.push(curFallo);
+
+  return { evaluable, correct, pct: evaluable > 0 ? Math.round((correct / evaluable) * 100) : null, fallos };
+};
+
 const normalizeLabel = (s?: string | null): string =>
   (s ?? "").trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -267,4 +325,14 @@ export const aggregateParts = (scores: Array<number | null | undefined>, points:
     totalWeight += w;
   });
   return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
+};
+
+// Nota en escala académica 0–10 (Jon, 2026-07-05): las notas se ALMACENAN en
+// 0–100 (compatible con todos los resultados guardados y con scoreColor/
+// scoreBg), pero se MUESTRAN siempre sobre 10, con un decimal y coma española.
+// 33 → "3,3" · 70 → "7" · 75 → "7,5". null/undefined → null (sin nota).
+export const nota10 = (score100: number | null | undefined): string | null => {
+  if (score100 == null) return null;
+  const n = Math.round(score100) / 10;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(".", ",");
 };

@@ -6,11 +6,10 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { courseUnitList, unitExList, keyReadyOf, modelsOf } from "../lib/domain.js";
+import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, ProgressRing, EyeButton, EditIconButton, DeleteIconButton, CtaButton, Menu } from "./primitives.jsx";
+import { Chevron, ProgressRing, CtaButton, Menu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
-import { TypePlate } from "./TypePlate.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -132,11 +131,6 @@ export function CourseProgressBar({ num, total, width = 120, accent = C.ink }: {
 export function CourseCard({ course, units, exercises, role, results, groups, onOpen }: Omit<CoursesData, "courses"> & { course: Course; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
   const cs = courseProgress(course, units, exercises, role, results);
-  // Tipos de ejercicio presentes en el curso, en el orden canónico.
-  const present = new Set<string>();
-  courseUnitList(course, units, role).forEach((u) =>
-    unitExList(u, exercises, role).forEach((ex) => modelsOf(ex).forEach((m) => present.add(m))));
-  const courseModels = ["interactivo", "cuestionario", "esquema"].filter((m) => present.has(m));
   return (
     <button onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 14, minHeight: 172,
@@ -146,9 +140,9 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 7 }}>
-            Curso · {cs.units} {cs.units === 1 ? "unidad" : "unidades"}
+            {cs.units} {cs.units === 1 ? "unidad" : "unidades"}
           </div>
-          <h3 style={{ fontFamily: F.serif, fontSize: 26, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1.08, letterSpacing: "-0.015em", wordBreak: "break-word" }}>{course.name}</h3>
+          <h3 style={{ fontFamily: F.serif, fontSize: 32, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1.08, letterSpacing: "-0.015em", wordBreak: "break-word" }}>{course.name}</h3>
           {course.description && (
             <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14.5, color: C.ink2, marginTop: 6, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
               {course.description}
@@ -156,14 +150,9 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
           )}
           {role === "teacher" && <div style={{ marginTop: 7 }}><CourseVisBadge course={course} groups={groups} /></div>}
         </div>
-        <ProgressRing ready={cs.num} total={cs.total} size={44} stroke={4} />
+        <ProgressRing ready={cs.num} total={cs.total} size={60} stroke={5} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: "auto" }}>
-        {courseModels.length > 0 && (
-          <span style={{ display: "flex", gap: 5 }} aria-hidden="true">
-            {courseModels.map((m) => <TypePlate key={m} model={m} size={24} radius={7} />)}
-          </span>
-        )}
         <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, fontVariantNumeric: "tabular-nums" }}>
           {cs.num}/{cs.total} {role === "student" ? "completados" : "con clave"}
         </span>
@@ -507,13 +496,16 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
               const cs = courseProgress(c, units, exercises, role, results);
               return (
                 <button key={c.id} onClick={() => onOpenCourse(c.id)}
-                  style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 13, padding: "14px 14px", borderRadius: 13, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer" }}>
-                  <ProgressRing ready={cs.num} total={cs.total} size={44} stroke={4} />
+                  style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 15, padding: "20px 18px", borderRadius: 16, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", boxShadow: "0 1px 3px rgba(26,25,21,0.03)" }}>
+                  <ProgressRing ready={cs.num} total={cs.total} size={54} stroke={4.5} />
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: C.ink, lineHeight: 1.08, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, color: C.ink, lineHeight: 1.1, letterSpacing: "-0.01em", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{c.name}</span>
+                    {c.description && (
+                      <span style={{ display: "block", fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 4, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.description}</span>
+                    )}
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
                       {role === "teacher" && <CourseVisBadge course={c} groups={groups} />}
-                      <span style={{ fontFamily: F.sans, fontSize: 11.5, color: C.muted }}>{cs.units} ud · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
+                      <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
                     </span>
                   </span>
                   <ChevronRightIcon />
@@ -548,22 +540,25 @@ export function MobileUnitsScreen({
   onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop, onAfterDeleteCourse, askConfirm = noop,
 }: MobileUnitsScreenProps) {
   const cu = courseUnitList(course, units, role);
-  const cs = courseProgress(course, units, exercises, role, results);
   return (
     <div style={{ fontFamily: F.sans }}>
-      <MobileTopBar title="Cursos" onBack={onBack} />
-      <div style={{ paddingBottom: 14, marginBottom: 14, borderBottom: `1px solid ${C.line}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+      {/* Cabecera del curso (móvil, 2026-07-05): el «volver» ya no es una barra
+          aparte con su propio borde — es un chevron integrado a la izquierda del
+          título, en la misma fila que la insignia y el ⋯ (mismo patrón que el
+          breadcrumb de la pantalla de ejercicios). Sin barra de progreso 4/6:
+          cada unidad ya muestra su propio anillo debajo (como en escritorio). */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${C.line}` }}>
+        <button onClick={onBack} aria-label="Volver a cursos" style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={13} /></button>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ fontFamily: F.serif, fontSize: 24, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.06, letterSpacing: "-0.01em" }}>{course.name}</h3>
           {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
         </div>
-        <CourseProgressBar num={cs.num} total={cs.total} width={150} accent={role === "student" ? C.fnT : C.ink} />
         {role === "teacher" && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <EyeButton visible={!course.hidden} onClick={() => onUpdateCourse({ ...course, hidden: !course.hidden })} />
-            <EditIconButton onClick={() => onEditCourse(course)} title={`Editar curso "${course.name}"`} />
-            <DeleteIconButton onClick={() => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onAfterDeleteCourse?.(); })} title={`Eliminar curso "${course.name}"`} />
-          </div>
+          <KebabMenu title={`Acciones del curso "${course.name}"`} items={[
+            { label: course.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateCourse({ ...course, hidden: !course.hidden }) },
+            { label: "Editar curso", onClick: () => onEditCourse(course) },
+            { label: "Eliminar curso", danger: true, onClick: () => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onAfterDeleteCourse?.(); }) },
+          ]} />
         )}
       </div>
       <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 2px 10px" }}>Unidades</div>

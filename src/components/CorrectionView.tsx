@@ -5,7 +5,7 @@ import type { Exercise } from "../lib/types.js";
 import { C, S, FONT_SANS } from "../theme/tokens.js";
 import { scoreColor } from "../lib/color.js";
 import { partsOf, partToExercise, modelsOf, resultPartsOf } from "../lib/domain.js";
-import { aggregateParts } from "../lib/scoring.js";
+import { aggregateParts, nota10 } from "../lib/scoring.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 
 // ── Tipos y piezas troceadas (M3.4) ──────────────────────────────────────────
@@ -124,7 +124,7 @@ function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = fa
       {parts.map((p, i) => {
         const agg = partAggregates[i];
         const isActive = i === activeIdx;
-        const label = agg.pending ? "pendiente" : agg.score != null ? `${agg.score}%` : "—";
+        const label = agg.pending ? "pendiente" : nota10(agg.score) ?? "—";
         return (
           <button key={p.id} type="button" onClick={() => goToPart(i)}
             style={{
@@ -146,11 +146,13 @@ function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = fa
   const extraHeaderContent = (
     <>
       {overallScore != null && (
-        <div style={{ ...S.card, textAlign: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 48, fontWeight: 900, color: col, lineHeight: 1 }}>{overallScore}%</div>
-          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
+        // Franja compacta (Jon, 2026-07-05): nota + descripción en línea, sin
+        // el tarjetón centrado que dejaba medio ancho vacío a cada lado.
+        <div style={{ ...S.card, display: "flex", alignItems: "baseline", gap: 12, padding: "12px 18px", marginBottom: 16 }}>
+          <span style={{ fontSize: 32, fontWeight: 800, color: col, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(overallScore)}</span>
+          <span style={{ color: C.muted, fontSize: 13 }}>
             Nota agregada de {parts.length} partes{overallPending ? " · con partes pendientes de corrección" : ""}
-          </div>
+          </span>
         </div>
       )}
       {chips}

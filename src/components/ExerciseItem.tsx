@@ -185,15 +185,16 @@ export function ExerciseItem({
               </>
             ) : (
               <>
-                {/* Una sola fila de metadatos (Jon, 2026-07-04): duración y
-                    claves juntas, con el ⋯ aprovechando el hueco a la derecha
-                    — antes eran tres filas (duración / claves / ⋯ huérfano). */}
+                {/* Una sola fila de metadatos (Jon, 2026-07-04; alineación
+                    2026-07-05): duración, claves Y entregas en la misma línea
+                    (antes "N entregas" caía a una fila propia, desalineada con
+                    el resto) — con el ⋯ aprovechando el hueco a la derecha. */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, flex: 1, minWidth: 0 }}>
-                    {durationDetail}
+                  <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, flex: 1, minWidth: 0, display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 6, rowGap: 2 }}>
+                    <span>{durationDetail}</span>
                     {!keyReady && (
                       <>
-                        {" · "}
+                        <span>·</span>
                         <button onClick={() => onEdit?.(ex)} className="fa-pressable"
                           title="Faltan claves de corrección — abrir el editor"
                           style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 12, color: C.ink2, textDecoration: "underline", textUnderlineOffset: 2 }}>
@@ -202,6 +203,21 @@ export function ExerciseItem({
                               parte sintetizada, su título ES el del ejercicio. */}
                           {isMultiPart && firstIncompletePart && ` — falta ${(firstIncompletePart as { title?: string }).title || `Audio ${parts.indexOf(firstIncompletePart) + 1}`}`}
                         </button>
+                      </>
+                    )}
+                    {submissionsCount > 0 && (
+                      <>
+                        <span>·</span>
+                        <span style={{ color: C.ink2 }}>
+                          {submissionsCount} entrega{submissionsCount === 1 ? "" : "s"}
+                          {pendingCount > 0 && ` · ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`}
+                        </span>
+                        {pendingCount > 0 && onCorrect && (
+                          <button onClick={(e) => { e.stopPropagation(); onCorrect(ex); }} className="fa-pressable"
+                            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 12, fontWeight: 600, color: C.fnS, textDecoration: "underline" }}>
+                            → Corregir
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -213,20 +229,6 @@ export function ExerciseItem({
                     ]} />
                   )}
                 </div>
-                {submissionsCount > 0 && (
-                  <div style={{ fontFamily: F.sans, fontSize: 12.5, color: C.ink2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>
-                      {submissionsCount} entrega{submissionsCount === 1 ? "" : "s"}
-                      {pendingCount > 0 && ` · ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`}
-                    </span>
-                    {pendingCount > 0 && onCorrect && (
-                      <button onClick={(e) => { e.stopPropagation(); onCorrect(ex); }} className="fa-pressable"
-                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, color: C.fnS, textDecoration: "underline" }}>
-                        → Corregir
-                      </button>
-                    )}
-                  </div>
-                )}
                 {/* Acciones CON TEXTO (Jon, 2026-07-04): los iconos sueltos
                     (lápiz/play/ojo) no son intuitivos para usuarios nuevos.
                     Solo lo infrecuente/destructivo queda plegado en el ⋯. */}

@@ -21,10 +21,11 @@ describe("CorrectionView — despachador troceado (M3.4)", () => {
     const result: ExerciseResult = { type: "cuestionario", answers: { q1: "A" }, score: 100 };
     render(<CorrectionView exercise={exercise} result={result} onBack={() => {}} />);
     expect(screen.getByText("¿Primera?")).toBeInTheDocument();
-    expect(screen.getAllByText(/100%/).length).toBeGreaterThan(0);
+    // La nota se muestra en 0–10 (nota10): score 100 → "10".
+    expect(screen.getAllByText("10").length).toBeGreaterThan(0);
   });
 
-  it("interactivo: monta InteractiveCorrection y muestra el porcentaje de acierto", () => {
+  it("interactivo: monta InteractiveCorrection y muestra la nota de acierto en 0–10", () => {
     const exercise = mk({
       id: "i-1", title: "Interactivo demo", duration: 20, model: "interactivo",
       categories: [{ id: "default", name: "T/S/D", buttons: [{ id: "T", name: "Tónica", color: "#3F9B5B" }] }],
@@ -32,13 +33,15 @@ describe("CorrectionView — despachador troceado (M3.4)", () => {
     });
     const result: ExerciseResult = { type: "interactivo", categoryId: "default", intervals: [{ fn: "T", start: 0, end: 20 }], score: 88 };
     render(<CorrectionView exercise={exercise} result={result} onBack={() => {}} />);
-    expect(screen.getAllByText(/88%/).length).toBeGreaterThan(0);
+    // score 88 (almacenado 0–100) → "8,8" en pantalla.
+    expect(screen.getAllByText("8,8").length).toBeGreaterThan(0);
   });
 
-  it("esquema (alumno): monta SchemaCorrection y muestra la nota de colocación", () => {
+  it("esquema (alumno): monta SchemaCorrection y muestra la nota de colocación en 0–10", () => {
     const exercise = mk({ id: "s-1", title: "Esquema demo", duration: 40, model: "esquema", categories: [] });
     const result: ExerciseResult = { type: "esquema", blocks: [{ id: "b1", level: 1, start: 0, end: 10, label: "A" }], placementScore: 75, score: 75 };
     render(<CorrectionView exercise={exercise} result={result} onBack={() => {}} />);
-    expect(screen.getAllByText(/75%/).length).toBeGreaterThan(0);
+    // placementScore 75 → "7,5" en pantalla.
+    expect(screen.getAllByText("7,5").length).toBeGreaterThan(0);
   });
 });

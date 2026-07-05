@@ -92,6 +92,24 @@ export function SetupView({ onSetup }: SetupViewProps) {
         <CtaButton full lg onClick={handleSubmit} disabled={!canSave}>
           {loading ? "Configurando…" : "Crear cuenta y comenzar →"}
         </CtaButton>
+
+        {/* Solo en `vite dev` (constante de build: en producción esta rama
+            desaparece). Recarga con `?local` para entrar al ejemplo de profesor
+            local sin pasar por esta primera configuración — así siempre hay una
+            vía de acceso aunque aún no exista ninguna cuenta. Ver App.tsx
+            LOCAL_MODE. Mismo botón que en HomeView. */}
+        {import.meta.env.DEV && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", margin: "22px 0 16px" }}>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, padding: "0 12px", whiteSpace: "nowrap" }}>beta local</span>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+            </div>
+            <GhostButton full lg onClick={() => { window.location.href = `${window.location.origin}${window.location.pathname}?local`; }}>
+              Ejemplo de profesor local
+            </GhostButton>
+          </>
+        )}
       </div>
     </div>
   );
@@ -207,6 +225,24 @@ export function HomeView({ onTeacher, onStudent }: HomeViewProps) {
           <CtaButton full lg onClick={onStudent}>Acceso alumno</CtaButton>
           <GhostButton full lg onClick={onTeacher}>Acceso profesor</GhostButton>
         </div>
+
+        {/* Solo en `vite dev` (import.meta.env.DEV es una constante de build: en
+            producción esta rama desaparece del bundle). Recarga con `?local`
+            para entrar directo al ejemplo de profesor local con datos de semilla
+            (cursos/ejercicios/alumnos ficticios, sin backend) — ver App.tsx
+            LOCAL_MODE. Distinto de "Profesor invitado" (sesión vacía sin datos). */}
+        {import.meta.env.DEV && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", margin: "22px 0 16px" }}>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, padding: "0 12px", whiteSpace: "nowrap" }}>beta local</span>
+              <div style={{ flex: 1, height: 1, background: C.line }} />
+            </div>
+            <GhostButton full lg onClick={() => { window.location.href = `${window.location.origin}${window.location.pathname}?local`; }}>
+              Ejemplo de profesor local
+            </GhostButton>
+          </>
+        )}
       </div>
     </div>
   );

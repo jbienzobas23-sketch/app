@@ -18,7 +18,10 @@ export function useInjectFonts(): void {
         // Fondo papel bajo todo (M0.7): sin esto, el hueco entre capas (fallback
         // de Suspense, remontaje al alternar modelo/parte, overscroll de iOS)
         // se ve blanco puro en vez del fondo de la app — un pestañeo visible.
-        + "html,body{background:#f8f8f6}"
+        // margin:0 elimina el margen por defecto del body (8px): sin él, un
+        // layout de altura de viewport (corrección) hereda 16px de scroll
+        // fantasma; el fondo ya cubría ese margen, así que no cambia nada visible.
+        + "html,body{background:#f8f8f6;margin:0}"
         + "#root{min-height:100dvh;background:#f8f8f6}"
         + "@keyframes faModelIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}"
         + "@keyframes faBarUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}"
@@ -58,7 +61,25 @@ export function useInjectFonts(): void {
         + "@media (prefers-reduced-motion:reduce){.fa-pop,.fa-expand,.fa-fade-in,.fa-sticky-bar,.fa-opt-in{animation:none!important;transition:none!important}}"
         // S.input fija outline:none sin alternativa — sin esto el foco de teclado
         // es invisible en inputs de credencial y numéricos (AA de teclado).
-        + "input:focus-visible,textarea:focus-visible,select:focus-visible{box-shadow:0 0 0 2px rgba(85,85,85,.4)}";
+        + "input:focus-visible,textarea:focus-visible,select:focus-visible{box-shadow:0 0 0 2px rgba(85,85,85,.4)}"
+        // Input de nota grande (corrección): sin las flechas del spinner numérico
+        // (afean el número grande) y con el placeholder de la nota automática en
+        // gris + peso normal, para que se distinga de una nota escrita a mano.
+        + ".fa-nota-input::-webkit-outer-spin-button,.fa-nota-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}"
+        + ".fa-nota-input{-moz-appearance:textfield;appearance:textfield}"
+        + ".fa-nota-input::placeholder{color:#b9b9b3;font-weight:600;opacity:1}"
+        + ".fa-nota-input:focus-visible{box-shadow:none;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}"
+        // Scrollbar que solo aparece al moverla O al pasar el ratón por encima
+        // (paneles con scroll propio, p. ej. la corrección de cuestionario):
+        // invisible en reposo; el hover la asoma para que se note que ahí hay
+        // más contenido, y "en uso" (clase .fa-scrolling, JS con temporizador)
+        // la mantiene mientras se scrollea. El track siempre transparente.
+        + ".fa-autohide-scroll{scrollbar-width:thin;scrollbar-color:transparent transparent}"
+        + ".fa-autohide-scroll:hover,.fa-autohide-scroll.fa-scrolling{scrollbar-color:rgba(26,25,21,.28) transparent}"
+        + ".fa-autohide-scroll::-webkit-scrollbar{width:7px}"
+        + ".fa-autohide-scroll::-webkit-scrollbar-track{background:transparent}"
+        + ".fa-autohide-scroll::-webkit-scrollbar-thumb{background:transparent;border-radius:8px;transition:background .15s ease}"
+        + ".fa-autohide-scroll:hover::-webkit-scrollbar-thumb,.fa-autohide-scroll.fa-scrolling::-webkit-scrollbar-thumb{background:rgba(26,25,21,.28)}";
       document.head.appendChild(style);
     }
     // Asegura el viewport responsive en móvil (si el HTML host no lo define)

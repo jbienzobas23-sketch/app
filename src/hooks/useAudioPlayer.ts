@@ -225,14 +225,18 @@ export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegi
     if (playingRef.current && bufferRef.current && ctxRef.current) { stopSource(); startSource(c); }
   };
 
-  // Saltar e iniciar reproducción (usado por QuestionnaireView)
+  // Saltar e iniciar reproducción (usado por QuestionnaireView y por los
+  // fragmentos de la corrección de cuestionario).
   const playFrom = (t: number) => {
     const c = Math.max(0, Math.min(dur, t));
     playOffsetRef.current = c; setTime(c);
     if (hasAudio && bufferRef.current && ctxRef.current) {
       stopSource();
       ctxRef.current.resume().then(() => { startSource(c); setPlaying(true); });
-    } else {
+    } else if (!hasAudio) {
+      // Modo simulado (sin audio real): el timer avanza `time`. Con audio pero
+      // aún SIN decodificar NO marcamos playing — antes quedaba "reproduciendo"
+      // sin fuente y el tiempo se congelaba (el botón parecía ir raro).
       setPlaying(true);
     }
   };

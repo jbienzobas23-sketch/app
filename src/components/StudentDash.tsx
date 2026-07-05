@@ -9,7 +9,7 @@ import { modelsOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
-import { Chevron, StudentFilterBar, Overline, GhostButton } from "./primitives.jsx";
+import { Chevron, StudentFilterBar, Overline, GhostButton, MobileHeaderMenu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 import { CoursesPages } from "./courses.jsx";
 import { PaletteMenuButton } from "./PaletteMenuButton.jsx";
@@ -112,15 +112,28 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
             <Overline>Alumno</Overline>
             <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
           </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
-            {onUpdatePalette && (
-              <PaletteMenuButton current={user.defaultPalette || SCHEMA_PALETTE_DEFAULT} onSelect={onUpdatePalette} />
-            )}
-            {!user.isGuest && onChangeTeacher && (
-              <GhostButton onClick={onChangeTeacher}>{isMobile ? "Profesor" : "Cambiar profesor"}</GhostButton>
-            )}
-            <GhostButton onClick={onLogout}>Salir</GhostButton>
-          </div>
+          {/* Móvil (Jon, 2026-07-05): paleta + cambiar profesor + salir se
+              pliegan en el menú «☰»; en escritorio siguen sueltos. */}
+          {isMobile ? (
+            <MobileHeaderMenu
+              ariaLabel="Menú de cuenta"
+              palette={onUpdatePalette ? { current: user.defaultPalette || SCHEMA_PALETTE_DEFAULT, onSelect: onUpdatePalette } : undefined}
+              items={[
+                ...(!user.isGuest && onChangeTeacher ? [{ label: "Cambiar profesor", onClick: onChangeTeacher }] : []),
+                { label: "Salir", onClick: onLogout },
+              ]}
+            />
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+              {onUpdatePalette && (
+                <PaletteMenuButton current={user.defaultPalette || SCHEMA_PALETTE_DEFAULT} onSelect={onUpdatePalette} />
+              )}
+              {!user.isGuest && onChangeTeacher && (
+                <GhostButton onClick={onChangeTeacher}>Cambiar profesor</GhostButton>
+              )}
+              <GhostButton onClick={onLogout}>Salir</GhostButton>
+            </div>
+          )}
         </div>
 
         {/* ── Página única (Jon, 2026-07-04): Cursos primero, "Todos los

@@ -12,7 +12,7 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPalet
 import { modelsOf, audioComposers, audioTags, resultStatusOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon } from "./primitives.jsx";
+import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon, MobileHeaderMenu } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab, KebabMenu } from "./courses.js";
@@ -124,10 +124,13 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
             allTags={allTags}               filterTags={filterTags}           setFilterTags={setFilterTags}
             trailing={
               <>
-                <div style={{ position: "relative" }}>
+                {/* En móvil el buscador se estira para llenar su fila (la barra
+                    lo coloca junto a «+ Nuevo» a todo el ancho); en escritorio
+                    conserva su ancho fijo al final de la fila de filtros. */}
+                <div style={{ position: "relative", ...(isMobile ? { flex: 1, minWidth: 0 } : {}) }}>
                   <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Buscar…" title="Buscar por título o compositor"
-                    style={{ ...S.input, width: 180, paddingRight: searchQuery ? 30 : undefined }} />
+                    style={{ ...S.input, width: isMobile ? "100%" : 180, boxSizing: "border-box", paddingRight: searchQuery ? 30 : undefined }} />
                   {searchQuery && (
                     <button onClick={() => setSearchQuery("")} aria-label="Borrar búsqueda"
                       style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: 4, lineHeight: 1 }}>
@@ -198,6 +201,7 @@ interface StudentsTabProps {
   onDeleteGroup: (id: string) => void;
 }
 export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }: StudentsTabProps) {
+  const isMobile = useIsMobile();
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
   const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(() => new Set(groups.map((g) => g.id)));
   const toggleExpand = (id: string) =>
@@ -224,12 +228,13 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
         key={s.id}
         onClick={() => exercises.length > 0 && toggleExpand(s.id)}
         {...(exercises.length > 0 ? { ...rowButtonProps(() => toggleExpand(s.id)), "aria-expanded": isOpen } : {})}
-        style={{ ...S.card, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
-        {/* Cabecera: nombre + nº de entregas en texto sutil. Borrar/resetear se
+        style={{ ...S.card, borderRadius: 14, padding: "13px 16px", marginBottom: 0, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
+        {/* Cabecera: nombre en serif (misma voz que los títulos de ejercicio,
+            Jon 2026-07-05) + nº de entregas en texto sutil. Borrar/resetear se
             pliegan al ⋯ (Jon, 2026-07-04: una ✕ roja permanente por fila era
             ruido y un peligro al alcance de un clic). */}
         <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {s.displayName}
           </div>
           <div style={{ ...S.row, gap: 8, flexShrink: 0 }}>
@@ -285,11 +290,32 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
   const assignedStudentIds = new Set(groups.flatMap((g) => g.studentIds || []));
   const ungrouped = students.filter((s) => !assignedStudentIds.has(s.id));
 
+  // Rejilla de alumnos (Jon, 2026-07-05): en escritorio hasta DOS tarjetas por
+  // fila — como ejercicios/audios — para no dejar medio ancho muerto; en móvil,
+  // una columna. `alignItems: start` evita que una tarjeta desplegada estire a
+  // su vecina de fila; el espaciado lo pone el gap (la tarjeta ya no lleva
+  // marginBottom).
+  const studentsGrid: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+    gap: isMobile ? 7 : 12,
+    alignItems: "start",
+  };
+
   return (
     <>
-      <div style={{ ...S.row, justifyContent: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
-        <button onClick={() => onEditGroup(null)} style={S.btn}>+ Nuevo grupo</button>
-        <button onClick={onAddStudent} style={S.btnPrimary}>+ Crear alumno</button>
+      {/* Cabecera de la pestaña (Jon, 2026-07-05): mismo patrón que Cursos —
+          línea de conteo apagada a la izquierda + acciones a la derecha, en vez
+          de una fila de botones flotando sola contra el borde derecho. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, color: C.muted }}>
+          {students.length} {students.length === 1 ? "alumno" : "alumnos"}
+          {groups.length > 0 && ` · ${groups.length} ${groups.length === 1 ? "grupo" : "grupos"}`}
+        </span>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <GhostButton onClick={() => onEditGroup(null)}>+ Nuevo grupo</GhostButton>
+          <CtaButton onClick={onAddStudent}>+ Crear alumno</CtaButton>
+        </div>
       </div>
 
       {students.length === 0 && groups.length === 0 && (
@@ -304,11 +330,13 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
         const isGroupOpen   = expandedGroups.has(group.id);
         return (
           <div key={group.id} style={{ marginBottom: 28 }}>
+            {/* Cabecera de grupo (Jon, 2026-07-05): filete fino C.line en vez de
+                la línea negra gruesa de 2px (retirada del resto de la app). */}
             <div
               onClick={() => toggleGroup(group.id)} {...rowButtonProps(() => toggleGroup(group.id))} aria-expanded={isGroupOpen}
-              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 10, borderBottom: `2px solid ${C.ink}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
-              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, flex: 1, minWidth: 120 }}>{group.name}</span>
-              <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
+              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 9, borderBottom: `1px solid ${C.line}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
+              <span style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em", color: C.ink, flex: 1, minWidth: 120 }}>{group.name}</span>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
               {/* Acciones del grupo plegadas al ⋯ (mismo criterio que las filas
                   de alumno: sin ✕ roja permanente a un clic). */}
               <span onClick={(e) => e.stopPropagation()}>
@@ -322,7 +350,7 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
             {isGroupOpen && (
               groupStudents.length === 0
                 ? <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Este grupo no tiene alumnos. Edítalo para añadir.</p>
-                : groupStudents.map(renderStudentCard)
+                : <div style={studentsGrid}>{groupStudents.map(renderStudentCard)}</div>
             )}
           </div>
         );
@@ -331,11 +359,12 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
       {ungrouped.length > 0 && (
         <div style={{ marginBottom: 28 }}>
           {groups.length > 0 && (
-            <div style={{ paddingBottom: 10, marginBottom: 12, borderBottom: `2px solid ${C.line}` }}>
-              <span style={{ fontFamily: F.serif, fontSize: 20, fontWeight: 700, color: C.muted }}>Sin grupo</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9, marginBottom: 12, borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em", color: C.muted, flex: 1 }}>Sin grupo</span>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{ungrouped.length} {ungrouped.length === 1 ? "alumno" : "alumnos"}</span>
             </div>
           )}
-          {ungrouped.map(renderStudentCard)}
+          <div style={studentsGrid}>{ungrouped.map(renderStudentCard)}</div>
         </div>
       )}
     </>
@@ -985,14 +1014,10 @@ export function TeacherDash({
     const vaPalette    = effectivePaletteId({ schemaPalette: freshResult?.schemaPalette as string | undefined }, null);
     const freshVaPal   = applyPaletteToExercise(freshVa, vaPalette) || freshVa;
     return (
+      // Sin barra superior propia (Jon, 2026-07-05): duplicaba el «← Volver a
+      // alumnos» y el nombre del alumno que CorrectionView ya pinta en su
+      // cabecera («Corrección: título» + «Alumno: nombre»).
       <div style={S.app}>
-        <div style={{ background: C.paper, borderBottom: `1px solid ${C.line}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={backFromAnswer} style={{ ...S.btn, fontSize: 12, padding: "5px 12px" }}>← Volver a alumnos</button>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: C.muted }}>Respuesta de </span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{student.displayName}</span>
-          </div>
-        </div>
         <CorrectionView
           key={JSON.stringify(freshResult.teacherCorrection)}
           exercise={freshVaPal}
@@ -1077,7 +1102,12 @@ export function TeacherDash({
             </button>
           );
           const tabsStrip = (
-            <div className="fa-noscroll" style={{ display: "flex", alignItems: "flex-end", justifyContent: isMobile ? "flex-start" : "center", overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+            // Móvil (Jon, 2026-07-05): las pestañas ocupan todo el ancho con
+            // `space-between`. El margen -8 compensa solo la mitad del padding
+            // horizontal (16px) del primer/último botón: así el texto de las
+            // pestañas externas respira ~8px respecto al borde del contenido en
+            // vez de quedar al ras de la pantalla.
+            <div className="fa-noscroll" style={{ display: "flex", alignItems: "flex-end", justifyContent: isMobile ? "space-between" : "center", overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", scrollbarWidth: "none", ...(isMobile ? { marginLeft: -8, marginRight: -8 } : {}) }}>
               <TabBar tabs={primaryTabs} value={tab} onChange={setTab} variant="primary" />
             </div>
           );
@@ -1089,7 +1119,14 @@ export function TeacherDash({
           );
           const actions = (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, flexShrink: 0 }}>
-              {settingsBtn}<GhostButton onClick={onLogout}>Salir</GhostButton>
+              {/* Móvil (Jon, 2026-07-05): Ajustes + Salir se pliegan en el menú
+                  «☰»; en escritorio siguen sueltos (engranaje + botón Salir). */}
+              {isMobile
+                ? <MobileHeaderMenu ariaLabel="Menú de cuenta" items={[
+                    { label: "Ajustes", onClick: () => setTab("settings") },
+                    { label: "Salir", onClick: onLogout },
+                  ]} />
+                : <>{settingsBtn}<GhostButton onClick={onLogout}>Salir</GhostButton></>}
             </div>
           );
           // Separación encabezado/cuerpo (Jon, 2026-07-04): filete algo más

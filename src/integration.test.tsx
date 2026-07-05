@@ -146,7 +146,9 @@ describe("Flujo de estado de una entrega de esquema", () => {
         onSaveCorrection={(studentId, exerciseId, correction) => { saved = { studentId, exerciseId, correction: correction as { totalScore: number | null } }; }}
       />
     );
-    fireEvent.change(screen.getByPlaceholderText("Ej: 75"), { target: { value: "85" } });
+    // La nota manual se introduce en 0–10 (NotaInput, admite coma) y se
+    // ALMACENA en 0–100 (×10).
+    fireEvent.change(screen.getByLabelText("Nota final (0–10)"), { target: { value: "8,5" } });
     fireEvent.click(screen.getByText("Guardar corrección"));
 
     expect(saved).not.toBeNull();
