@@ -694,13 +694,22 @@ export default function App() {
       // Instantánea de las preguntas al entregar (F5, T5.5): la corrección y
       // resultStatusOf la leen en vez de las preguntas vigentes del ejercicio,
       // así una edición posterior del profesor no descoloca entregas pasadas.
-      const data = addAttempt(existingResult, { type: "cuestionario", answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) });
-      if (user) {
-        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
-        dbUpsertResult(user.id, exId, data);
+      const data = { type: "cuestionario" as const, answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) };
+      if (payload.mode !== "preview") {
+        // La previsualización del profesor NUNCA se mezcla con el historial
+        // real (mismo criterio que esquema, más arriba).
+        const savedData = addAttempt(existingResult, data);
+        if (user) {
+          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: savedData } }));
+          dbUpsertResult(user.id, exId, savedData);
+        }
+        setLastResult(savedData);
+      } else {
+        setLastResult(data);
       }
-      setLastResult(data);
-      navigate(`/alumno/ejercicio/${ex.id}/correccion`);
+      navigate(payload.mode === "preview"
+        ? `/profesor/ejercicio/${ex.id}/correccion`
+        : `/alumno/ejercicio/${ex.id}/correccion`);
       return;
     }
 
@@ -948,9 +957,17 @@ export default function App() {
       return <SessionShell exercise={exCtx.exercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBackMulti} />;
     }
     // Autoría por parte (F4, T4.2): grabar/previsualizar apuntan a la parte
-    // de la URL (o la primera si no hay).
+    // de la URL (o la primera si no hay). SOLO para ejercicios GENUINAMENTE
+    // multiparte (>1): `partsOf` sintetiza una única parte a partir de los
+    // campos planos en el momento en que normalizeExercise la materializó por
+    // primera vez, y esa parte sintetizada queda congelada — un patch posterior
+    // que solo toque un campo plano (p.ej. `questions` al guardar el
+    // cuestionario) no se refleja en ella. Proyectar con partToExercise en ese
+    // caso pisaría los campos planos vigentes con esa parte obsoleta. Con un
+    // solo part real, `exCtx.exercise` YA es la fuente de verdad — se usa tal cual.
+    const isGenuinelyMultiPart = partsOf(exCtx.exercise).length > 1;
     const sessionUrlPartId = parseHashQuery().parte || route.params.partId;  // M4.2: ?parte= primero
-    const baseExercise = (exCtx.mode === "record" || exCtx.mode === "preview")
+    const baseExercise = (isGenuinelyMultiPart && (exCtx.mode === "record" || exCtx.mode === "preview"))
       ? partToExercise(exCtx.exercise, partsOf(exCtx.exercise).find((p) => p.id === sessionUrlPartId) || partsOf(exCtx.exercise)[0])
       : exCtx.exercise;
     const exModels = modelsOf(baseExercise);
@@ -968,8 +985,12 @@ export default function App() {
     if (m === "esquema") {
       return <Suspense fallback={lazyFallback}><SchemaExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} /></Suspense>;
     }
-    if (exCtx.mode === "student" && m === "cuestionario") {
-      return <QuestionnaireView exercise={sessionExercise} onSubmit={submitAnswer} onBack={onBack} />;
+    if ((exCtx.mode === "student" || exCtx.mode === "preview") && m === "cuestionario") {
+      // QuestionnaireView no conoce el modo (siempre se comportó como alumno);
+      // el modo se inyecta aquí en el payload para que submitAnswer sepa que
+      // una previsualización del profesor no debe guardarse como entrega real
+      // (mismo patrón que esquema, más arriba).
+      return <QuestionnaireView exercise={sessionExercise} onSubmit={(result) => submitAnswer({ ...result, mode: exCtx.mode })} onBack={onBack} />;
     }
     return <ExerciseView exercise={sessionExercise} mode={exCtx.mode} onSubmit={submitAnswer} onBack={onBack} />;
   }
