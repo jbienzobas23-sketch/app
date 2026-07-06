@@ -16,8 +16,13 @@ import { FragmentRangeSelector } from "./session.js";
 // ── Tipos locales compartidos por los modales ────────────────────────────────
 // Usuario (perfil) — campos consumidos por los formularios de cuenta.
 interface UserLike { id: string; displayName?: string; username?: string; credType?: string; [k: string]: unknown; }
-// Audio del almacén compartido.
-export interface AudioItem { id: string; title?: string; composer?: string; description?: string; tags?: string[]; url?: string; duration?: number | null; createdAt?: number; [k: string]: unknown; }
+// Audio del almacén compartido. Un mismo tipo modela tanto un AUDIO suelto como
+// un LIBRO (Jon, 2026-07-06): colección que agrupa varios audios —un movimiento
+// de una sinfonía, un preludio de un ciclo, un aria de una ópera… Un libro lleva
+// `kind:"book"` y NO tiene url/duration; un audio suelto no lleva `kind`, y si
+// pertenece a un libro lleva `bookId` con el id de ese libro. Ambos viven en la
+// misma tabla `fa_audio_library` (sin nueva tabla ni migración).
+export interface AudioItem { id: string; kind?: "book"; bookId?: string; title?: string; composer?: string; description?: string; tags?: string[]; url?: string; duration?: number | null; createdAt?: number; [k: string]: unknown; }
 // Botón editable dentro del editor de categoría.
 interface EditButton { id: string; name: string; color: string; key: string; }
 
@@ -509,11 +514,14 @@ export function RecoveryEmailModal({ onSave, onSkip }: { onSave: (email: string)
 // Picker para elegir un audio del almacén
 export function AudioLibraryPickerModal({ library, onPick, onClose }: { library: AudioItem[]; onPick: (audio: AudioItem) => void; onClose: () => void }) {
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // Los libros no son audios elegibles (no tienen url/duración): se ocultan aquí
+  // para no colarse como opción al asignar audio a un ejercicio.
+  const audios = library.filter((a) => a.kind !== "book");
   return (
     <ModalShell width={560} align="top" onClose={onClose} label="Elegir audio">
       <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: C.ink }}>Elegir audio del almacén</h3>
 
-      {library.length === 0 ? (
+      {audios.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem 1rem", color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
           
           <div>El almacén está vacío.</div>
@@ -521,7 +529,7 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }: { library:
         </div>
       ) : (
         <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, padding: 6, marginBottom: 16 }}>
-          {library.map((audio) => {
+          {audios.map((audio) => {
             const isPrev = previewId === audio.id;
             return (
               <div key={audio.id} style={{ padding: "8px 10px", borderRadius: 6, marginBottom: 4, background: isPrev ? "rgba(26,25,21,0.04)" : "transparent", transition: "background .1s" }}>
@@ -556,7 +564,7 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }: { library:
 }
 
 // Crear/editar un audio en el almacén
-export function AudioLibraryFormModal({ initial, allTags = [], allComposers = [], onSave, onClose }: { initial?: AudioItem | null; allTags?: string[]; allComposers?: string[]; onSave: (audio: AudioItem) => void; onClose: () => void }) {
+export function AudioLibraryFormModal({ initial, books = [], initialBookId = null, allTags = [], allComposers = [], onSave, onClose }: { initial?: AudioItem | null; books?: AudioItem[]; initialBookId?: string | null; allTags?: string[]; allComposers?: string[]; onSave: (audio: AudioItem, newBook?: AudioItem) => void; onClose: () => void }) {
   const [title,       setTitle]       = useState(initial?.title || "");
   const [composer,    setComposer]    = useState(initial?.composer || "");
   const [description, setDescription] = useState(initial?.description || "");
@@ -565,6 +573,11 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
   const [duration,    setDuration]    = useState<number | null>(initial?.duration || null);
   const [detecting,   setDetecting]   = useState(false);
   const [error,       setError]       = useState("");
+  // Libro al que pertenece (Jon, 2026-07-06): "" = suelto; un id = ese libro;
+  // "__new__" = crear un libro nuevo con el título de abajo. Al añadir desde
+  // dentro de un libro se preselecciona con initialBookId.
+  const [bookSel,      setBookSel]      = useState<string>(initial?.bookId ?? initialBookId ?? "");
+  const [newBookTitle, setNewBookTitle] = useState("");
 
   // BUG FIX: cancelación de detecciones obsoletas también aquí
   const urlReqRef = useRef(0);
@@ -595,10 +608,22 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       });
   };
 
-  const canSave = Boolean(title.trim() && url.trim() && duration && !detecting);
+  const creatingBook = bookSel === "__new__";
+  const canSave = Boolean(title.trim() && url.trim() && duration && !detecting && (!creatingBook || newBookTitle.trim()));
 
   const handleSave = () => {
     if (!canSave) return;
+    // Libro nuevo: se crea aquí (hereda el compositor del audio) y el audio
+    // queda enlazado a él. Se devuelve como segundo argumento para que el
+    // contenedor lo persista antes que el audio.
+    let newBook: AudioItem | undefined;
+    let bookId: string | undefined;
+    if (creatingBook) {
+      newBook = { id: uid("book"), kind: "book", title: newBookTitle.trim(), composer: composer.trim(), createdAt: Date.now() };
+      bookId = newBook.id;
+    } else if (bookSel) {
+      bookId = bookSel;
+    }
     onSave({
       id:          initial?.id || uid("audio"),
       title:       title.trim(),
@@ -607,8 +632,9 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       tags,
       url:         url.trim(),
       duration,
+      bookId,
       createdAt:   initial?.createdAt || Date.now(),
-    });
+    }, newBook);
   };
 
   return (
@@ -628,6 +654,24 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
         style={{ ...S.input, marginBottom: 14 }}
       />
 
+      {/* Libro (opcional): dejar suelto, unir a un libro existente o crear uno
+          nuevo aquí mismo — el libro nuevo hereda el compositor de arriba. */}
+      <label style={S.label}>Libro <span style={{ fontWeight: 400, color: C.muted }}>(opcional)</span></label>
+      <select value={bookSel} onChange={(e) => setBookSel(e.target.value)}
+        style={{ ...S.input, marginBottom: creatingBook ? 8 : 14, appearance: "auto", cursor: "pointer" }}>
+        <option value="">Ninguno · audio suelto</option>
+        {books.length > 0 && (
+          <optgroup label="Añadir a un libro existente">
+            {books.map((b) => <option key={b.id} value={b.id}>{b.title}{b.composer ? ` — ${b.composer}` : ""}</option>)}
+          </optgroup>
+        )}
+        <option value="__new__">＋ Crear un libro nuevo…</option>
+      </select>
+      {creatingBook && (
+        <input style={{ ...S.input, marginBottom: 14 }} value={newBookTitle}
+          onChange={(e) => setNewBookTitle(e.target.value)} placeholder="Título del libro nuevo · Ej: Preludios, op. 28" />
+      )}
+
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 14, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
         value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tonalidad, contexto histórico…" />
@@ -645,6 +689,57 @@ export function AudioLibraryFormModal({ initial, allTags = [], allComposers = []
       {duration && !detecting && <p style={{ fontSize: 12, color: C.fnT, margin: "0 0 14px" }}>✓ Duración detectada: {fmtClock(duration ?? 0)}</p>}
       <ErrorMsg>{error}</ErrorMsg>
       <div style={{ marginBottom: 8 }} />
+
+      <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Añadir"} />
+    </ModalShell>
+  );
+}
+
+// Crear/editar un LIBRO del almacén (Jon, 2026-07-06): colección de audios. Sin
+// url/duración — solo metadatos (título, compositor, etiquetas, descripción).
+// Los audios se insertan después, desde el propio audio o desde el libro.
+// Sin etiquetas (Jon, 2026-07-06: como siempre, sin metadatos ni emoticonos) —
+// un libro es solo título + compositor + descripción; las etiquetas quedan
+// donde aportan (los audios sueltos), no repetidas también aquí.
+export function BookFormModal({ initial, allComposers = [], onSave, onClose }: { initial?: AudioItem | null; allComposers?: string[]; onSave: (book: AudioItem) => void; onClose: () => void }) {
+  const [title,       setTitle]       = useState(initial?.title || "");
+  const [composer,    setComposer]    = useState(initial?.composer || "");
+  const [description, setDescription] = useState(initial?.description || "");
+
+  const canSave = Boolean(title.trim());
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      id:          initial?.id || uid("book"),
+      kind:        "book",
+      title:       title.trim(),
+      composer:    composer.trim(),
+      description: description.trim(),
+      createdAt:   initial?.createdAt || Date.now(),
+    });
+  };
+
+  return (
+    <ModalShell width={480} align="top" onClose={onClose} label="Libro">
+      <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: C.ink }}>{initial ? "Editar libro" : "Añadir libro al almacén"}</h3>
+      <p style={{ margin: "0 0 16px", fontSize: 12.5, color: C.muted, lineHeight: 1.5 }}>Un libro agrupa varios audios (los movimientos de una sinfonía, los preludios de un ciclo, las arias de una ópera…). Los audios se añaden después.</p>
+
+      <label style={S.label}>Título</label>
+      <input style={{ ...S.input, marginBottom: 14 }} value={title} autoFocus
+        onChange={(e) => setTitle(e.target.value)} placeholder="Ej: El clave bien temperado, Libro I" />
+
+      <label style={S.label}>Compositor</label>
+      <SuggestInput
+        value={composer}
+        onChange={setComposer}
+        suggestions={allComposers}
+        placeholder="Ej: Johann Sebastian Bach"
+        style={{ ...S.input, marginBottom: 14 }}
+      />
+
+      <label style={S.label}>Descripción (opcional)</label>
+      <textarea style={{ ...S.input, marginBottom: 18, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
+        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto de la colección…" />
 
       <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Añadir"} />
     </ModalShell>

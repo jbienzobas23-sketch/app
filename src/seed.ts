@@ -118,6 +118,7 @@ export const INIT_AUDIO_LIBRARY = [
     tags: ["Romanticismo", "Cromatismo", "Modo menor", "Piano"],
     url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_prelude4.mp3",
     duration: 148,
+    bookId: "book-chopin-op28",
     createdAt: 1700000003000,
   },
   {
@@ -169,5 +170,28 @@ export const INIT_AUDIO_LIBRARY = [
     url: "https://res.cloudinary.com/demo/video/upload/fake_beethoven_9.mp3",
     duration: 310,
     createdAt: 1700000008000,
+  },
+  // Segunda pieza del libro de preludios (Jon, 2026-07-06): junto con
+  // audio-demo-03, ilustra un LIBRO (colección) con varios audios dentro.
+  {
+    id: "audio-demo-09",
+    title: "Preludio op. 28 nº 15 en Re♭ Mayor «La gota de agua»",
+    composer: "Frédéric Chopin",
+    description: "Nota pedal repetida (La♭/Sol♯) a lo largo de toda la pieza.",
+    tags: ["Romanticismo", "Modo mayor", "Piano", "Nota pedal"],
+    url: "https://res.cloudinary.com/demo/video/upload/fake_chopin_prelude15.mp3",
+    duration: 312,
+    bookId: "book-chopin-op28",
+    createdAt: 1700000009000,
+  },
+  // El LIBRO en sí (kind:"book", sin url/duración): agrupa los preludios de
+  // arriba. Demuestra la estética de colección y el desplegado con sus piezas.
+  {
+    id: "book-chopin-op28",
+    kind: "book",
+    title: "Preludios, op. 28",
+    composer: "Frédéric Chopin",
+    description: "Ciclo de 24 preludios, uno por cada tonalidad mayor y menor.",
+    createdAt: 1700000010000,
   },
 ];

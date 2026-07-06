@@ -14,7 +14,7 @@ import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon, MobileHeaderMenu } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
-import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, type AudioItem } from "./modals.js";
+import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, BookFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab, KebabMenu } from "./courses.js";
 import { EditorShell } from "./editor/EditorShell.js";
 import { ExerciseItem } from "./ExerciseItem.js";
@@ -461,61 +461,59 @@ interface AudiosTabProps {
   onEdit: (a: AudioItem) => void;
   onDelete: (id: string) => void;
   askConfirm: AskConfirm;
+  // Libros (Jon, 2026-07-06): crear/editar/borrar un libro y añadir un audio
+  // ya preseleccionado a un libro concreto.
+  onAddBook: () => void;
+  onEditBook: (b: AudioItem) => void;
+  onDeleteBook: (b: AudioItem) => void;
+  onAddAudioToBook: (bookId: string) => void;
 }
-// Tarjeta de audio para la vista de ordenador (rejilla). Equivale a la fila de
-// audio pero en formato tarjeta, con título en serif y compositor en cursiva.
+// Tarjeta de audio (Jon, 2026-07-06: MISMA estética en escritorio y móvil —
+// antes eran dos implementaciones distintas con fuentes/tamaños/paddings
+// diferentes). Resumen MINIMO (título + compositor + flecha, sin duración ni
+// botones) y detalle completo al desplegar (duración, etiquetas, reproductor
+// nativo y, si es administrador, editar/eliminar). El reproductor nativo YA
+// trae su propio botón de play — no hace falta un ▶ aparte en la cabecera.
 interface AudioCardProps {
   audio: AudioItem;
   isAdmin: boolean;
   isOpen: boolean;
-  isPrev: boolean;
   onToggleOpen: () => void;
-  onTogglePrev: () => void;
   onEdit: (a: AudioItem) => void;
   onDelete: (id: string) => void;
   askConfirm: AskConfirm;
+  // Dentro de un libro (Jon, 2026-07-06): oculta el compositor (implícito por el
+  // libro) y suaviza el marco para que la pieza se lea como parte del conjunto.
+  nested?: boolean;
 }
-function AudioCard({ audio, isAdmin, isOpen, isPrev, onToggleOpen, onTogglePrev, onEdit, onDelete, askConfirm }: AudioCardProps) {
-  const [hover, setHover] = useState(false);
+function AudioCard({ audio, isAdmin, isOpen, onToggleOpen, onEdit, onDelete, askConfirm, nested = false }: AudioCardProps) {
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${hover ? C.rail : C.line}`, borderRadius: 14, overflow: "hidden", boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none", transition: "box-shadow .18s, border-color .18s" }}>
+    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: nested ? 10 : 14, overflow: "hidden" }}>
       <div onClick={onToggleOpen} {...rowButtonProps(onToggleOpen)} aria-expanded={isOpen}
-        style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
+        style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: nested ? "12px 14px" : "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 600, color: C.ink, lineHeight: 1.12, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{audio.title}</div>
-          {audio.composer && (
-            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14, color: C.ink2, marginTop: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.composer}</div>
+          <div style={{ fontFamily: F.serif, fontSize: nested ? 17 : 19, fontWeight: 600, color: C.ink, lineHeight: 1.18, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{audio.title}</div>
+          {audio.composer && !nested && (
+            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.composer}</div>
           )}
-          <div style={{ fontFamily: F.sans, fontSize: 11.5, color: C.muted, marginTop: 6 }}>{fmtClock(audio.duration ?? 0)}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <button onClick={() => { onTogglePrev(); if (!isOpen) onToggleOpen(); }} style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>{isPrev ? "⏹" : "▶"}</button>
-            {isAdmin && hover && (
-              <>
-                <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
-                  style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-              </>
-            )}
-          </div>
-          <Chevron open={isOpen} />
-        </div>
+        <div style={{ flexShrink: 0, marginTop: 2 }}><Chevron open={isOpen} /></div>
       </div>
       {isOpen && (
-        <div style={{ borderTop: `1px solid ${C.line}`, padding: "11px 16px 14px", background: C.bg }}>
-          {audio.description && (
-            <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
-          )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
+        <div style={{ borderTop: `1px solid ${C.line}`, padding: nested ? "10px 14px 13px" : "12px 16px 15px", background: C.bg }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+            <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
             {(audio.tags || []).map((tag) => (
               <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
             ))}
           </div>
-          {isPrev && (
-            <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 12, height: 36 }} />
+          <audio src={audio.url} controls style={{ width: "100%", height: 36, display: "block", marginBottom: isAdmin ? 12 : 0 }} />
+          {isAdmin && (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+              <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+            </div>
           )}
         </div>
       )}
@@ -523,10 +521,75 @@ function AudioCard({ audio, isAdmin, isOpen, isPrev, onToggleOpen, onTogglePrev,
   );
 }
 
-export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm }: AudiosTabProps) {
+// Tarjeta de LIBRO (Jon, 2026-07-06): colección de audios con estética algo más
+// azul que un audio suelto (marco/etiqueta en el azul `quiz`). Resumen: eyebrow
+// «LIBRO · N piezas», título y compositor. Al desplegar, sus audios anidados +
+// (admin) añadir audio / editar / eliminar el libro.
+interface BookCardProps {
+  book: AudioItem;
+  children: AudioItem[];
+  isAdmin: boolean;
+  isOpen: boolean;
+  onToggleOpen: () => void;
+  openAudioId: string | null;
+  onToggleAudio: (id: string) => void;
+  onAddAudio: (bookId: string) => void;
+  onEditBook: (b: AudioItem) => void;
+  onDeleteBook: (b: AudioItem) => void;
+  onEditAudio: (a: AudioItem) => void;
+  onDeleteAudio: (id: string) => void;
+  askConfirm: AskConfirm;
+}
+function BookCard({ book, children, isAdmin, isOpen, onToggleOpen, openAudioId, onToggleAudio, onAddAudio, onEditBook, onDeleteBook, onEditAudio, onDeleteAudio, askConfirm }: BookCardProps) {
+  const n = children.length;
+  const BLUE = C.quiz;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: "rgba(47,111,184,0.035)", border: `1px solid rgba(47,111,184,0.30)`, borderRadius: 14, overflow: "hidden" }}>
+      <div onClick={onToggleOpen} {...rowButtonProps(onToggleOpen)} aria-expanded={isOpen}
+        style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Sin eyebrow "LIBRO · N piezas" ni emoji (Jon, 2026-07-06: como
+              siempre, sin metadatos ni emoticonos) — el azul de la tarjeta YA
+              distingue un libro de un audio suelto, no hace falta rotularlo. */}
+          <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: C.ink, lineHeight: 1.18, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{book.title}</div>
+          {book.composer && (
+            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{book.composer}</div>
+          )}
+        </div>
+        <div style={{ flexShrink: 0, marginTop: 2 }}><Chevron open={isOpen} /></div>
+      </div>
+      {isOpen && (
+        <div style={{ borderTop: `1px solid rgba(47,111,184,0.22)`, padding: "12px 16px 15px", background: "rgba(47,111,184,0.02)" }}>
+          {n === 0 ? (
+            <p style={{ margin: "2px 0 12px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Este libro aún no tiene audios.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: isAdmin ? 12 : 0 }}>
+              {children.map((audio) => (
+                <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin} nested
+                  isOpen={openAudioId === audio.id}
+                  onToggleOpen={() => onToggleAudio(audio.id)}
+                  onEdit={onEditAudio} onDelete={onDeleteAudio} askConfirm={askConfirm} />
+              ))}
+            </div>
+          )}
+          {isAdmin && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <button onClick={() => onAddAudio(book.id)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12, color: BLUE, borderColor: `${BLUE}55` }}>+ Añadir audio</button>
+              <button onClick={() => onEditBook(book)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar libro</button>
+              <button onClick={() => askConfirm(`¿Eliminar el libro "${book.title}"?\n\nSus ${n} ${n === 1 ? "audio" : "audios"} NO se borran: pasan a ser audios sueltos.`, () => onDeleteBook(book))}
+                style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar libro</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askConfirm, onAddBook, onEditBook, onDeleteBook, onAddAudioToBook }: AudiosTabProps) {
   const isMobile = useIsMobile();
-  const [openId,          setOpenId]          = useState<string | null>(null);
-  const [previewId,       setPreviewId]       = useState<string | null>(null);
+  const [openId,          setOpenId]          = useState<string | null>(null);   // libro o audio suelto abierto
+  const [openChildId,     setOpenChildId]     = useState<string | null>(null);   // audio abierto DENTRO de un libro
   const [filterComposers, setFilterComposers] = useState<string[]>([]);
   const [filterTags,      setFilterTags]      = useState<string[]>([]);
 
@@ -534,10 +597,26 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
   const allComposers = useMemo(() => audioComposers(audioLibrary), [audioLibrary]);
   const allTags      = useMemo(() => audioTags(audioLibrary),      [audioLibrary]);
 
-  // Lista filtrada
+  // Libros y audios sueltos (Jon, 2026-07-06). Un libro es `kind:"book"`; un
+  // audio con `bookId` que resuelve a un libro existente va ANIDADO dentro de
+  // él (no en el nivel superior); si su bookId no existe, se trata como suelto
+  // para que ningún audio desaparezca. Los hijos se ordenan por createdAt (el
+  // orden en que se fueron añadiendo: I, II, III… de forma natural).
+  const books         = useMemo(() => audioLibrary.filter((a) => a.kind === "book"), [audioLibrary]);
+  const bookIds       = useMemo(() => new Set(books.map((b) => b.id)), [books]);
+  const childrenOf    = (bookId: string) => audioLibrary
+    .filter((a) => a.kind !== "book" && a.bookId === bookId)
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  // Elementos de nivel superior: libros + audios sin libro (o con libro
+  // inexistente). Cada uno lleva `.composer` para agrupar igual que antes.
+  const topLevel = useMemo(() => audioLibrary.filter((a) =>
+    a.kind === "book" || !(a.bookId && bookIds.has(a.bookId))), [audioLibrary, bookIds]);
+
+  // Filtro (compositor/etiquetas) aplicado al nivel superior. Un libro se filtra
+  // por SUS propios metadatos (compositor/etiquetas del libro).
   const filtered = useMemo(() => {
-    if (filterComposers.length === 0 && filterTags.length === 0) return audioLibrary;
-    return audioLibrary.filter((a) => {
+    if (filterComposers.length === 0 && filterTags.length === 0) return topLevel;
+    return topLevel.filter((a) => {
       if (filterComposers.length > 0 && !filterComposers.includes(a.composer ?? "")) return false;
       if (filterTags.length > 0) {
         const aTags = a.tags || [];
@@ -545,7 +624,7 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
       }
       return true;
     });
-  }, [audioLibrary, filterComposers, filterTags]);
+  }, [topLevel, filterComposers, filterTags]);
 
   const hasFilters = filterComposers.length > 0 || filterTags.length > 0;
 
@@ -571,16 +650,19 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
     return groups;
   }, [filtered]);
 
+  // El nivel superior expandido cierra los demás; un audio dentro de un libro
+  // lleva su propio estado (openChildId) para poder tener el libro abierto y
+  // una de sus piezas también.
+  const toggleTop   = (id: string) => setOpenId((cur) => (cur === id ? null : id));
+  const toggleChild = (id: string) => setOpenChildId((cur) => (cur === id ? null : id));
+
   return (
     <>
-      {isAdmin && (
-        <button onClick={onAdd} style={{ ...S.btnPrimary, marginBottom: 16 }}>+ Añadir audio</button>
-      )}
       {!isAdmin && (
-        <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios del almacén.</p>
+        <p style={{ color: C.muted, fontSize: 13, margin: "0 0 16px" }}>Solo el administrador puede añadir o editar audios y libros del almacén.</p>
       )}
 
-      {/* ── Barra de filtros ── */}
+      {/* ── Barra de filtros (+ "Añadir libro"/"Añadir audio" a la derecha) ── */}
       {audioLibrary.length > 0 && (
         <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <FilterDropdown
@@ -605,13 +687,26 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
               style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}
             >✕ Limpiar</button>
           )}
+          {isAdmin && (
+            <>
+              <span style={{ flex: 1 }} />
+              <button onClick={onAddBook} style={{ ...S.btn, color: C.quiz, borderColor: `${C.quiz}55` }}>+ Añadir libro</button>
+              <button onClick={onAdd} style={{ ...S.btnPrimary }}>+ Añadir audio</button>
+            </>
+          )}
+        </div>
+      )}
+      {audioLibrary.length === 0 && isAdmin && (
+        <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={onAddBook} style={{ ...S.btn, color: C.quiz, borderColor: `${C.quiz}55` }}>+ Añadir libro</button>
+          <button onClick={onAdd} style={{ ...S.btnPrimary }}>+ Añadir audio</button>
         </div>
       )}
 
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
           <div>El almacén está vacío.</div>
-          {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio con el botón de arriba.</div>}
+          {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio o libro con los botones de arriba.</div>}
         </div>
       )}
 
@@ -631,84 +726,25 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
         <div key={composer} style={{ marginBottom: 30 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14, paddingBottom: 9, borderBottom: `1px solid ${C.line}` }}>
             <h3 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", margin: 0 }}>{composer}</h3>
-            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{items.length} {items.length === 1 ? "audio" : "audios"}</span>
+            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{items.length} {items.length === 1 ? "elemento" : "elementos"}</span>
           </div>
-          {!isMobile ? (
-            // auto-fill con un mínimo de 340px: a este ancho de página (~932px
-            // de contenido) caben exactamente DOS columnas — así un grupo de 2
-            // audios llena la fila entera de forma natural (sin hueco), y un
-            // grupo de 1 audio ocupa una sola columna del MISMO ancho que las
-            // demás tarjetas, sin estirarse a todo el ancho (Jon, 2026-07-04).
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14, alignItems: "start" }}>
-              {items.map((audio) => (
-                <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin}
-                  isOpen={openId === audio.id} isPrev={previewId === audio.id}
-                  onToggleOpen={() => setOpenId(openId === audio.id ? null : audio.id)}
-                  onTogglePrev={() => setPreviewId(previewId === audio.id ? null : audio.id)}
-                  onEdit={onEdit} onDelete={onDelete} askConfirm={askConfirm} />
-              ))}
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {items.map((audio) => {
-                const isOpen = openId === audio.id;
-                const isPrev = previewId === audio.id;
-                return (
-                  <div key={audio.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                    {/* ── Cabecera siempre visible ── */}
-                    <div
-                      onClick={() => setOpenId(isOpen ? null : audio.id)} {...rowButtonProps(() => setOpenId(isOpen ? null : audio.id))} aria-expanded={isOpen}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", userSelect: "none" }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: F.sans, fontSize: 15, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {audio.title}
-                        </div>
-                        {audio.composer && (
-                          <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {audio.composer}
-                          </div>
-                        )}
-                      </div>
-                      <Chevron open={isOpen} />
-                      <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <button onClick={() => { setPreviewId(isPrev ? null : audio.id); if (!isOpen) setOpenId(audio.id); }}
-                          style={{ ...S.btn, padding: "5px 11px", fontSize: 12 }}>
-                          {isPrev ? "⏹" : "▶"}
-                        </button>
-                        {isAdmin && (
-                          <>
-                            <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                            <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
-                              style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ── Detalle expandido ── */}
-                    {isOpen && (
-                      <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 14px 14px", background: C.bg }}>
-                        {audio.description && (
-                          <p style={{ margin: "0 0 10px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{audio.description}</p>
-                        )}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: isPrev ? 12 : 0 }}>
-                          <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
-                          <span style={{ ...S.badge, background: C.paper2, color: C.muted, fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.url}</span>
-                          {(audio.tags || []).map((tag) => (
-                            <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
-                          ))}
-                        </div>
-                        {isPrev && (
-                          <audio key={audio.id} src={audio.url} controls autoPlay style={{ width: "100%", marginTop: 10, height: 36 }} />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {/* Misma tarjeta en escritorio y móvil (Jon, 2026-07-06) — solo
+              cambia el contenedor: rejilla de dos columnas vs. lista de una. */}
+          <div style={isMobile
+            ? { display: "flex", flexDirection: "column", gap: 8 }
+            : { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14, alignItems: "start" }}>
+            {items.map((item) => item.kind === "book" ? (
+              <BookCard key={item.id} book={item} children={childrenOf(item.id)} isAdmin={isAdmin}
+                isOpen={openId === item.id} onToggleOpen={() => toggleTop(item.id)}
+                openAudioId={openChildId} onToggleAudio={toggleChild}
+                onAddAudio={onAddAudioToBook} onEditBook={onEditBook} onDeleteBook={onDeleteBook}
+                onEditAudio={onEdit} onDeleteAudio={onDelete} askConfirm={askConfirm} />
+            ) : (
+              <AudioCard key={item.id} audio={item} isAdmin={isAdmin}
+                isOpen={openId === item.id} onToggleOpen={() => toggleTop(item.id)}
+                onEdit={onEdit} onDelete={onDelete} askConfirm={askConfirm} />
+            ))}
+          </div>
         </div>
       ))}
     </>
@@ -979,6 +1015,10 @@ export function TeacherDash({
   const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
   const [confirmState,    setConfirmState]    = useState<{ message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const [editingAudio,    setEditingAudio]    = useState<AudioItem | "new" | null>(null);
+  // Libro en edición ("new" = crear vacío) + libro preseleccionado al añadir un
+  // audio desde dentro de un libro (Jon, 2026-07-06).
+  const [editingBook,     setEditingBook]     = useState<AudioItem | "new" | null>(null);
+  const [addAudioBookId,  setAddAudioBookId]  = useState<string | null>(null);
   const [showAddUser,     setShowAddUser]     = useState(false);
   const [addingUserRole,  setAddingUserRole]  = useState("student");
   const [showResetCred,   setShowResetCred]   = useState(false);
@@ -1116,7 +1156,10 @@ export function TeacherDash({
           const identity = (
             <div style={{ minWidth: 0 }}>
               <Overline style={{ marginBottom: 2 }}>{isAdmin ? "Administrador" : "Profesor"}</Overline>
-              <div style={{ fontFamily: F.serif, fontWeight: 700, fontSize: isMobile ? 22 : 24, letterSpacing: "-0.01em", color: C.ink, lineHeight: 1.05, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</div>
+              {/* lineHeight algo mayor evita que overflow:hidden recorte los
+                  descendentes (g/j/p/q/y) de nombres largos, sin tocar el
+                  truncado con ellipsis. */}
+              <div style={{ fontFamily: F.serif, fontWeight: 700, fontSize: isMobile ? 22 : 24, letterSpacing: "-0.01em", color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.displayName}</div>
             </div>
           );
           const actions = (
@@ -1231,10 +1274,22 @@ export function TeacherDash({
 
         {tab === "audios" && (
           <AudiosTab audioLibrary={audioLibrary} isAdmin={isAdmin}
-            onAdd={() => setEditingAudio("new")}
+            onAdd={() => { setAddAudioBookId(null); setEditingAudio("new"); }}
             onEdit={(a) => setEditingAudio(a)}
             onDelete={onDeleteAudio}
-            askConfirm={askConfirm} />
+            askConfirm={askConfirm}
+            onAddBook={() => setEditingBook("new")}
+            onEditBook={(b) => setEditingBook(b)}
+            onDeleteBook={(b) => {
+              // Borrar un libro NO borra sus audios: se desligan (bookId fuera)
+              // y quedan como sueltos; después se borra el libro.
+              audioLibrary.filter((a) => a.bookId === b.id).forEach((a) => {
+                const { bookId: _drop, ...rest } = a; void _drop;
+                onUpdateAudio(rest as AudioItem);
+              });
+              onDeleteAudio(b.id);
+            }}
+            onAddAudioToBook={(bookId) => { setAddAudioBookId(bookId); setEditingAudio("new"); }} />
         )}
 
         {/* Ajustes (Jon, 2026-07-04): página con secciones — Categorías,
@@ -1316,10 +1371,25 @@ export function TeacherDash({
         {editingAudio !== null && (
           <AudioLibraryFormModal
             initial={editingAudio === "new" ? null : editingAudio}
+            books={audioLibrary.filter((a) => a.kind === "book")}
+            initialBookId={editingAudio === "new" ? addAudioBookId : null}
             allTags={audioTags(audioLibrary)}
             allComposers={audioComposers(audioLibrary)}
-            onSave={(a) => { if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a); setEditingAudio(null); }}
-            onClose={() => setEditingAudio(null)} />
+            onSave={(a, newBook) => {
+              // Libro nuevo creado desde el propio audio: se persiste primero.
+              if (newBook) onAddAudio(newBook);
+              if (editingAudio === "new") onAddAudio(a); else onUpdateAudio(a);
+              setEditingAudio(null); setAddAudioBookId(null);
+            }}
+            onClose={() => { setEditingAudio(null); setAddAudioBookId(null); }} />
+        )}
+
+        {editingBook !== null && (
+          <BookFormModal
+            initial={editingBook === "new" ? null : editingBook}
+            allComposers={audioComposers(audioLibrary)}
+            onSave={(b) => { if (editingBook === "new") onAddAudio(b); else onUpdateAudio(b); setEditingBook(null); }}
+            onClose={() => setEditingBook(null)} />
         )}
 
         {editingGroup !== undefined && (
