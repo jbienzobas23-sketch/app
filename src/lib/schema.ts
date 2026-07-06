@@ -18,7 +18,9 @@ export const SCHEMA_DEFAULT_LABELS: Record<number, string[]> = {
   4: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"],
 };
 
-export const SCHEMA_SNAP_THR       = 2.8;
+// Radio de imantación (Jon, 2026-07-06: reducido de 2.8 a 2 — se notaba
+// demasiado generoso, imantaba antes de acercar el borde de verdad).
+export const SCHEMA_SNAP_THR       = 2;
 export const SCHEMA_MIN_DUR        = 2;
 export const SCHEMA_CLICK_MS       = 320;
 export const SCHEMA_CLICK_MOVE_THR = 6;

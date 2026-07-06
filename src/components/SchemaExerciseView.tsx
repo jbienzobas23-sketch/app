@@ -602,14 +602,22 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       if (d.type === "move") {
         const delta = t - d.anchor, dur2 = d.oe - d.os;
         let ns = cl(d.os + delta, d.segMin, d.segMax - dur2), ne = ns + dur2;
-        const xb = [d.segMin, d.segMax,
+        // Puntos generales de imantación (límites del segmento, marcas y bordes
+        // de OTROS niveles — alineación vertical).
+        const general = [d.segMin, d.segMax,
           ...schemaMarksRef.current.filter(m => m >= d.segMin - 0.1 && m <= d.segMax + 0.1),
           ...all.filter(b => b.id !== d.bid && b.level !== d.level && b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview).flatMap(b => [b.start, b.end]),
         ];
+        // Vecinos del MISMO nivel (Jon, 2026-07-06): al mover el bloque entero
+        // también hay que imantar a ellos, no solo evitar el solape. El INICIO
+        // se pega al FIN de un vecino (queda a su derecha); el FIN se pega al
+        // INICIO de un vecino (queda a su izquierda). Antes se excluían del
+        // imán, así que acercar sin solapar dejaba un hueco.
+        const sameLevel = ctx.filter(b => b.level === d.level && b.id !== d.bid && !b.isPreview);
         let snapped = false;
-        for (const bv of xb) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
-        if (!snapped) { for (const bv of xb) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
-        for (const nb of ctx.filter(b => b.level === d.level && b.id !== d.bid)) {
+        for (const bv of [...general, ...sameLevel.map(b => b.end)]) { if (Math.abs(ns - bv) < SCHEMA_SNAP_THR) { ns = bv; ne = bv + dur2; snapped = true; break; } }
+        if (!snapped) { for (const bv of [...general, ...sameLevel.map(b => b.start)]) { if (Math.abs(ne - bv) < SCHEMA_SNAP_THR) { ne = bv; ns = bv - dur2; break; } } }
+        for (const nb of sameLevel) {
           if (ns < nb.end - 0.05 && ne > nb.start + 0.05) {
             if (d.os >= nb.end - 0.3) { ns = nb.end; ne = ns + dur2; }
             else                       { ne = nb.start; ns = ne - dur2; }
@@ -624,7 +632,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       if (d.type === "resize-l") {
         const leftNb = d.leftId ? all.find(b => b.id === d.leftId) : null;
         const minNs  = leftNb ? leftNb.end : d.segMin;
-        const ns = cl(snapBounds(t), minNs, d.oe - SCHEMA_MIN_DUR);
+        let ns = cl(snapBounds(t), minNs, d.oe - SCHEMA_MIN_DUR);
+        // Imán al vecino inmediato del MISMO nivel (Jon, 2026-07-06): snapBounds
+        // excluye el propio nivel (para no imantar a cada borde y crear una
+        // cuadrícula), así que dos bloques solos NO se pegaban al acercarlos —
+        // solo el asa se detenía en el tope. Aquí sí atraemos el borde al canto
+        // del vecino contiguo cuando queda a menos del umbral: se imantan.
+        if (leftNb && Math.abs(ns - leftNb.end) < SCHEMA_SNAP_THR) ns = leftNb.end;
         setGuides([ns]);
         setBlocks(prev => cascadeBoundary(
           prev.map(b => b.id === d.bid ? { ...b, start: ns } : b),
@@ -635,7 +649,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
         const maxNe   = rightNb ? rightNb.start : d.segMax;
-        const ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
+        let ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
+        // Imán al vecino inmediato del mismo nivel (ver resize-l).
+        if (rightNb && Math.abs(ne - rightNb.start) < SCHEMA_SNAP_THR) ne = rightNb.start;
         setGuides([ne]);
         setBlocks(prev => cascadeBoundary(
           prev.map(b => b.id === d.bid ? { ...b, end: ne } : b),
@@ -1067,9 +1083,18 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         }
 
         // ── Resto de niveles: rectángulo relleno (estilo original) ──────────
+        // Pelín de espacio visual SIEMPRE, en los dos lados (Jon, 2026-07-06,
+        // v3): la v2 quitaba el inset en los cantos compartidos (imantados)
+        // para que "se notara" el imán, pero a 0px el hueco quedaba demasiado
+        // apurado — dos bloques imantados se leían casi como uno solo, con el
+        // asa compartida como única pista. El imán en sí ya no depende de
+        // esto (es un problema de datos, ya arreglado en los handlers de
+        // resize): visualmente basta un hueco pequeño y CONSTANTE, esté o no
+        // imantado el bloque.
+        const ins = 1;
         return (
           <div key={block.id} data-block="true" style={{
-            position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
+            position: "absolute", top: 6, bottom: 6, left: `calc(${lPct}% + ${ins}px)`, width: `calc(${wPct}% - ${ins * 2}px)`,
             background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
             // El borde depende SOLO de la selección (acción del usuario), nunca del
             // estado "activo" del cursor de reproducción. Ancho constante (2px) y sin
@@ -1096,17 +1121,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           </div>
         );
       })}
-      {/* Asas de borde libre — ocultas en modo resumida y en bordes bloqueados */}
+      {/* Asas de borde libre — SOLO en el bloque seleccionado (Jon,
+          2026-07-06: antes se veían todas, apagadas al 40%, todo el rato —
+          ahora una asa que no es la del bloque seleccionado no se renderiza,
+          en vez de solo atenuarse). Ocultas también en modo resumida y en
+          bordes bloqueados. */}
       {viewMode !== "resumida" && real.flatMap(block => {
+        if (selected !== block.id) return [];
         const lPct = ((block.start - bounds.min) / segDur) * 100;
         const rPct = ((block.end   - bounds.min) / segDur) * 100;
-        const selHere = selected === block.id;        // asa opaca solo si el bloque está seleccionado
-        const capOpacity = selHere ? 1 : 0.4;
         const out: ReactNode[] = [];
         // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
         if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
           <div key={`hl-${block.id}`} data-block="true"
-            style={{ ...capBase, borderRadius: `${_capRouter}px ${_capRinner}px ${_capRinner}px ${_capRouter}px`, cursor: "ew-resize", opacity: capOpacity, left: `${lPct}%` }}
+            style={{ ...capBase, borderRadius: `${_capRouter}px ${_capRinner}px ${_capRinner}px ${_capRouter}px`, cursor: "ew-resize", left: `${lPct}%` }}
             onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
             onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
             {edgeChevron("l")}
@@ -1115,7 +1143,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         // Ocultar el asa derecha si el bloque está bloqueado al borde de zona
         if (!adjRIds.has(block.id) && !block._lockedEnd) out.push(
           <div key={`hr-${block.id}`} data-block="true"
-            style={{ ...capBase, borderRadius: `${_capRinner}px ${_capRouter}px ${_capRouter}px ${_capRinner}px`, cursor: "ew-resize", opacity: capOpacity, left: `calc(${rPct}% - ${_capW}px)` }}
+            style={{ ...capBase, borderRadius: `${_capRinner}px ${_capRouter}px ${_capRouter}px ${_capRinner}px`, cursor: "ew-resize", left: `calc(${rPct}% - ${_capW}px)` }}
             onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
             onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
             {edgeChevron("r")}
@@ -1123,13 +1151,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         );
         return out;
       })}
-      {/* Asas de borde compartido — ocultas en modo resumida */}
-      {viewMode !== "resumida" && adjPairs.map(({ left, right }) => {
+      {/* Asas de borde compartido — SOLO si uno de los dos bloques que la
+          comparten está seleccionado (antes: siempre visible, apagada al
+          40%). Ocultas también en modo resumida. */}
+      {viewMode !== "resumida" && adjPairs.filter(({ left, right }) => selected === left.id || selected === right.id).map(({ left, right }) => {
         const pct = ((left.end - bounds.min) / segDur) * 100;
-        const shSel = selected === left.id || selected === right.id;
         return (
           <div key={`sh-${left.id}-${right.id}`} data-block="true"
-            style={{ ...capBase, borderRadius: _capRouter, cursor: "col-resize", zIndex: 11, opacity: shSel ? 1 : 0.4, left: `calc(${pct}% - ${_capW / 2}px)` }}
+            style={{ ...capBase, borderRadius: _capRouter, cursor: "col-resize", zIndex: 11, left: `calc(${pct}% - ${_capW / 2}px)` }}
             onMouseDown={e => handleSharedHandleDown(e, left, right)}
             onTouchStart={e => handleSharedHandleDown(e, left, right)}>
             {edgeChevron("both")}

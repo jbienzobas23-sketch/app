@@ -42,6 +42,17 @@ export function RepeatBand({
   selectedRepId, setSelectedRepId, onDeselectBlock,
 }: RepeatBandProps) {
   const [bandDrag, setBandDrag] = useState<BandDrag | null>(null);
+  // Fuente de verdad SÍNCRONA del arrastre de creación (Jon, 2026-07-06). El
+  // commit al soltar debe leer el arrastre y llamar a onSaveRepetitions FUERA
+  // del updater de setState — un updater debe ser puro. Antes onSaveRepetitions
+  // (que genera `uid("rep")` + setState) se llamaba DENTRO de
+  // `setBandDrag(prev=>…)`, y en StrictMode (dev) React invoca el updater DOS
+  // veces → dos `uid("rep")` distintos → los bloques quedaban con un id de
+  // repetición y `localReps` con otro → al no casar, TODO el contenido de la
+  // repetición DESAPARECÍA (y saltaba el warning «setState during render»). El
+  // ref se actualiza en los propios handlers (no en render), así que `up`
+  // siempre ve el valor vigente sin depender del ciclo de render.
+  const bandDragRef = useRef<BandDrag | null>(null);
   const bandRef = useRef<HTMLDivElement | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -82,14 +93,25 @@ export function RepeatBand({
       return best;
     };
     const startT = snapT(fracToTime(getBandFrac(e)));
-    setBandDrag({ type: "create", startT, curT: startT });
+    const initial: BandDrag = { type: "create", startT, curT: startT };
+    bandDragRef.current = initial;
+    setBandDrag(initial);
     const mv = (ev: MouseEvent | TouchEvent) => {
       if (ev.cancelable) ev.preventDefault();
-      setBandDrag(p => p?.type === "create" ? { ...p, curT: snapT(fracToTime(getBandFrac(ev))) } : p);
+      const cur = bandDragRef.current;
+      if (cur?.type !== "create") return;
+      const next: BandDrag = { ...cur, curT: snapT(fracToTime(getBandFrac(ev))) };
+      bandDragRef.current = next;
+      setBandDrag(next);
     };
     const up = () => {
-      setBandDrag(prev => {
-        if (prev?.type !== "create") return null;
+      // Leer el arrastre del ref (fuente de verdad síncrona) y limpiar el
+      // estado; el commit (con uid + setState en cascada) va fuera de cualquier
+      // updater de setState.
+      const prev = bandDragRef.current;
+      bandDragRef.current = null;
+      setBandDrag(null);
+      if (prev?.type === "create") {
         const s = Math.min(prev.startT, prev.curT);
         const e2 = Math.max(prev.startT, prev.curT);
         const d = e2 - s;
@@ -104,8 +126,7 @@ export function RepeatBand({
             { id: uid("rep"), label: "", first: { start: fs, end: fe }, second: { start: fe, end: se } },
           ]);
         }
-        return null;
-      });
+      }
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
     };
