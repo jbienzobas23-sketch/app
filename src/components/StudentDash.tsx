@@ -110,7 +110,13 @@ export function StudentDash({ user, exercises, results, courses, units, groups =
         <div style={{ marginBottom: isMobile ? 20 : 26, paddingBottom: isMobile ? 14 : 18, borderBottom: `1px solid ${C.rail}`, boxShadow: "0 10px 16px -14px rgba(26,25,21,0.22)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <Overline>Alumno</Overline>
-            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
+            {/* `lineHeight:1` de S.h1 + `overflow:hidden` recortaba los
+                descendentes (g/j/p/q/y) del nombre — un `lineHeight` algo
+                mayor le da a la caja el aire vertical que le faltaba, sin
+                tocar el truncado con ellipsis (probado: separar
+                overflow-x/overflow-y en vez de esto pintaba un artefacto
+                gris junto al texto). */}
+            <h1 style={{ ...S.h1, fontSize: isMobile ? 24 : 32, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</h1>
           </div>
           {/* Móvil (Jon, 2026-07-05): paleta + cambiar profesor + salir se
               pliegan en el menú «☰»; en escritorio siguen sueltos. */}

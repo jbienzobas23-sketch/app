@@ -15,6 +15,14 @@ export function useInjectFonts(): void {
         "*,*::before,*::after{box-sizing:border-box}"
         // Salvaguarda anti-desbordamiento horizontal en móvil.
         + "html,body{max-width:100%;overflow-x:hidden}"
+        // Reserva SIEMPRE el ancho de la barra de scroll vertical (Jon,
+        // 2026-07-06): sin esto, una pestaña corta (sin scroll) y una larga
+        // (Audios, con scroll) tienen distinto ancho de contenido — al
+        // cambiar de una a otra, todo el layout salta unos px a la izquierda
+        // cuando aparece la barra. `stable` reserva ese hueco de entrada,
+        // haya o no overflow. Los navegadores sin soporte (Safari) ignoran
+        // la propiedad sin efecto — no empeora nada donde no se aplica.
+        + "html{scrollbar-gutter:stable}"
         // Fondo papel bajo todo (M0.7): sin esto, el hueco entre capas (fallback
         // de Suspense, remontaje al alternar modelo/parte, overscroll de iOS)
         // se ve blanco puro en vez del fondo de la app — un pestañeo visible.

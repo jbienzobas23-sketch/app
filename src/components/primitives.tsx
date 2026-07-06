@@ -1050,7 +1050,7 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
   );
   // Buscador del alumno (Jon, 2026-07-04): mismo sitio que el del profesor.
   const search = setSearchQuery && (
-    <div style={{ position: "relative", ...(isMobile ? { flex: 1, minWidth: 0 } : { marginLeft: "auto" }) }}>
+    <div style={{ position: "relative", ...(isMobile ? { flex: 1, minWidth: 120 } : { marginLeft: "auto" }) }}>
       <input type="text" value={searchQuery ?? ""} onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="Buscar…" title="Buscar por título o compositor"
         style={{ ...S.input, width: isMobile ? "100%" : 180, boxSizing: "border-box", paddingRight: searchQuery ? 30 : undefined }} />
@@ -1063,13 +1063,15 @@ export function StudentFilterBar({ filterModel, setFilterModel, filterDone, setF
     </div>
   );
 
-  // Móvil (Jon, 2026-07-05): mismas dos filas que la barra del profesor —
-  // buscador a todo el ancho arriba, chips de filtro debajo, sin etiqueta.
+  // Móvil (Jon, 2026-07-06): buscador a la ALTURA de los chips de filtro (con
+  // solo dos, Tipo/Estado, dejaban toda una fila casi vacía debajo del
+  // buscador) — una sola fila con `flexWrap` para que, si algún día no cupiera
+  // (más chips, texto largo), rompa a una segunda línea en vez de desbordar.
   if (isMobile) {
     return (
-      <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {search && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{search}</div>}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>{dropdowns}</div>
+      <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        {dropdowns}
+        {search}
       </div>
     );
   }
