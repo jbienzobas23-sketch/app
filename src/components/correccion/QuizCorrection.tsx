@@ -222,7 +222,6 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                           <button key={q.id} onClick={() => qRefs.current[q.id]?.scrollIntoView({ behavior: "smooth", block: "start" })}
                             title={`P${i + 1} · ${v.word}`}
                             style={{ font: "inherit", display: "flex", alignItems: "center", gap: 9, width: "100%", boxSizing: "border-box", textAlign: "left", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer" }}>
-                            <span aria-label={v.word} style={{ width: 22, height: 22, borderRadius: "50%", background: v.bg, color: v.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{v.symbol}</span>
                             <span style={{ flex: 1, minWidth: 0 }}>
                               <span style={{ display: "block", fontFamily: FONT_SANS, fontSize: 12, fontWeight: 700, color: C.ink }}>P{i + 1}</span>
                               <span style={{ display: "block", fontFamily: FONT_SANS, fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q.text}</span>
@@ -297,9 +296,8 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                               tinta, y el veredicto DESPUÉS como insignia de color
                               — el chip no se tiñe, así el color queda solo en el
                               punto de estado, no en todo el bloque. */}
-                          <span title={v.word} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 8px 4px 12px", borderRadius: 999, background: C.paper2, border: `1px solid ${C.line}` }}>
+                          <span title={v.word} style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 999, background: C.paper2, border: `1px solid ${C.line}` }}>
                             <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700, color: C.ink, letterSpacing: "0.01em" }}>Pregunta {idx + 1}</span>
-                            <span aria-label={v.word} style={{ width: 18, height: 18, borderRadius: "50%", background: v.color, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{v.symbol}</span>
                           </span>
                           <span style={{ flex: 1 }} />
                           {hasAudio && (
@@ -471,7 +469,6 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                         <button key={q.id} onClick={() => qRefs.current[q.id]?.scrollIntoView({ behavior: "smooth", block: "start" })}
                           title={`P${i + 1} · ${v.word}`}
                           style={{ font: "inherit", display: "flex", alignItems: "center", gap: 9, width: "100%", boxSizing: "border-box", textAlign: "left", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer" }}>
-                          <span aria-label={v.word} style={{ width: 22, height: 22, borderRadius: "50%", background: v.bg, color: v.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{v.symbol}</span>
                           <span style={{ flex: 1, minWidth: 0 }}>
                             <span style={{ display: "block", fontFamily: FONT_SANS, fontSize: 12, fontWeight: 700, color: C.ink }}>P{i + 1}</span>
                             <span style={{ display: "block", fontFamily: FONT_SANS, fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q.text}</span>
@@ -521,9 +518,8 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                   return (
                     <div key={q.id} ref={(el) => { qRefs.current[q.id] = el; }} style={{ scrollMarginTop: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "0 2px" }}>
-                        <span title={v.word} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 8px 4px 12px", borderRadius: 999, background: C.paper2, border: `1px solid ${C.line}` }}>
+                        <span title={v.word} style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 999, background: C.paper2, border: `1px solid ${C.line}` }}>
                           <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700, color: C.ink, letterSpacing: "0.01em" }}>Pregunta {idx + 1}</span>
-                          <span aria-label={v.word} style={{ width: 18, height: 18, borderRadius: "50%", background: v.color, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{v.symbol}</span>
                         </span>
                         <span style={{ flex: 1 }} />
                         {hasAudio && (
