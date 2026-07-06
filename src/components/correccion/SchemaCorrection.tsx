@@ -380,87 +380,125 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
     );
   }
 
-  // ── Vista del alumno ──────────────────────────────────────────────────────
+  // ── Vista del alumno (Jon, 2026-07-06: MISMO lenguaje visual que el
+  // profesor) ────────────────────────────────────────────────────────────────
+  // Mismo esqueleto de dos columnas que la corrección de profesor: panel de
+  // nota FIJO a la izquierda (de solo lectura, sin NotaInput/guardar) y a la
+  // derecha las tiras del esquema + diagnóstico, con scroll propio.
   const showRefSchema = (Boolean(exercise.immediateSchemaFeedback) || Boolean(tc?.corrected)) && hasKey;
+  const eyebrow: CSSProperties = { fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 4 };
+  const split = !isMobile;
+  const pageStyle: CSSProperties = split
+    ? { maxWidth: 1240, margin: "0 auto", padding: "22px 24px 0", height: "100vh", boxSizing: "border-box", display: "flex", flexDirection: "column" }
+    : S.page;
+  const gridStyle: CSSProperties = split
+    ? { display: "grid", gridTemplateColumns: "232px minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)", gap: 18, flex: 1, minHeight: 0 }
+    : { display: "grid", gridTemplateColumns: "1fr", gap: 18, alignItems: "start" };
+  const asideStyle: CSSProperties = split
+    ? { overflowY: "auto", minHeight: 0, paddingRight: 2, paddingBottom: 8 }
+    : {};
+  const rightColStyle: CSSProperties = split
+    ? { minWidth: 0, overflowY: "auto", minHeight: 0, paddingRight: 6, paddingBottom: 24 }
+    : { minWidth: 0 };
+
   return (
     <div style={S.app}>
-      <div style={S.page}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--f-sans, Outfit)", fontSize: 13, color: "#888", padding: 0, marginBottom: 20 }}>← Volver</button>
-        <h1 style={{ ...S.h1, marginBottom: 20 }}>Esquema entregado: {exercise.title}</h1>
+      <div style={pageStyle}>
+       <div style={split ? { flexShrink: 0 } : undefined}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+          <button onClick={onBack} style={{ ...S.btn, fontSize: 12, padding: "6px 12px" }}>{backLabel}</button>
+        </div>
+        <h1 style={{ ...S.h1, marginBottom: 4 }}>{exercise.title}</h1>
+        <p style={{ fontSize: 13, color: C.muted, margin: "0 0 20px" }}>Corrección de tu entrega</p>
         {extraHeaderContent}
         <AttemptBanner result={result} />
+       </div>
 
-        <div style={{ ...S.card, textAlign: "center", marginBottom: 20 }}>
-          {ps != null ? (
-            <>
-              <div style={{ fontSize: 56, fontWeight: 900, color: scoreColor(ps), lineHeight: 1 }}>{nota10(ps)}</div>
-              <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Nota de colocación automática (margen ±{effSchemaMargin} s)</div>
-            </>
-          ) : (
-            <div style={{ color: C.muted, lineHeight: 1.6 }}>
-              Esquema enviado al profesor para revisión.<br />
-              <span style={{ fontSize: 12 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
-            </div>
-          )}
-        </div>
+        <div style={gridStyle}>
 
-        <AudioBar />
-
-        {(blocks.length > 0 || showRefSchema) && (
-          <div style={S.card}>
-            {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} paletteId={keyPalette} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
-            {!showRefSchema && hasKey && (
-              <p style={{ textAlign: "center", color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
-                El esquema de referencia estará disponible cuando el profesor corrija el ejercicio.
-              </p>
-            )}
-            {blocks.length > 0 && <SchemaStrip title="Tu esquema" bks={blocks} />}
-          </div>
-        )}
-
-        {showRefSchema && <DiagnosticsCard />}
-
-        {tc?.corrected && (
-          <div style={{ ...S.card, border: `1.5px solid rgba(47,111,184,0.35)`, marginTop: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>Corrección del profesor</div>
-            {tc.totalScore != null && (() => {
-              const pct100 = normalizeScore100(tc.totalScore);
-              return (
-                <div style={{ textAlign: "center", marginBottom: 14 }}>
-                  <span style={{ fontSize: 48, fontWeight: 900, color: scoreColor(pct100), lineHeight: 1 }}>{nota10(pct100)}</span>
-                </div>
-              );
-            })()}
-            {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
-              <div key={lv.id} style={{ marginBottom: 10, padding: "10px 12px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: lv.color, marginBottom: 4 }}>{lv.sub}</div>
-                <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.levelComments?.[lv.id]}</div>
-              </div>
-            ))}
-            {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
-              const block = blocks.find((b) => b.id === blockId);
-              if (!block) return null;
-              const lv = SCHEMA_LEVELS.find((l) => l.id === block.level);
-              return (
-                <div key={blockId} style={{ marginBottom: 6, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
-                  <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
-                    <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
-                    <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(block.start)}–{fmtClock(block.end)}</span>
+          {/* ── Panel lateral (fijo; nota de solo lectura + comentario general) ── */}
+          <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={eyebrow}>Nota</div>
+              {tc?.corrected && tc.totalScore != null ? (() => {
+                const pct100 = normalizeScore100(tc.totalScore);
+                return (
+                  <>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                      <span style={{ fontSize: 42, fontWeight: 800, color: scoreColor(pct100), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(pct100)}</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Corregido por el profesor</div>
+                  </>
+                );
+              })() : ps != null ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                    <span style={{ fontSize: 42, fontWeight: 800, color: scoreColor(ps), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(ps)}</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                   </div>
-                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Automática: colocación de bloques (±{effSchemaMargin} s)</div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.5 }}>
+                  Esquema enviado al profesor para revisión.<br />
+                  <span style={{ fontSize: 11 }}>{blocks.length} {blocks.length === 1 ? "bloque dibujado" : "bloques dibujados"}.</span>
                 </div>
-              );
-            })}
-            {tc.globalComment && (
-              <div style={{ padding: "10px 12px", background: "rgba(47,111,184,0.06)", border: `1px solid rgba(47,111,184,0.2)`, borderRadius: 8, marginTop: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.quiz, marginBottom: 4 }}>Comentario general</div>
-                <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{tc.globalComment}</div>
+              )}
+            </div>
+
+            {tc?.corrected && (tc.globalComment || activeLevels.some((lv) => tc.levelComments?.[lv.id]) || Object.values(tc.blockComments || {}).some(Boolean)) && (
+              <div style={{ background: C.paper, border: `1.5px solid rgba(47,111,184,0.35)`, borderRadius: 14, padding: "14px 16px" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Corrección del profesor</div>
+                {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
+                  <div key={lv.id} style={{ marginBottom: 8, padding: "8px 10px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: lv.color, marginBottom: 3 }}>{lv.sub}</div>
+                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{tc.levelComments?.[lv.id]}</div>
+                  </div>
+                ))}
+                {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
+                  const block = blocks.find((b) => b.id === blockId);
+                  if (!block) return null;
+                  const lv = SCHEMA_LEVELS.find((l) => l.id === block.level);
+                  return (
+                    <div key={blockId} style={{ marginBottom: 8, padding: "8px 10px", background: C.paper2, borderRadius: 8 }}>
+                      <div style={{ ...S.row, gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontFamily: FONT_SERIF, fontWeight: 700, fontSize: 12, color: lv?.color }}>{block.label}</span>
+                        <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(block.start)}–{fmtClock(block.end)}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comment}</div>
+                    </div>
+                  );
+                })}
+                {tc.globalComment && (
+                  <div style={{ padding: "9px 11px", background: "rgba(47,111,184,0.06)", border: `1px solid rgba(47,111,184,0.2)`, borderRadius: 8, marginTop: 4 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: C.quiz, marginBottom: 4 }}>Comentario general</div>
+                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{tc.globalComment}</div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
+          </aside>
 
-        <button onClick={onBack} style={{ ...S.btnPrimary, width: "100%", marginTop: 16, padding: 14, borderRadius: 12 }}>{backLabel}</button>
+          {/* ── Columna del esquema (scroll propio; aquí vive lo ANCHO) ── */}
+          <div style={rightColStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
+            {hasAudio && <div style={{ marginBottom: 16 }}><AudioBar /></div>}
+
+            {(blocks.length > 0 || showRefSchema) && (
+              <div style={{ ...S.card, borderRadius: 12, marginBottom: 16 }}>
+                {showRefSchema && <><SchemaStrip title="Esquema de referencia (profesor)" bks={schemaKey} paletteId={keyPalette} /><hr style={{ ...S.divider, margin: "10px 0 14px" }} /></>}
+                {!showRefSchema && hasKey && (
+                  <p style={{ textAlign: "center", color: C.muted, fontSize: 12, margin: "0 0 14px" }}>
+                    El esquema de referencia estará disponible cuando el profesor corrija el ejercicio.
+                  </p>
+                )}
+                {blocks.length > 0 && <SchemaStrip title="Tu esquema" bks={blocks} />}
+              </div>
+            )}
+
+            {showRefSchema && <DiagnosticsCard />}
+          </div>
+        </div>
       </div>
     </div>
   );

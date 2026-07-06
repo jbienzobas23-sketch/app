@@ -20,7 +20,9 @@ describe("CorrectionView — despachador troceado (M3.4)", () => {
     });
     const result: ExerciseResult = { type: "cuestionario", answers: { q1: "A" }, score: 100 };
     render(<CorrectionView exercise={exercise} result={result} onBack={() => {}} />);
-    expect(screen.getByText("¿Primera?")).toBeInTheDocument();
+    // El enunciado aparece dos veces (Jon, 2026-07-06: mismo layout partido que
+    // el profesor) — en el índice lateral (snippet) y en la tarjeta de lectura.
+    expect(screen.getAllByText("¿Primera?").length).toBeGreaterThan(0);
     // La nota se muestra en 0–10 (nota10): score 100 → "10".
     expect(screen.getAllByText("10").length).toBeGreaterThan(0);
   });
