@@ -90,7 +90,9 @@ function PartRunner({ partExercise, mode, onSubmit, onBack, partDrafts, onModelD
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const loopRegionRef = useRef<any>(null);
   const onWaveform    = sharedWaveformData ? null : (wd: number[]) => setSharedWaveformData(wd);
-  const rawPlayer     = useAudioPlayer(partExercise, { onWaveform, loopRegionRef });
+  // stopAtLoopEnd: solo lo activa QuestionnaireView (única que fija loopRegionRef
+  // aquí); sin efecto para los demás modelos del combo, que nunca lo tocan.
+  const rawPlayer     = useAudioPlayer(partExercise, { onWaveform, loopRegionRef, stopAtLoopEnd: true });
   const sharedAudioPlayer = { ...rawPlayer, waveformData: sharedWaveformData };
 
   // Al alternar de modelo: cancelar cualquier bucle de fragmento activo, y

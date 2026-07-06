@@ -243,7 +243,7 @@ export function ModalFooter({ onCancel, onSave, canSave = true, saveLabel = "Gua
 // Punto de tiempo abreviado para "0:07" sin minutos cuando es corto
 const SESSION_MODEL_META = {
   interactivo:  { color: C.fnT, label: "Interactivo",  hint: "Mantén pulsado el botón de la función (o su tecla) mientras suena el audio para marcar cada fragmento.", verb: "marca categorías en vivo" },
-  cuestionario: { color: C.fnS, label: "Cuestionario", hint: "Toca una pregunta para saltar a su fragmento de audio y escucharlo en bucle, luego responde.", verb: "responde sobre fragmentos" },
+  cuestionario: { color: C.fnS, label: "Cuestionario", hint: "Toca una pregunta para fijar su fragmento de audio, luego responde.", verb: "responde sobre fragmentos" },
   esquema:      { color: C.fnD, label: "Esquema",       hint: "Arrastra sobre cualquier pista para crear un bloque. Doble toque para renombrarlo; selecciónalo para moverlo o cambiar su color.", verb: "dibuja la forma musical" },
 };
 

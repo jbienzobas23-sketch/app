@@ -61,12 +61,13 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
   const localPlayer = useAudioPlayer(
     sharedAudioPlayer ? { id: exercise.id, duration: exercise.duration, audioUrl: null } : exercise,
     // La pregunta bloqueada siempre tiene audioStart/audioEnd; el ref encaja con
-    // la región de bucle que espera el reproductor.
-    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : (loopRegionRef as { current: { audioStart: number; audioEnd: number } | null }) }
+    // la región de bucle que espera el reproductor. stopAtLoopEnd (2026-07-06):
+    // al llegar al final del fragmento se para, no repite en bucle.
+    { onWaveform: localOnWaveform, loopRegionRef: sharedAudioPlayer ? null : (loopRegionRef as { current: { audioStart: number; audioEnd: number } | null }), stopAtLoopEnd: true }
   );
   const {
     time, playing, audioReady, audioError, hasAudio,
-    timeRef, togglePlay, seekTo, playFrom, scrubBegin, scrubTo, scrubEnd, audioDuration,
+    timeRef, togglePlay, seekTo, scrubBegin, scrubTo, scrubEnd, audioDuration,
   } = sharedAudioPlayer || localPlayer;
 
   const selectQuestion = (q: QuizQuestion) => {
@@ -74,8 +75,11 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     // M6: una pregunta de obra atañe al audio entero — libera cualquier
     // fragmento y NO reposiciona el audio (se sigue oyendo la obra completa).
     if (questionScopeOf(q) === "obra") { unlockAudio(); return; }
+    // Seleccionar solo fija el fragmento (resalta la onda y el bloque); NO
+    // reproduce automáticamente — el alumno decide cuándo darle a play (Jon
+    // 2026-07-06).
     setLockedQuestion(q);
-    if (playing) seekTo(q.audioStart); else playFrom(q.audioStart);
+    seekTo(q.audioStart);
   };
   const unlockAudio    = ()  => { setLockedQuestion(null); };
 
@@ -146,29 +150,21 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
               onScrubBegin={scrubBegin} onScrubTo={scrubTo} onScrubEnd={scrubEnd} />
           </div>
 
-          {/* Minimapa de preguntas — las de fragmento en la línea (toca para saltar
-              a su tramo); las de obra, en la bandeja «Obra» (M6, toca para oírla). */}
+          {/* Línea de tiempo de la obra (Jon 2026-07-06): toda la barra navega
+              (clic/arrastre → salta a ese instante); los bloques son solo
+              marcadores de dónde cae cada pregunta (no interceptan el clic, para
+              no competir con la navegación). Abrir una pregunta se hace desde su
+              tarjeta de la lista de abajo. Solo las de fragmento tienen bloque;
+              las de obra completa no marcan tramo. */}
           {(() => {
             const fragmentQs = questions.filter((q) => questionScopeOf(q) === "fragmento");
-            const obraQs      = questions.filter((q) => questionScopeOf(q) === "obra");
             return (
               <QuestionMinimap questions={fragmentQs} duration={dur} time={time}
                 blockState={(q) => ({ fill: (answers[q.id] !== undefined && answers[q.id] !== "") ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id })}
-                onSelect={(q) => selectQuestion(q)}
-                obraQuestions={obraQs}
-                onSelectObra={(q) => selectQuestion(q)}
-                obraActiveId={expandedId} />
+                onSeek={(t) => { if (lockedQuestion) unlockAudio(); seekTo(t); }}
+                showRuler />
             );
           })()}
-
-          {lockedQuestion ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, margin: "8px 0", flexWrap: "wrap" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
-                🔒 Fragmento {fmtClock(lockedQuestion.audioStart)} – {fmtClock(lockedQuestion.audioEnd)} · bucle
-              </span>
-              <button onClick={unlockAudio} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
-            </div>
-          ) : <div style={{ height: 8 }} />}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>

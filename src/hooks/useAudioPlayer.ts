@@ -9,9 +9,15 @@ interface LoopRegion { audioStart: number; audioEnd: number; }
 interface AudioPlayerOpts {
   onWaveform?: ((wf: number[]) => void) | null;
   loopRegionRef?: { current: LoopRegion | null } | null;
+  // Con `loopRegionRef` fijado: por defecto (false) se repite en bucle infinito
+  // sin pausa (usado por la corrección de cuestionario). `true` (usado por la
+  // sesión del alumno, M/2026-07-06): se PARA al llegar al final del fragmento
+  // en vez de repetirlo — un nuevo play (togglePlay) vuelve a empezar por el
+  // inicio del fragmento, no continúa desde donde se paró.
+  stopAtLoopEnd?: boolean;
 }
 
-export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegionRef = null }: AudioPlayerOpts = {}) {
+export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegionRef = null, stopAtLoopEnd = false }: AudioPlayerOpts = {}) {
   const dur           = exercise.duration as number;
   const audioUrl      = exercise.audioUrl;
   const hasAudio      = !!audioUrl;
@@ -130,6 +136,12 @@ export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegi
       const lq = loopRegionRef?.current;
       let next;
       if (lq && timeRef.current >= lq.audioEnd) {
+        if (stopAtLoopEnd) {
+          timeRef.current = lq.audioEnd;
+          setTime(lq.audioEnd);
+          setPlaying(false);
+          return;
+        }
         next = lq.audioStart;
       } else if (!lq && timeRef.current >= dur) {
         timeRef.current = dur;
@@ -157,6 +169,14 @@ export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegi
         const rawT = playOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current);
         const lq   = loopRegionRef?.current;
         if (lq && rawT >= lq.audioEnd) {
+          if (stopAtLoopEnd) {
+            stopSource();
+            playOffsetRef.current = lq.audioEnd;
+            timeRef.current = lq.audioEnd;
+            setTime(lq.audioEnd);            // se para al final: sin throttle
+            setPlaying(false);
+            return;
+          }
           stopSource();
           playOffsetRef.current = lq.audioStart;
           timeRef.current = lq.audioStart;
@@ -196,7 +216,16 @@ export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegi
   }, [playing, dur, hasAudio]);
 
   const togglePlay = () => {
-    if (!hasAudio || !bufferRef.current) { setPlaying((p) => !p); return; }
+    if (!hasAudio || !bufferRef.current) {
+      // Modo simulado: si nos habíamos parado al final de un fragmento
+      // bloqueado (stopAtLoopEnd), un nuevo play vuelve a su inicio.
+      if (!playingRef.current && stopAtLoopEnd) {
+        const lq = loopRegionRef?.current;
+        if (lq && timeRef.current >= lq.audioEnd) { timeRef.current = lq.audioStart; setTime(lq.audioStart); }
+      }
+      setPlaying((p) => !p);
+      return;
+    }
     if (pendingToggleRef.current) return;
     const ctx = ctxRef.current!;
     const wasPlaying = playingRef.current;
@@ -210,6 +239,14 @@ export function useAudioPlayer(exercise: Exercise, { onWaveform = null, loopRegi
         setTime(playOffsetRef.current);            // evita retroceso al sincronizar en !playing
         setPlaying(false);
       } else {
+        // Reanudar tras pararse al final de un fragmento bloqueado (stopAtLoopEnd):
+        // empieza de nuevo por su inicio, no continúa desde donde se paró.
+        const lq = loopRegionRef?.current;
+        if (stopAtLoopEnd && lq && playOffsetRef.current >= lq.audioEnd) {
+          playOffsetRef.current = lq.audioStart;
+          timeRef.current = lq.audioStart;
+          setTime(lq.audioStart);
+        }
         stopSource();                        // safety: matar cualquier fuente huérfana
         startSource(playOffsetRef.current);
         setPlaying(true);
