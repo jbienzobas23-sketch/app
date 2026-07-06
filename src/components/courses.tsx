@@ -8,7 +8,7 @@ import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/typ
 import { C, F, S } from "../theme/tokens.js";
 import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { Chevron, ProgressRing, CtaButton, Menu } from "./primitives.jsx";
+import { ProgressRing, CtaButton, Menu } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
@@ -182,42 +182,6 @@ export function CoursesLanding({ role, courses, units, exercises, results, group
   );
 }
 
-// — Desplegable para cambiar de curso sin salir del detalle —
-export function CourseDropdown({ courses, currentId, role, units, exercises, results, onSwitch }: { courses: Course[]; currentId: string; role: Role; units: Unit[]; exercises: Exercise[]; results: ResultsMap; onSwitch: (courseId: string) => void }) {
-  const course = courses.find((c) => c.id === currentId);
-  if (!course) return null;
-  return (
-    <Menu ariaLabel="Cambiar de curso" panelStyle={{ marginTop: 6, borderRadius: 12, boxShadow: "0 14px 40px rgba(0,0,0,0.16)", padding: 6, minWidth: 300, maxWidth: 380, maxHeight: 420, overflowY: "auto" }}
-      trigger={({ open, toggle, triggerRef }) => (
-        <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
-          style={{ font: "inherit", display: "flex", alignItems: "center", gap: 10, maxWidth: "100%", background: open ? C.field : "transparent", border: `1px solid ${open ? C.rail : "transparent"}`, borderRadius: 10, padding: "6px 12px 6px 10px", cursor: "pointer" }}>
-          <h3 style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.05, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</h3>
-          <span style={{ marginTop: 4, flexShrink: 0 }}><Chevron open={open} size={16} /></span>
-        </button>
-      )}>
-      {({ close }) => (
-        <>
-          <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "6px 10px 7px" }}>Cambiar de curso</div>
-          {courses.map((c) => {
-            const cs  = courseProgress(c, units, exercises, role, results);
-            const cur = c.id === currentId;
-            return (
-              <button key={c.id} role="menuitem" onClick={() => { onSwitch(c.id); close(); }}
-                style={{ font: "inherit", width: "100%", boxSizing: "border-box", textAlign: "left", display: "flex", alignItems: "center", gap: 11, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: cur ? C.field : "transparent" }}>
-                <ProgressRing ready={cs.unitsDone} total={cs.units} size={32} stroke={3} />
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontFamily: F.serif, fontSize: 16.5, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                </span>
-                {cur && <svg width="14" height="12" viewBox="0 0 7 6" fill="none" style={{ flexShrink: 0 }}><path d="M1 2.8L3 4.8L6 1" stroke={C.fnT} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-              </button>
-            );
-          })}
-        </>
-      )}
-    </Menu>
-  );
-}
-
 export function EmptyExercises({ role }: { role: Role }) {
   return (
     <div style={{ padding: "44px 20px", textAlign: "center", border: `1px dashed ${C.rail}`, borderRadius: 12 }}>
@@ -382,7 +346,9 @@ export function UnitsList({ course, units, exercises, role, results, selUnitId, 
                 <div key={u.id} onClick={select} role="button" tabIndex={0}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
                   style={{ boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "12px 12px", borderRadius: 12, border: on ? `1.5px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer", background: C.paper, boxShadow: on ? "0 4px 14px rgba(26,25,21,0.08)" : "none" }}>
-                  <ProgressRing ready={s.num} total={s.total} size={38} stroke={3.5} />
+                  {/* El anillo de progreso (X/Y claves listas) solo aporta al
+                      alumno; al profesor le sobra ese "0/3" (Jon, 2026-07-06). */}
+                  {role === "student" && <ProgressRing ready={s.num} total={s.total} size={38} stroke={3.5} />}
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
                     {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
@@ -415,11 +381,10 @@ interface CourseDetailProps extends CoursesCallbacks {
   selUnitId: string | null;
   setSelUnitId: (id: string | null) => void;
   onBack: () => void;
-  onSwitch: (courseId: string) => void;
 }
 export function CourseDetail({
   role, courses, courseId, units, exercises, results, groups,
-  selUnitId, setSelUnitId, onBack, onSwitch,
+  selUnitId, setSelUnitId, onBack,
   onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop,
   onCreateUnit = noop, onEditUnit, onDeleteUnit, onUpdateUnit,
   onPickFromBank, onCreateNewExInUnit, onRemoveExFromUnit, onSelectExercise,
@@ -432,12 +397,20 @@ export function CourseDetail({
   const unit = cu.find((u) => u.id === selUnitId) || cu[0] || null;
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Barra de título: nombre del curso (izq) + "Volver a cursos" (der). Sin
-          borde 2px ni barra de progreso; las acciones del curso van en el menú ⋯. */}
+      {/* Barra de título (Jon, 2026-07-06): botón de volver como flecha suelta
+          a la izquierda del nombre (antes texto "Volver a cursos" a la
+          derecha); el nombre ya no es un desplegable para cambiar de curso
+          (se quita esa flecha — para eso ya está "volver a cursos" + elegir
+          otro); "Público"/insignia de visibilidad pasa a la derecha, junto
+          al menú ⋯. */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: course.description ? 10 : 20 }}>
-        <CourseDropdown courses={courses} currentId={courseId} role={role} units={units} exercises={exercises} results={results} onSwitch={onSwitch} />
-        {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
+        <button onClick={onBack} aria-label="Volver a cursos" title="Volver a cursos" className="fa-pressable"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, color: "#888", cursor: "pointer", flexShrink: 0 }}>
+          <ChevronLeftIcon size={14} color="#888" />
+        </button>
+        <h3 style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.05, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</h3>
         <span style={{ flex: 1 }} />
+        {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
         {role === "teacher" && (
           <KebabMenu title={`Acciones del curso "${course.name}"`} items={[
             { label: course.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateCourse({ ...course, hidden: !course.hidden }) },
@@ -445,14 +418,12 @@ export function CourseDetail({
             { label: "Eliminar curso", danger: true, onClick: () => askConfirm(`¿Eliminar el curso "${course.name}"?\n\nLas unidades y ejercicios no se eliminarán.`, () => { onDeleteCourse(course.id); onBack(); }) },
           ]} />
         )}
-        <button onClick={onBack} style={{ font: "inherit", display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: "none", padding: 0, color: "#888", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
-          <ChevronLeftIcon size={13} color="#888" /> Volver a cursos
-        </button>
       </div>
       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888", margin: "-4px 0 18px" }}>{course.description}</div>}
 
-      {/* Dos columnas: barra lateral de unidades (210px) + pila de ejercicios (sin tarjeta) */}
-      <div style={{ display: "grid", gridTemplateColumns: "236px 1fr", gap: 18, alignItems: "start" }}>
+      {/* Dos columnas: barra lateral de unidades a 1/3 del ancho (antes 236px
+          fijos, quedaba estrecha) + ejercicios a 2/3 (sin tarjeta), Jon 2026-07-06. */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(236px, 1fr) 2fr", gap: 18, alignItems: "start" }}>
         <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit}
           onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm} />
         <div style={{ minWidth: 0 }}>
@@ -683,7 +654,7 @@ export function CoursesPages(props: CoursesPagesProps) {
       onOpen={(cid) => onNavigate(cid)} onCreateCourse={props.onCreateCourse} />;
   }
   return <CourseDetail {...props} courseId={current.id} selUnitId={unidadId} setSelUnitId={(uid) => onNavigate(current.id, uid)}
-    onBack={() => onNavigate()} onSwitch={(cid) => onNavigate(cid)} />;
+    onBack={() => onNavigate()} />;
 }
 
 // ── Pestaña: Cursos (profesor) — ahora delega en CoursesPages ────────────────
