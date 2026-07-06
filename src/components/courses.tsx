@@ -14,7 +14,10 @@ import { ExerciseItem } from "./ExerciseItem.jsx";
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
 interface UnitStats { num: number; total: number; }
-interface CourseStats { num: number; total: number; units: number; }
+// unitsDone = unidades COMPLETAS (todos sus ejercicios listos/hechos), no
+// ejercicios sueltos — las tarjetas de curso miden progreso por unidad
+// (Jon, 2026-07-06), la cuenta de ejercicios queda solo dentro de cada unidad.
+interface CourseStats { unitsDone: number; units: number; }
 
 // Conjunto de datos común que reciben casi todas las vistas de cursos.
 interface CoursesData {
@@ -71,12 +74,14 @@ function unitProgress(unit: Unit, exercises: Exercise[], role: Role, results: Re
     : exs.filter(keyReadyOf).length;
   return { num, total: exs.length };
 }
-// Progreso agregado de un curso → { num, total, units }.
+// Progreso agregado de un curso → { unitsDone, units }. Una unidad cuenta
+// como "hecha" cuando TODOS sus ejercicios lo están (num === total) y tiene
+// al menos uno (una unidad vacía nunca se da por completa).
 function courseProgress(course: Course, units: Unit[], exercises: Exercise[], role: Role, results: ResultsMap): CourseStats {
   const cu = courseUnitList(course, units, role);
-  let num = 0, total = 0;
-  cu.forEach((u) => { const s = unitProgress(u, exercises, role, results); num += s.num; total += s.total; });
-  return { num, total, units: cu.length };
+  let unitsDone = 0;
+  cu.forEach((u) => { const s = unitProgress(u, exercises, role, results); if (s.total > 0 && s.num === s.total) unitsDone++; });
+  return { unitsDone, units: cu.length };
 }
 
 // — Iconos de línea (mismo lenguaje gráfico que la app) —
@@ -150,12 +155,7 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
           )}
           {role === "teacher" && <div style={{ marginTop: 7 }}><CourseVisBadge course={course} groups={groups} /></div>}
         </div>
-        <ProgressRing ready={cs.num} total={cs.total} size={60} stroke={5} />
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: "auto" }}>
-        <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, fontVariantNumeric: "tabular-nums" }}>
-          {cs.num}/{cs.total} {role === "student" ? "completados" : "con clave"}
-        </span>
+        <ProgressRing ready={cs.unitsDone} total={cs.units} size={60} stroke={5} />
       </div>
     </button>
   );
@@ -204,10 +204,9 @@ export function CourseDropdown({ courses, currentId, role, units, exercises, res
             return (
               <button key={c.id} role="menuitem" onClick={() => { onSwitch(c.id); close(); }}
                 style={{ font: "inherit", width: "100%", boxSizing: "border-box", textAlign: "left", display: "flex", alignItems: "center", gap: 11, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: cur ? C.field : "transparent" }}>
-                <ProgressRing ready={cs.num} total={cs.total} size={32} stroke={3} />
+                <ProgressRing ready={cs.unitsDone} total={cs.units} size={32} stroke={3} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontFamily: F.serif, fontSize: 16.5, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                  <span style={{ display: "block", fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 1 }}>{cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
                 </span>
                 {cur && <svg width="14" height="12" viewBox="0 0 7 6" fill="none" style={{ flexShrink: 0 }}><path d="M1 2.8L3 4.8L6 1" stroke={C.fnT} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>}
               </button>
@@ -497,16 +496,17 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
               return (
                 <button key={c.id} onClick={() => onOpenCourse(c.id)}
                   style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 15, padding: "20px 18px", borderRadius: 16, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", boxShadow: "0 1px 3px rgba(26,25,21,0.03)" }}>
-                  <ProgressRing ready={cs.num} total={cs.total} size={54} stroke={4.5} />
+                  <ProgressRing ready={cs.unitsDone} total={cs.units} size={54} stroke={4.5} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, color: C.ink, lineHeight: 1.1, letterSpacing: "-0.01em", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{c.name}</span>
                     {c.description && (
                       <span style={{ display: "block", fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 4, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.description}</span>
                     )}
-                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
-                      {role === "teacher" && <CourseVisBadge course={c} groups={groups} />}
-                      <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{cs.units} {cs.units === 1 ? "unidad" : "unidades"} · {cs.num}/{cs.total} {role === "student" ? "hechos" : "listas"}</span>
-                    </span>
+                    {role === "teacher" && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
+                        <CourseVisBadge course={c} groups={groups} />
+                      </span>
+                    )}
                   </span>
                   <ChevronRightIcon />
                 </button>

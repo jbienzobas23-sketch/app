@@ -48,7 +48,7 @@ const DEMO_AUDIO_90 = import.meta.env.DEV ? makeToneWav(90) : null;
 
 // ─── Usuarios: 1 profesor + 5 alumnos (índice 1 = la alumna de ?local=alumno) ─
 export const LOCAL_USERS: UserProfile[] = [
-  { id: "local-profe",  username: "profe",  displayName: "Prof. Local",     role: "teacher" },
+  { id: "local-profe",  username: "profe",  displayName: "Prof. Local",     role: "admin" },
   { id: "local-lucia",  username: "lucia",  displayName: "Lucía Arrieta",   role: "student", teacherId: "local-profe" },
   { id: "local-marco",  username: "marco",  displayName: "Marco Beltrán",   role: "student", teacherId: "local-profe" },
   { id: "local-aitana", username: "aitana", displayName: "Aitana Cortés",   role: "student", teacherId: "local-profe" },

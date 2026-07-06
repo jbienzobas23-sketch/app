@@ -143,6 +143,45 @@ export default function App() {
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
+
+  // Selector de usuario local (Jon, 2026-07-06): SOLO en `?local` (import.meta.env.DEV
+  // + semilla local). Antes `?local=alumno` entraba SIEMPRE como la primera
+  // alumna (Lucía) sin forma de ver a los demás sin tocar la URL o el código.
+  // Este selector cambia el usuario activo con un clic, sin recargar — vive en
+  // las dos pantallas de inicio (paneles de alumno y de profesor). Colapsado
+  // por defecto (Jon, 2026-07-06: la fila de píldoras siempre abierta tapaba
+  // la cabecera) — un único botón compacto que despliega la lista bajo
+  // demanda y se cierra solo al elegir o al perder el foco.
+  const switchLocalUser = (u: UserProfile) => { setUser(u); navigate(u.role === "student" ? "/alumno" : "/profesor"); };
+  const [localSwitcherOpen, setLocalSwitcherOpen] = useState(false);
+  const localSwitcherLabel = (u: UserProfile | null) =>
+    !u ? "…" : u.role === "teacher" ? "👨‍🏫 Profesor" : (u.displayName || u.username || "").split(" ")[0];
+  const localUserSwitcher = LOCAL_MODE ? (
+    <div
+      tabIndex={-1}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setLocalSwitcherOpen(false); }}
+      style={{ position: "fixed", top: 10, right: 10, zIndex: 999 }}>
+      <button onClick={() => setLocalSwitcherOpen((o) => !o)} title="Ver como… (solo beta local)"
+        style={{ font: "inherit", fontFamily: FONT_SANS, fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 999, cursor: "pointer",
+          background: "rgba(255,255,255,0.92)", color: "#555", border: `1px solid ${C.line}`, boxShadow: "0 1px 6px rgba(0,0,0,0.1)" }}>
+        {localSwitcherLabel(user)} {localSwitcherOpen ? "▲" : "▼"}
+      </button>
+      {localSwitcherOpen && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, display: "flex", flexDirection: "column", gap: 3, minWidth: 160, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 6, boxShadow: "0 4px 18px rgba(0,0,0,0.16)" }}>
+          {LOCAL_USERS.map((u) => {
+            const active = user?.id === u.id;
+            return (
+              <button key={u.id} onClick={() => { switchLocalUser(u); setLocalSwitcherOpen(false); }}
+                style={{ font: "inherit", fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                  background: active ? C.ink : "transparent", color: active ? "#fff" : "#444", border: "none" }}>
+                {u.role === "teacher" ? "👨‍🏫 Profesor" : (u.displayName || u.username)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  ) : null;
   const [lastResult,   setLastResult]     = useState<ExerciseResult | null>(null);
   const redirectAfterLogin = useRef<string | null>(null);   // enlace profundo a recuperar tras login
 
@@ -1064,6 +1103,7 @@ export default function App() {
     const visibleExercises = exercises; // (heurística actual: banco completo)
     return (
       <>
+      {localUserSwitcher}
       <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
       <StudentDash
         user={user as unknown as StudentUser}
@@ -1093,6 +1133,8 @@ export default function App() {
     return null;
   }
   return (
+    <>
+    {localUserSwitcher}
     <Suspense fallback={lazyFallback}>
     <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
     <TeacherDash
@@ -1142,5 +1184,6 @@ export default function App() {
       onAddAudio={addAudio} onUpdateAudio={updateAudio} onDeleteAudio={deleteAudio}
     />
     </Suspense>
+    </>
   );
 }
