@@ -911,9 +911,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     const adjLIds = new Set(adjPairs.map(p => p.right.id));
     const adjRIds = new Set(adjPairs.map(p => p.left.id));
 
-    // Posición del cursor de reproducción en esta fila
+    // Posición del cursor de reproducción en esta fila. "repeat-first"/
+    // "repeat-second" (vista completa, Jon 2026-07-07) faltaban aquí — el
+    // playhead solo se calculaba para "normal" y "repeat" (vista resumida),
+    // así que desaparecía en cuanto la reproducción entraba en la zona de
+    // repetición. recStart/recEnd de estos segmentos YA son tiempo absoluto
+    // de grabación, igual que en "normal".
     let phPct = null;
-    if (seg.type === "normal" && time >= seg.recStart && time < seg.recEnd)
+    if ((seg.type === "normal" || seg.type === "repeat-first" || seg.type === "repeat-second") && time >= seg.recStart && time < seg.recEnd)
       phPct = ((time - seg.recStart) / seg.canonDur) * 100;
     else if (seg.type === "repeat") {
       if (pass === "first" && time >= seg.rep.first.start && time < seg.rep.first.end)
@@ -1504,9 +1509,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           {viewMode !== "resumida" && (
             <div style={{ display: "flex", borderBottom: `1px solid ${C.line}`, background: C.paper, height: 18, flexShrink: 0, overflow: "hidden", userSelect: "none", pointerEvents: "none" }}>
               {segments.map((seg, si) => {
+                // Un segmento "normal" usa SUS PROPIOS límites (Jon,
+                // 2026-07-07) — antes caía siempre en {0, duration} sin
+                // importar dónde empezaba de verdad. Con una repetición que
+                // no llega al final (o con un hueco entre el original y la
+                // repetición), el "normal" siguiente/intermedio arrancaba en
+                // recStart>0 pero su regla se pintaba como si arrancara en 0,
+                // reiniciando los timestamps a mitad de la pieza.
                 const bounds = seg.type === "repeat-first" ? { min: seg.rep.first.start, max: seg.rep.first.end }
                              : seg.type === "repeat-second" ? { min: seg.rep.second.start, max: seg.rep.second.end }
-                             : { min: 0, max: duration };
+                             : { min: seg.recStart ?? 0, max: seg.recEnd ?? duration };
                 const segWidthPx = rulerW * (seg.vEnd - seg.vStart);
                 const ticks = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
                 return (

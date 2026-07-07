@@ -142,8 +142,16 @@ export function RepeatBand({
     e.preventDefault(); e.stopPropagation();
 
     const BAND_SNAP = Math.max(0.3, duration * 0.02);
+    // Puntos de OTRAS repeticiones (Jon, 2026-07-07): al crear una repetición
+    // (handleBandCreateDown) ya se imantaba a los bordes de las repeticiones
+    // existentes — pero al AJUSTAR una repetición ya creada, sus asas solo
+    // imantaban a bloques, nunca a otra repetición. Se excluye la propia
+    // `rep` (su valor viejo no debe atraer a su propia asa).
+    const otherRepPts = localRepsRef.current
+      .filter(r => r.id !== rep.id)
+      .flatMap(r => [r.first.start, r.first.end, r.second.start, r.second.end]);
     const snapT = (raw: number) => {
-      const candidates = [0, duration, ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end])];
+      const candidates = [0, duration, ...otherRepPts, ...blocksRef.current.filter(b => !b.isPreview).flatMap(b => [b.start, b.end])];
       let best = raw, bestDist = BAND_SNAP;
       for (const c of candidates) { const dd = Math.abs(raw - c); if (dd < bestDist) { bestDist = dd; best = c; } }
       return best;
