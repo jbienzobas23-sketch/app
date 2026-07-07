@@ -38,7 +38,7 @@ type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: nu
 interface SchemaSubmit { type: "esquema"; blocks: Block[]; schemaPalette: string; placementScore?: number | null; [k: string]: unknown; }
 
 // Borrador de bloques — mismo formato que produce esta vista y que
-// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId].
+// SessionShell (M4.1) eleva a drafts[partId][modelId].
 type EsquemaDraft = Block[];
 
 interface SchemaExerciseViewProps {

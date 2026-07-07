@@ -631,8 +631,8 @@ export default function App() {
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
   // Recibe `unknown` porque cada vista de sesión (ExerciseView, Questionnaire-
-  // View, SchemaExerciseView, MultiPart/MultiModelSessionView) tiene su propio
-  // tipo de onSubmit — SubmitPayload es la forma común que asume el cuerpo.
+  // View, SchemaExerciseView, SessionShell) tiene su propio tipo de onSubmit —
+  // SubmitPayload es la forma común que asume el cuerpo.
   const submitAnswer = (rawPayload: unknown) => {
     const payload = rawPayload as SubmitPayload;
     if (!exCtx) return;
@@ -658,7 +658,7 @@ export default function App() {
       ? urlPartId
       : recordParts[0]?.id;
 
-    // Sesión multiparte (F4, T4.3): MultiPartSessionView entrega TODAS las
+    // Sesión multiparte (F4, T4.3 / M4.1): SessionShell entrega TODAS las
     // partes en un solo payload — { parts: { [partId]: { points, byModel } } },
     // con el payload "en bruto" de cada modelo (mismo formato que produciría
     // ese modelo en una sesión de una sola parte). Puntuamos aquí reutilizando

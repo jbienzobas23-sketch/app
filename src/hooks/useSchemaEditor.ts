@@ -39,7 +39,7 @@ export function useSchemaEditor(
   onDraftChange?: (draft: Block[]) => void,
 ): SchemaEditorState {
   const [blocks,  setBlocks]  = useState<Block[]>(initialBlocks);
-  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
+  // Eleva el borrador al padre (SessionShell, M4.1) en cada cambio.
   useEffect(() => { onDraftChange?.(blocks); }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
   const [history, setHistory] = useState<Block[][]>([]);
   const [selected, setSelected] = useState<string | null>(null);

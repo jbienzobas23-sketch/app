@@ -59,8 +59,8 @@ function effectiveModelResult(
 // (partToExercise) y el resultado plano de esa parte/modelo, desglosados del
 // sobre compuesto con resultPartsOf (tolerante: también envuelve un resultado
 // plano heredado como una única parte, si algún día hiciera falta). Solo la
-// parte activa está montada — mismo criterio de LRU-1 que MultiPartSessionView
-// (T4.3): un único useAudioPlayer vivo a la vez, sin cachés de audio nuevas.
+// parte activa está montada — mismo criterio de LRU-1 que SessionShell (M4.1):
+// un único useAudioPlayer vivo a la vez, sin cachés de audio nuevas.
 // teacherCorrection.parts[partId][modelId] anida la forma manual de cada
 // modelo tal cual la produce CorrectionViewSingle — sin tocarla.
 function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null }: CorrectionViewProps) {

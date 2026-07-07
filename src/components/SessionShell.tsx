@@ -1,8 +1,9 @@
 // ═══ SESSIONSHELL (M4.1) ══════════════════════════════════════════════════════
-// Envoltorio único de sesión del alumno: absorbe MultiPartSessionView +
-// MultiModelSessionView (ambos borrados). Dos ejes de navegación como nodos del
-// mismo shell: chips de parte (multiparte) y alternador de modelo (combo). Con
-// una parte y un modelo el shell es transparente (solo la vista, sin cromo).
+// Envoltorio único de sesión del alumno: sustituye a las dos vistas de sesión
+// previas (una para multiparte, otra para el alternador de modelo — ambas
+// borradas). Dos ejes de navegación como nodos del mismo shell: chips de
+// parte (multiparte) y alternador de modelo (combo). Con una parte y un
+// modelo el shell es transparente (solo la vista, sin cromo).
 //
 // Sin remontaje al alternar de MODELO (el pestañeo que arreglaba M4): las vistas
 // de los modelos del combo de la parte activa se montan UNA vez y el toggle

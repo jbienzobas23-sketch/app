@@ -35,8 +35,8 @@ interface ExerciseSubmit {
 }
 
 // Borrador por categoría — mismo formato que consume/produce esta vista y que
-// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId] para que
-// cambiar de parte (o de modelo en un híbrido) nunca destruya trabajo.
+// SessionShell (M4.1) eleva a drafts[partId][modelId] para que cambiar de
+// parte (o de modelo en un híbrido) nunca destruya trabajo.
 export type InteractivoDraft = Record<string, IV[]>;
 
 interface ExerciseViewProps {
@@ -120,8 +120,8 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
   });
 
   useEffect(() => { setIntervalsByCategory(initialDraft || {}); setPressing(null); setSelected(null); setPaintFn(null); }, [exercise.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio,
-  // para que saltar de parte o de modelo dentro de un híbrido no pierda nada.
+  // Eleva el borrador al padre (SessionShell, M4.1) en cada cambio, para que
+  // saltar de parte o de modelo dentro de un híbrido no pierda nada.
   useEffect(() => { onDraftChange?.(intervalsByCategory); }, [intervalsByCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cambio de categoría: cierra el intervalo en curso de la actual

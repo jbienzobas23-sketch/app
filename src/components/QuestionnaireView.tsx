@@ -11,8 +11,8 @@ import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyAc
 import { WaveformDisplay } from "./session.js";
 import { QuestionMinimap } from "./QuestionMinimap.js";
 
-// El player compartido (MultiModelSessionView) es el valor de useAudioPlayer
-// ampliado con la waveform decodificada una sola vez.
+// El player compartido (SessionShell/PartRunner, M4.1) es el valor de
+// useAudioPlayer ampliado con la waveform decodificada una sola vez.
 type SharedAudioPlayer = ReturnType<typeof useAudioPlayer> & { waveformData?: number[] | null };
 
 // En un cuestionario cada pregunta tiene fragmento de audio (start/end) definido.
@@ -21,7 +21,7 @@ type QuizQuestion = Question & { audioStart: number; audioEnd: number };
 interface QuestionnaireResult { type: "cuestionario"; answers: Record<string, string>; score: number | null; }
 
 // Borrador de respuestas — mismo formato que produce esta vista y que
-// MultiPartSessionView (F4, T4.3) eleva a drafts[partId][modelId].
+// SessionShell (M4.1) eleva a drafts[partId][modelId].
 type CuestionarioDraft = Record<string, string>;
 
 interface QuestionnaireViewProps {
@@ -98,7 +98,7 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
     return () => window.removeEventListener("keydown", down);
   }, [active]);
 
-  // Eleva el borrador al padre (MultiPartSessionView, F4/T4.3) en cada cambio.
+  // Eleva el borrador al padre (SessionShell, M4.1) en cada cambio.
   useEffect(() => { onDraftChange?.(answers); }, [answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const answeredCount = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== "").length;
