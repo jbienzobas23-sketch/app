@@ -119,13 +119,21 @@ const PART_FIELDS = [
   "answers", "schemaKey", "repetitions", "questions",
 ] as const;
 
-// Si `parts` existe y no está vacío, lo devuelve. Si no, sintetiza una única
-// parte a partir de los campos planos actuales: todo ejercicio existente es,
-// automáticamente, un multiparte de una parte — cero migración de datos.
+// Si `parts` trae más de una parte, lo devuelve tal cual (multiparte genuino).
+// Con una parte (o sin `parts`), sintetiza/refresca esa única parte a partir
+// de los campos planos actuales: todo ejercicio existente es, automáticamente,
+// un multiparte de una parte — cero migración de datos. Refrescar en vez de
+// devolver la parte guardada tal cual importa: App.tsx guarda esquema/
+// interactivo/cuestionario en los campos planos (nunca en `parts`) mientras
+// el ejercicio tenga una sola parte (ver isMultiPart/qmIsMultiPart), así que
+// una `parts[0]` congelada desde la creación quedaría obsoleta y, vía
+// partToExercise, taparía los datos frescos (p. ej. preguntas de cuestionario
+// que "desaparecían" en híbridos de una parte).
 export const partsOf = (exercise?: Exercise | null): Part[] => {
-  if (Array.isArray(exercise?.parts) && exercise.parts.length > 0) return exercise.parts;
   if (!exercise) return [];
-  const synthesized: Part = { id: SINGLE_PART_ID, points: 1 };
+  if (Array.isArray(exercise.parts) && exercise.parts.length > 1) return exercise.parts;
+  const base: Part = exercise.parts?.[0] ?? { id: SINGLE_PART_ID, points: 1 };
+  const synthesized: Part = { ...base };
   for (const field of PART_FIELDS) (synthesized as Record<string, unknown>)[field] = exercise[field];
   return [synthesized];
 };
