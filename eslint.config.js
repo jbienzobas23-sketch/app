@@ -74,6 +74,12 @@ export default tseslint.config(
     },
   },
 
+  // ── Ficheros de configuración: se ejecutan en Node, no en el navegador ────────
+  {
+    files: ['**/*.config.{js,ts}'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+
   // ── Capa de "glue": el `any` aquí es una decisión de diseño, no deuda ─────────
   // Tres fronteras donde tipar estrictamente aporta fricción sin valor:
   //   · Puntero unificado ratón+touch (los eventos no comparten una forma común
