@@ -1,28 +1,24 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "./supabase.js";
-import type { Exercise, Category, Course, Unit, Group, ExerciseResult, UserProfile } from "./lib/types.js";
-import type { AudioItem } from "./components/modals.js";
+import type { Exercise, ExerciseResult, UserProfile } from "./lib/types.js";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FUNCIONES ARMÓNICAS · APP ROOT
    ───────────────────────────────────────────────────────────────────────────
-   Funciones puras, constantes de dominio, tokens y datos semilla viven ahora en
-   módulos bajo src/lib, src/theme y src/seed.js (extraídos en la Fase 0). Este
-   archivo conserva los componentes React y el estado global de App().
+   Funciones puras, constantes de dominio, tokens y datos semilla viven en
+   módulos bajo src/lib, src/theme y src/seed.js (Fase 0); la capa de datos
+   (estado de entidades + carga + CRUD con persistencia) en hooks/useAppData
+   (A2.3). Este archivo conserva la sesión, el routing y el submit.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath, parseHashQuery } from "./lib/routing.js";
-import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "./lib/sessionConstants.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
-import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "./seed.js";
-import { LOCAL_USERS, LOCAL_GROUPS, LOCAL_COURSES, LOCAL_UNITS, LOCAL_EXERCISES, LOCAL_RESULTS } from "./localSeed.js";
-import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, partKeyReadyOf, questionsOf, addAttempt, normalizeExercise } from "./lib/domain.js";
-import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
-import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, type Interval, type SchemaBlock } from "./lib/scoring.js";
-import { createDb } from "./data/db.js";
-import type { TeacherCorrection } from "./components/CorrectionView.js";
+import { LOCAL_USERS } from "./localSeed.js";
+import { modelsOf, partsOf, partToExercise, updatePart, partKeyReadyOf } from "./lib/domain.js";
+import { effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
+import { useAppData } from "./hooks/useAppData.js";
+import { useSubmitAnswer } from "./hooks/useSubmitAnswer.js";
 
 
 
@@ -75,26 +71,6 @@ function SaveErrorToast({ message, onClose }: { message: string | null; onClose:
   );
 }
 
-// Payload que entregan las vistas de sesión al entregar un ejercicio (F7,
-// T7.2 — antes `any` en submitAnswer). `entries`/`intervals` son el formato
-// "en bruto" del interactivo, igual en modo una-parte que dentro de cada
-// `parts[partId].byModel[modelo]` del multiparte — de ahí que
-// ModelAnswerPayload cubra los cuatro modelos con campos todos opcionales.
-interface AnswerEntry { categoryId: string; intervals: Interval[]; }
-interface ModelAnswerPayload {
-  answers?: Record<string, string>;
-  blocks?: SchemaBlock[];
-  schemaPalette?: string;
-  entries?: AnswerEntry[];
-  currentCategoryId?: string;
-}
-interface SubmitPayload extends ModelAnswerPayload {
-  type?: string;
-  mode?: string;
-  score?: number | null;
-  parts?: Record<string, { byModel?: Record<string, ModelAnswerPayload> }>;
-}
-
 // ─── Modo local de desarrollo (?local | ?local=alumno) ───────────────────────
 // Arranca la app COMPLETA sin backend: datos de semilla en memoria y sesión ya
 // iniciada (profesor por defecto; `?local=alumno` para el alumno). Sirve para
@@ -116,30 +92,28 @@ const LOCAL_MODE: "profe" | "alumno" | null = import.meta.env.DEV
 export default function App() {
   useInjectFonts();
 
-  // Contador de escrituras en vuelo hacia Supabase.
-  const pendingSavesRef = useRef(0);
-
-  // Estado global
-  const [exercises,    setExercises]    = useState<Exercise[]>(() =>
-    ([...(INIT_EXERCISES as Exercise[]), ...(LOCAL_MODE ? LOCAL_EXERCISES : [])]).map(normalizeExercise));
-  const [users,        setUsers]        = useState<UserProfile[]>(LOCAL_MODE ? LOCAL_USERS : []);
-  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>(LOCAL_MODE ? LOCAL_RESULTS : {});   // { userId: { exerciseId: result } }
-  const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
-  const [courses,      setCourses]      = useState<Course[]>(LOCAL_MODE ? LOCAL_COURSES : []);
-  const [units,        setUnits]        = useState<Unit[]>(LOCAL_MODE ? LOCAL_UNITS : []);
-  const [groups,       setGroups]       = useState<Group[]>(LOCAL_MODE ? LOCAL_GROUPS : []);
-  const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
-
-  const [dbReady, setDbReady] = useState(!!LOCAL_MODE);
-  const [user,    setUser]    = useState<UserProfile | null>(
+  const [user, setUser] = useState<UserProfile | null>(
     LOCAL_MODE ? LOCAL_USERS[LOCAL_MODE === "alumno" ? 1 : 0] : null
   );
-  // Mensaje de error de guardado (persistencia). null = sin error.
-  const [saveError, setSaveError] = useState<string | null>(null);
-  // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
-  // Con RLS, anon no puede leer fa_users, así que el primer arranque no se puede
-  // deducir de la carga; se consulta has_admin().
-  const [serverHasAdmin, setServerHasAdmin] = useState<boolean | null>(LOCAL_MODE ? true : null);
+
+  // Capa de datos (A2.3): estado de las entidades, carga desde Supabase y
+  // helpers CRUD con persistencia — todo vive en hooks/useAppData. La única
+  // frontera de vuelta hacia la sesión es onCurrentUserSync (updateUser
+  // refresca al usuario logueado si es el perfil editado).
+  const {
+    exercises, users, results, categories, courses, units, groups, audioLibrary,
+    setUsers, setResults,
+    dbReady, saveError, setSaveError, serverHasAdmin, setServerHasAdmin,
+    loadData, bootstrap, dbUpsertUser, dbUpsertResult,
+    addUser, removeUser, updateUser,
+    saveCorrection,
+    addGroup, updateGroup, deleteGroup,
+    addExercise, updateExercise, duplicateExercise, deleteExercise,
+    addCategory, updateCategory, deleteCategory, toggleGlobalCategory,
+    addCourse, updateCourse, deleteCourse,
+    addUnit, updateUnit, deleteUnit, addExercisesToUnit, removeExerciseFromUnit,
+    addAudio, updateAudio, deleteAudio,
+  } = useAppData({ localMode: LOCAL_MODE, currentUser: user, onCurrentUserSync: setUser });
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
@@ -204,91 +178,14 @@ export default function App() {
   const qmCtx = routeExercise ? { exercise: routeExercise } : null;
   const loginRole = route.name === "login" ? route.params.role : null;
 
-  // Carga todas las entidades desde Supabase y actualiza el estado. Se usa al
-  // montar (anon — con RLS devuelve poco o nada) y de nuevo TRAS el login (con la
-  // sesión, trae lo que el usuario puede ver). Devuelve los usuarios cargados para
-  // que el login decida el flujo sin esperar al re-render.
-  const loadData = async (sb: SupabaseClient): Promise<{ users: UserProfile[] }> => {
-    const [exRes, userRes, catRes, courseRes, unitRes, resultRes, audioRes, groupRes] = await Promise.all([
-      sb.from("fa_exercises").select("*"),
-      sb.from("fa_users").select("*"),
-      sb.from("fa_categories").select("*"),
-      sb.from("fa_courses").select("*"),
-      sb.from("fa_units").select("*"),
-      sb.from("fa_results").select("*"),
-      sb.from("fa_audio_library").select("*"),
-      sb.from("fa_groups").select("*"),
-    ]);
-    // Con cliente presente, cada tabla se asigna siempre que la consulta no
-    // haya fallado — incluida la lista vacía. Antes un `if (data?.length)`
-    // dejaba las semillas (INIT_EXERCISES, etc.) puestas cuando el servidor
-    // respondía [], colando datos de ejemplo en un despliegue real vacío.
-    // Sin tipos generados de Supabase, `.data` de cada tabla es `any[] | null`
-    // — los `.map`/`.filter` de abajo heredan ese `any` sin anotarlo aparte.
-    const loadedUsers: UserProfile[] | null = userRes.data?.length ? userRes.data.map((r) => r.data) : null;
-    if (!exRes.error)     setExercises((exRes.data ?? []).map((r) => normalizeExercise(r.data)));
-    if (loadedUsers)      setUsers(loadedUsers);
-    if (!catRes.error) {
-      const cats = (catRes.data ?? []).map((r) => r.data);
-      if (!cats.find((c) => c.id === "default")) setCategories([DEFAULT_CATEGORY as Category, ...cats]);
-      else setCategories(cats);
-    }
-    if (!courseRes.error) setCourses((courseRes.data ?? []).map((r) => r.data));
-    if (!unitRes.error)   setUnits((unitRes.data ?? []).map((r) => r.data));
-    if (!audioRes.error)  setAudioLibrary((audioRes.data ?? []).map((r) => r.data));
-    if (!groupRes.error)  setGroups((groupRes.data ?? []).map((r) => r.data));
-    if (!resultRes.error) {
-      const byUser: Record<string, Record<string, ExerciseResult>> = {};
-      (resultRes.data ?? []).forEach((row) => {
-        if (!byUser[row.user_id]) byUser[row.user_id] = {};
-        byUser[row.user_id][row.exercise_id] = row.data;
-      });
-      setResults(byUser);
-    }
-    return { users: loadedUsers || users };
-  };
-
   // ─── Carga inicial desde Supabase ────────────────────────────────────────
+  // Detección del magic link + carga de datos + has_admin — vive en useAppData
+  // (bootstrap); la sesión de recuperación (resetSession) sigue siendo de App.
   useEffect(() => {
     if (LOCAL_MODE) return;   // modo local: sin backend, la semilla ya está puesta
-    (async () => {
-      try {
-        // Detectar sesión desde magic link de recuperación de PIN. OJO: el login
-        // normal (Fase 1) también crea una sesión de Supabase Auth con email
-        // sintético `${username}@fa.local`; esa NO es de recuperación. Solo lo es
-        // una sesión cuyo email es el correo real (magic link de recuperación).
-        const { data: { session: existingSession } } = await supabase.auth.getSession();
-        const sEmail = existingSession?.user?.email || "";
-        if (existingSession && !sEmail.endsWith("@fa.local")) {
-          setResetSession(existingSession);
-          window.history.replaceState(null, "", "#/");
-        }
-
-        await loadData(supabase);
-
-        // ¿Existe ya un admin? (primer arranque) — vía RPC, porque con RLS anon no
-        // puede leer fa_users.
-        try { const { data: ha } = await supabase.rpc("has_admin"); setServerHasAdmin(ha === true); } catch { /* ignora */ }
-      } catch (e) {
-        console.error("Error cargando datos de Supabase:", e);
-      } finally {
-        setDbReady(true);
-      }
-    })();
-  // Solo al montar; loadData se redefine cada render pero aquí queremos una única carga.
+    bootstrap(supabase, setResetSession);
+  // Solo al montar; bootstrap se redefine cada render pero aquí queremos una única carga.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Advierte al usuario si recarga mientras hay escrituras en vuelo.
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (pendingSavesRef.current > 0) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
   // M4.2: normaliza los enlaces heredados /profesor/ejercicio/:id/parte/:pid/…
@@ -304,102 +201,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
-  // ─── Helpers de upsert ───────────────────────────────────────────────────
-  // Todos los helpers comprueban si el cliente existe; si no (modo en memoria),
-  // simplemente retornan sin hacer nada: el estado React ya se actualizó.
-
-  // Capa de datos: los helpers viven en data/db.js y reciben un getter perezoso
-  // del cliente Supabase (se carga async al montar). Se desestructuran con los
-  // mismos nombres para no tocar los puntos de llamada.
-  const {
-    dbUpsertExercise, dbDeleteExercise,
-    dbUpsertUser, dbDeleteUser,
-    dbUpsertCategory, dbDeleteCategory,
-    dbUpsertCourse, dbDeleteCourse,
-    dbUpsertUnit, dbDeleteUnit,
-    dbUpsertResult, dbDeleteResultsForUser, dbDeleteResultsForExercise,
-    dbUpsertAudio, dbDeleteAudio,
-    dbUpsertGroup, dbDeleteGroup,
-  } = useMemo(() => createDb({
-    // En modo local, cliente nulo: createDb convierte toda escritura en no-op.
-    getClient: () => (LOCAL_MODE ? null : supabase),
-    pendingSavesRef,
-    onError: () => setSaveError("No se pudieron guardar los cambios en el servidor. Puede que se pierdan al recargar — prueba a cerrar sesión y volver a entrar."),
-  }), []);
-
-  // El aviso de error de guardado se oculta solo tras unos segundos (o al cerrarlo).
-  useEffect(() => {
-    if (!saveError) return;
-    const t = setTimeout(() => setSaveError(null), 9000);
-    return () => clearTimeout(t);
-  }, [saveError]);
-
-  // ─── Users ───────────────────────────────────────────────────────────────
-  // El perfil llega desde AddUserModal (onSave: (profile: unknown) => void) —
-  // el servidor lo devuelve sin tipar; se confía en su forma (mismo patrón que
-  // `as AuthProfile` en auth.tsx) tras cruzar esa frontera.
-  const addUser = (newUser: unknown) => {
-    const profile = newUser as UserProfile;
-    setUsers((prev) => [...prev, profile]);
-    dbUpsertUser(profile);
-  };
-
-  const removeUser = (userId: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
-    setResults((prev) => { const next = { ...prev }; delete next[userId]; return next; });
-    setGroups((prev) => prev.map((g) =>
-      g.studentIds?.includes(userId) ? { ...g, studentIds: g.studentIds.filter((id) => id !== userId) } : g
-    ));
-    // Persistir los grupos afectados desde el estado actual (closure), no dentro
-    // del updater de setGroups (correría en render → array vacío al guardar).
-    groups
-      .filter((g) => g.studentIds?.includes(userId))
-      .forEach((g) => dbUpsertGroup({ ...g, studentIds: (g.studentIds || []).filter((id) => id !== userId) }));
-    dbDeleteUser(userId);
-    dbDeleteResultsForUser(userId);
-  };
-
-  const updateUser = (updatedUser: unknown) => {
-    const profile = updatedUser as UserProfile;
-    setUsers((prev) => prev.map((u) => u.id === profile.id ? profile : u));
-    if (user?.id === profile.id) setUser(profile);
-    dbUpsertUser(profile);
-  };
-
-  // ─── Correction save ─────────────────────────────────────────────────────
-  const saveCorrection = (studentId: string | undefined, exerciseId: Exercise["id"], correction: TeacherCorrection) => {
-    // El objeto a persistir se calcula ANTES de setState (a partir del estado
-    // actual en el closure). Antes se asignaba dentro del updater de setResults
-    // y se leía justo después; como React ejecuta ese updater en la fase de
-    // render (no de forma síncrona), `saved` seguía siendo null al llamar a
-    // dbUpsertResult → la corrección del profesor no se guardaba en Supabase.
-    const sid = studentId ?? "";
-    const eid = String(exerciseId ?? "");
-    const existing = (results[sid] || {})[eid] || {};
-    // status: "corregido" salvo que la corrección multiparte (F4, T4.4) traiga
-    // uno explícito — con partes aún sin corregir, sigue "pendiente" aunque
-    // esta parte concreta ya se haya guardado. El resto de llamadas (una sola
-    // parte) nunca traen `status`, así que su comportamiento no cambia.
-    const updated: ExerciseResult = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: correction?.status || "corregido" };
-    // Nota normalizada a escala 0-100 (la que consume ScoreBadge). totalScore
-    // puede llegar en 0-10 (correcciones anteriores a T1.2, o inputs aún sin
-    // migrar) — el mismo umbral tolerante que usa CorrectionView al mostrarla.
-    // CorrectionView siempre envía number|null (nunca "") — TeacherCorrection
-    // lo tipa así (F7, T7.2); el `!== ""` que había aquí era una comprobación
-    // muerta sobre ese contrato ya garantizado por el tipo.
-    if (correction?.totalScore != null) {
-      const raw = Number(correction.totalScore);
-      if (!Number.isNaN(raw)) updated.score = raw <= 10 ? raw * 10 : raw;
-    }
-    setResults((prev) => ({ ...prev, [sid]: { ...(prev[sid] || {}), [eid]: updated } }));
-    dbUpsertResult(sid, eid, updated);
-  };
-
-  // ─── Groups ──────────────────────────────────────────────────────────────
-  const addGroup    = (g: Group) => { setGroups((prev) => [...prev, g]); dbUpsertGroup(g); };
-  const updateGroup = (g: Group) => { setGroups((prev) => prev.map((x) => x.id === g.id ? g : x)); dbUpsertGroup(g); };
-  const deleteGroup = (id: string) => { setGroups((prev) => prev.filter((g) => g.id !== id)); dbDeleteGroup(id); };
-
   // ─── Setup inicial (primer admin) ────────────────────────────────────────
   const handleSetup = (adminProfile: unknown) => {
     // El admin ya está creado en el servidor (create-user) y con sesión iniciada
@@ -408,155 +209,6 @@ export default function App() {
     setServerHasAdmin(true);
     navigate("/profesor");
     loadData(supabase);
-  };
-
-  // ─── Exercises ───────────────────────────────────────────────────────────
-  // `onAdd` (teacher.tsx) entrega `Record<string, unknown>` — el mismo cruce de
-  // frontera que en Users: se confía en su forma tras el cast.
-  const addExercise = (newEx: Record<string, unknown>) => {
-    const ex = normalizeExercise(newEx as Exercise);
-    setExercises((prev) => [...prev, ex]);
-    dbUpsertExercise(ex);
-  };
-
-  const updateExercise = (id: Exercise["id"], patch: Record<string, unknown>) => {
-    const current = exercises.find((e) => e.id === id);
-    setExercises((prev) => prev.map((e) => e.id === id ? normalizeExercise({ ...e, ...patch } as Exercise) : e));
-    if (current) dbUpsertExercise(normalizeExercise({ ...current, ...patch } as Exercise));
-  };
-
-  // Copia completa, sin publicar (M2): id nuevo, oculta para alumnos y fuera de
-  // toda unidad — el profesor decide explícitamente dónde y cuándo mostrarla,
-  // en vez de que la copia aparezca ya visible junto al original.
-  const duplicateExercise = (ex: Exercise) => {
-    const copy = normalizeExercise({ ...ex, id: Date.now(), title: `${ex.title} (copia)`, hidden: true });
-    setExercises((prev) => [...prev, copy]);
-    dbUpsertExercise(copy);
-  };
-
-  const deleteExercise = (id: Exercise["id"]) => {
-    const sid = String(id);
-    setExercises((prev) => prev.filter((e) => e.id !== id));
-    setUnits((prev) => prev.map((u) =>
-      (u.exerciseIds || []).some((eid) => String(eid) === sid) ? { ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => String(eid) !== sid) } : u
-    ));
-    // Persistir las unidades afectadas. Se calculan desde el estado actual
-    // (closure `units`), NO dentro del updater de setUnits: React ejecuta ese
-    // updater en la fase de render, así que un array capturado dentro seguiría
-    // vacío aquí y las unidades no se guardarían (referencias colgantes al
-    // ejercicio borrado tras recargar).
-    units
-      .filter((u) => (u.exerciseIds || []).some((eid) => String(eid) === sid))
-      .forEach((u) => dbUpsertUnit({ ...u, exerciseIds: (u.exerciseIds || []).filter((eid) => String(eid) !== sid) }));
-    setResults((prev) => {
-      const next: Record<string, Record<string, ExerciseResult>> = {};
-      for (const uid of Object.keys(prev)) {
-        const sub = { ...prev[uid] };
-        delete sub[sid];
-        next[uid] = sub;
-      }
-      return next;
-    });
-    dbDeleteExercise(sid);
-    dbDeleteResultsForExercise(sid);
-  };
-
-  // ─── Categories ──────────────────────────────────────────────────────────
-  const addCategory = (newCat: Category) => {
-    setCategories((prev) => [...prev, newCat]);
-    dbUpsertCategory(newCat);
-  };
-  const updateCategory = (updatedCat: Category) => {
-    setCategories((prev) => prev.map((c) => c.id === updatedCat.id ? updatedCat : c));
-    dbUpsertCategory(updatedCat);
-  };
-  const deleteCategory = (id: string) => {
-    if (id === "default") return;
-    setCategories((prev) => prev.filter((c) => c.id !== id));
-    dbDeleteCategory(id);
-  };
-  const toggleGlobalCategory = (id: string) => {
-    // Calcular el objeto a persistir desde el estado actual (closure), no dentro
-    // del updater: el updater corre en render y `cat` seguiría null al guardar.
-    const cat = categories.find((c) => c.id === id);
-    if (!cat) return;
-    const updated = { ...cat, global: !cat.global };
-    setCategories((prev) => prev.map((c) => c.id === id ? updated : c));
-    dbUpsertCategory(updated);
-  };
-
-  // ─── Courses ─────────────────────────────────────────────────────────────
-  const addCourse = (newCourse: Course) => {
-    setCourses((prev) => [...prev, newCourse]);
-    dbUpsertCourse(newCourse);
-  };
-  const updateCourse = (updated: Course) => {
-    setCourses((prev) => prev.map((c) => c.id === updated.id ? updated : c));
-    dbUpsertCourse(updated);
-  };
-  const deleteCourse = (id: string) => {
-    setCourses((prev) => prev.filter((c) => c.id !== id));
-    dbDeleteCourse(id);
-  };
-
-  // ─── Units ───────────────────────────────────────────────────────────────
-  const addUnit = (newUnit: Unit, courseId: string | null) => {
-    const existingCourse = courses.find((c) => c.id === courseId);
-    setUnits((prev) => [...prev, newUnit]);
-    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: [...(c.unitIds || []), newUnit.id] } : c));
-    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: [...(existingCourse.unitIds || []), newUnit.id] });
-    dbUpsertUnit(newUnit);
-  };
-
-  const updateUnit = (updated: Unit) => {
-    setUnits((prev) => prev.map((u) => u.id === updated.id ? updated : u));
-    dbUpsertUnit(updated);
-  };
-
-  const deleteUnit = (unitId: string, courseId: string) => {
-    const existingCourse = courses.find((c) => c.id === courseId);
-    setUnits((prev) => prev.filter((u) => u.id !== unitId));
-    setCourses((prev) => prev.map((c) => c.id === courseId ? { ...c, unitIds: (c.unitIds || []).filter((id) => id !== unitId) } : c));
-    if (existingCourse) dbUpsertCourse({ ...existingCourse, unitIds: (existingCourse.unitIds || []).filter((id) => id !== unitId) });
-    dbDeleteUnit(unitId);
-  };
-
-  const addExercisesToUnit = (unitId: string, exIds: Array<string | number | undefined>) => {
-    const ids = exIds.map((x) => String(x));
-    const existingUnit = units.find((u) => u.id === unitId);
-    // `cur` se normaliza a texto: así el dedup funciona aunque el dato antiguo
-    // tuviera ids numéricos, y de paso los deja consistentes (todo texto).
-    setUnits((prev) => prev.map((u) => {
-      if (u.id !== unitId) return u;
-      const cur = (u.exerciseIds || []).map(String);
-      const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
-      return { ...u, exerciseIds: merged };
-    }));
-    if (existingUnit) {
-      const cur = (existingUnit.exerciseIds || []).map(String);
-      const merged = [...cur, ...ids.filter((id) => !cur.includes(id))];
-      dbUpsertUnit({ ...existingUnit, exerciseIds: merged });
-    }
-  };
-
-  const removeExerciseFromUnit = (unitId: string, exId: string) => {
-    const existingUnit = units.find((u) => u.id === unitId);
-    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, exerciseIds: (u.exerciseIds || []).filter((id) => String(id) !== String(exId)) } : u));
-    if (existingUnit) dbUpsertUnit({ ...existingUnit, exerciseIds: (existingUnit.exerciseIds || []).filter((id) => String(id) !== String(exId)) });
-  };
-
-  // ─── Audio library ───────────────────────────────────────────────────────
-  const addAudio = (a: AudioItem) => {
-    setAudioLibrary((prev) => [...prev, a]);
-    dbUpsertAudio(a);
-  };
-  const updateAudio = (a: AudioItem) => {
-    setAudioLibrary((prev) => prev.map((x) => x.id === a.id ? a : x));
-    dbUpsertAudio(a);
-  };
-  const deleteAudio = (id: string) => {
-    setAudioLibrary((prev) => prev.filter((x) => x.id !== id));
-    dbDeleteAudio(id);
   };
 
   // ─── Navegación helpers ──────────────────────────────────────────────────
@@ -630,220 +282,14 @@ export default function App() {
   };
 
   // ─── Submit de respuestas (alumno entrega ejercicio) ────────────────────
-  // Recibe `unknown` porque cada vista de sesión (ExerciseView, Questionnaire-
-  // View, SchemaExerciseView, SessionShell) tiene su propio tipo de onSubmit —
-  // SubmitPayload es la forma común que asume el cuerpo.
-  const submitAnswer = (rawPayload: unknown) => {
-    const payload = rawPayload as SubmitPayload;
-    if (!exCtx) return;
-    const ex      = freshExercise(exCtx.exercise);
-    const exId    = String(ex.id);
-    // Intentos (F6, T6.3): "Repetir" no debe sobrescribir la entrega anterior
-    // — addAttempt la conserva en `attempts` y expone score = mejor de todos.
-    // Ninguno de los cuatro sitios donde se guarda más abajo es modo "record"
-    // (ese siempre escribe en el ejercicio, no en `results`, y ya ha vuelto
-    // antes de llegar aquí en sus propias ramas).
-    const existingResult = user ? (results[user.id] || {})[exId] : undefined;
-    const activePalette = effectivePaletteId(ex, user?.defaultPalette);
-    // Autoría por parte (F4, T4.2): grabar clave (esquema/interactivo) escribe
-    // en la parte de la URL cuando el ejercicio es genuinamente multiparte —
-    // un ejercicio de una sola parte sigue escribiendo en los campos planos,
-    // sin materializar `parts` (la UI se mantiene idéntica a hoy).
-    const isMultiPart = Array.isArray(ex.parts) && ex.parts.length > 1;
-    const recordParts = partsOf(ex);
-    // M4.2: la parte activa se lee de `?parte=` (única convención emitida); el
-    // segmento /parte/:pid heredado (route.params.partId) se sigue aceptando.
-    const urlPartId = parseHashQuery().parte || route.params.partId;
-    const recordPartId = (urlPartId && recordParts.some((p) => p.id === urlPartId))
-      ? urlPartId
-      : recordParts[0]?.id;
-
-    // Sesión multiparte (F4, T4.3 / M4.1): SessionShell entrega TODAS las
-    // partes en un solo payload — { parts: { [partId]: { points, byModel } } },
-    // con el payload "en bruto" de cada modelo (mismo formato que produciría
-    // ese modelo en una sesión de una sola parte). Puntuamos aquí reutilizando
-    // exactamente los mismos puntuadores puros que las ramas de abajo, una vez
-    // por parte y modelo, y agregamos con aggregateParts (T4.1). El sobre
-    // compuesto completo (status por parte, corrección con navegador de
-    // partes) es T4.4 — aquí se guarda ya con la forma final para que esa fase
-    // no tenga que reescribir el payload, solo enriquecer cómo se lee.
-    if (payload?.type === "multi") {
-      const parts = partsOf(ex);
-      const partScores: Array<number | null> = [];
-      const partPoints: number[] = [];
-      const partsEnvelope: Record<string, { byModel: Record<string, unknown> }> = {};
-      let anyPending = false;
-      parts.forEach((p) => {
-        const partPayload = payload.parts?.[p.id];
-        const projected = partToExercise(ex, p);
-        const pModels = modelsOf(projected);
-        const byModel: Record<string, unknown> = {};
-        const modelScores: number[] = [];
-        pModels.forEach((m) => {
-          const raw: ModelAnswerPayload = partPayload?.byModel?.[m] || {};
-          const status = resultStatusOf(null, projected);
-          if (status === "pendiente") anyPending = true;
-          if (m === "cuestionario") {
-            const score = calcQuestionnaireScore(questionsOf(projected), raw.answers);
-            byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
-            if (score != null) modelScores.push(score);
-          } else if (m === "esquema") {
-            const score = calcSchemaPlacementScore(projected.schemaKey as SchemaBlock[], raw.blocks || [], projected.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
-            byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
-            if (score != null) modelScores.push(score);
-          } else {
-            const entries = raw.entries || [];
-            const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
-            const scoreFor = (categoryId: string, intervals: Interval[]) => {
-              const key = answerFor(projected, categoryId) as Interval[];
-              return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? DEFAULT_MARGIN) : null;
-            };
-            const mainEntry = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
-            const mainIvs   = mainEntry?.intervals || [];
-            const mainScore = scoreFor(currentCategoryId, mainIvs);
-            const extras = entries
-              .filter((e) => e.categoryId !== currentCategoryId)
-              .map((e) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
-            byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now() };
-            if (mainScore != null) modelScores.push(mainScore);
-          }
-        });
-        partsEnvelope[p.id] = { byModel };
-        partScores.push(modelScores.length ? aggregateParts(modelScores) : null);
-        partPoints.push(p.points ?? 1);
-      });
-      const data = addAttempt(existingResult, {
-        type: "multi",
-        score: aggregateParts(partScores, partPoints),
-        status: (anyPending ? "pendiente" : "auto") as "pendiente" | "auto",
-        timestamp: Date.now(),
-        parts: partsEnvelope,
-      });
-      if (user) {
-        setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
-        dbUpsertResult(user.id, exId, data);
-      }
-      setLastResult(data);
-      navigate(`/alumno/ejercicio/${ex.id}/correccion`);
-      return;
-    }
-
-    // Cuestionario
-    if (payload?.type === "cuestionario") {
-      // Instantánea de las preguntas al entregar (F5, T5.5): la corrección y
-      // resultStatusOf la leen en vez de las preguntas vigentes del ejercicio,
-      // así una edición posterior del profesor no descoloca entregas pasadas.
-      const data = { type: "cuestionario" as const, answers: payload.answers, score: payload.score, status: resultStatusOf(null, ex), schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(ex) };
-      if (payload.mode !== "preview") {
-        // La previsualización del profesor NUNCA se mezcla con el historial
-        // real (mismo criterio que esquema, más arriba).
-        const savedData = addAttempt(existingResult, data);
-        if (user) {
-          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: savedData } }));
-          dbUpsertResult(user.id, exId, savedData);
-        }
-        setLastResult(savedData);
-      } else {
-        setLastResult(data);
-      }
-      navigate(payload.mode === "preview"
-        ? `/profesor/ejercicio/${ex.id}/correccion`
-        : `/alumno/ejercicio/${ex.id}/correccion`);
-      return;
-    }
-
-    // Esquema
-    if (payload?.type === "esquema") {
-      if (payload.mode === "record") {
-        // El profesor guarda el esquema como modelo de referencia (con su paleta)
-        if (isMultiPart) {
-          updateExercise(ex.id, {
-            parts: updatePart(ex, recordPartId, { schemaKey: payload.blocks }).parts,
-            schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT,
-          });
-        } else {
-          updateExercise(ex.id, { schemaKey: payload.blocks, schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT });
-        }
-        navigate(getLastPanelPath("/profesor"));
-        return;
-      }
-      // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], payload.blocks || [], ex.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
-      const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
-      if (payload.mode !== "preview") {
-        // Solo guardar si es un alumno real. Intentos (F6, T6.3): la
-        // previsualización del profesor NUNCA se mezcla con el historial real.
-        const savedData = addAttempt(existingResult, data);
-        if (user) {
-          setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: savedData } }));
-          dbUpsertResult(user.id, exId, savedData);
-        }
-        setLastResult(savedData);
-      } else {
-        setLastResult(data);
-      }
-      navigate(payload.mode === "preview"
-        ? `/profesor/ejercicio/${ex.id}/correccion`
-        : `/alumno/ejercicio/${ex.id}/correccion`);
-      return;
-    }
-
-    // Interactivo: payload = { entries: [{ categoryId, intervals }], currentCategoryId }
-    const entries          = payload.entries || [];
-    const currentCategoryId = payload.currentCategoryId || entries[0]?.categoryId || "default";
-
-    const scoreFor = (categoryId: string, intervals: Interval[]) => {
-      const key = answerFor(ex, categoryId) as Interval[];
-      if (!key.length) return null;
-      return calcScore(key, intervals, ex.duration as number, ex.margin ?? DEFAULT_MARGIN);
-    };
-
-    if (exCtx.mode === "record") {
-      // Guardar como clave del profesor
-      if (isMultiPart) {
-        const activePart = recordParts.find((p) => p.id === recordPartId);
-        const patchAnswers: Record<string, Interval[]> = { ...(activePart?.answers || {}) } as Record<string, Interval[]>;
-        entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
-        updateExercise(ex.id, { parts: updatePart(ex, recordPartId, { answers: patchAnswers }).parts });
-      } else {
-        const patchAnswers: Record<string, Interval[]> = { ...(ex.answers || {}) } as Record<string, Interval[]>;
-        entries.forEach(({ categoryId, intervals }) => { patchAnswers[categoryId] = intervals; });
-        updateExercise(ex.id, { answers: patchAnswers });
-      }
-      navigate(getLastPanelPath("/profesor"));
-      return;
-    }
-
-    // Modo alumno: el "principal" es el currentCategoryId
-    const mainEntry  = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
-    const mainIvs    = mainEntry?.intervals || [];
-    const mainScore  = scoreFor(currentCategoryId, mainIvs);
-
-    const extras = entries
-      .filter((e) => e.categoryId !== currentCategoryId)
-      .map((e) => ({
-        categoryId: e.categoryId,
-        intervals:  e.intervals,
-        score:      scoreFor(e.categoryId, e.intervals),
-      }));
-
-    const data = addAttempt(existingResult, {
-      categoryId: currentCategoryId,
-      intervals:  mainIvs,
-      score:      mainScore,
-      extras,
-      status:     resultStatusOf(null, ex),
-      schemaPalette: activePalette,
-      timestamp:  Date.now(),
-    });
-
-    if (user) {
-      setResults((prev) => ({ ...prev, [user.id]: { ...(prev[user.id] || {}), [exId]: data } }));
-      dbUpsertResult(user.id, exId, data);
-    }
-    setLastResult(data);
-    navigate(`/alumno/ejercicio/${ex.id}/correccion`);
-  };
+  // Puntuación, intentos y persistencia de la entrega — vive en
+  // hooks/useSubmitAnswer (A2.3); App solo aporta sus dependencias.
+  const submitAnswer = useSubmitAnswer({
+    exCtx,
+    routePartId: route.params.partId,
+    user, results, setResults, dbUpsertResult, updateExercise,
+    freshExercise, setLastResult, navigate,
+  });
 
   // ─── Routing ─────────────────────────────────────────────────────────────
   if (!dbReady) {
