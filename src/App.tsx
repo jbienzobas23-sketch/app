@@ -14,7 +14,6 @@ import type { Exercise, ExerciseResult, UserProfile } from "./lib/types.js";
 
 import { TEACHER_TAB_PATH, useHashRoute, coursesPath, getLastPanelPath, parseHashQuery } from "./lib/routing.js";
 import { C, S, FONT_SANS } from "./theme/tokens.js";
-import { LOCAL_USERS } from "./localSeed.js";
 import { modelsOf, partsOf, partToExercise, updatePart, partKeyReadyOf } from "./lib/domain.js";
 import { effectivePaletteId, applyPaletteToExercise } from "./lib/palette.js";
 import { useAppData } from "./hooks/useAppData.js";
@@ -93,9 +92,16 @@ const LOCAL_MODE: "profe" | "alumno" | null = import.meta.env.DEV
 export default function App() {
   useInjectFonts();
 
-  const [user, setUser] = useState<UserProfile | null>(
-    LOCAL_MODE ? LOCAL_USERS[LOCAL_MODE === "alumno" ? 1 : 0] : null
-  );
+  // A7-07: sin import estático de localSeed — ni el ternario de LOCAL_MODE ni un
+  // `import.meta.env.DEV && …` en la misma expresión bastan para que el bundler
+  // pode el módulo del build de producción (verificado: el array seguía en el
+  // bundle aunque la rama fuera inalcanzable en runtime, porque Rollup considera
+  // "usada" cualquier referencia alcanzable, sin evaluar la condición). Con
+  // `import()` dinámico la semilla vive en su propio chunk, cargado solo si
+  // LOCAL_MODE está activo (solo posible en dev). El usuario inicial llega un
+  // tick más tarde (irrelevante: es una herramienta de desarrollo local).
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [localUsers, setLocalUsers] = useState<UserProfile[]>([]);
 
   // Capa de datos (A2.3): estado de las entidades, carga desde Supabase y
   // helpers CRUD con persistencia — todo vive en hooks/useAppData. La única
@@ -115,6 +121,17 @@ export default function App() {
     addUnit, updateUnit, deleteUnit, addExercisesToUnit, removeExerciseFromUnit,
     addAudio, updateAudio, deleteAudio,
   } = useAppData({ localMode: LOCAL_MODE, currentUser: user, onCurrentUserSync: setUser });
+
+  useEffect(() => {
+    if (!LOCAL_MODE) return;
+    let cancelled = false;
+    import("./localSeed.js").then((seed) => {
+      if (cancelled) return;
+      setLocalUsers(seed.LOCAL_USERS);
+      setUser((prev) => prev ?? seed.LOCAL_USERS[LOCAL_MODE === "alumno" ? 1 : 0]);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Navegación — la URL (#/…) es la fuente de verdad
   const { route, navigate } = useHashRoute();
@@ -143,7 +160,7 @@ export default function App() {
       </button>
       {localSwitcherOpen && (
         <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, display: "flex", flexDirection: "column", gap: 3, minWidth: 160, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 6, boxShadow: "0 4px 18px rgba(0,0,0,0.16)" }}>
-          {LOCAL_USERS.map((u) => {
+          {localUsers.map((u) => {
             const active = user?.id === u.id;
             return (
               <button key={u.id} onClick={() => { switchLocalUser(u); setLocalSwitcherOpen(false); }}

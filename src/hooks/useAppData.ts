@@ -15,7 +15,6 @@ import type { Exercise, Category, Course, Unit, Group, ExerciseResult, UserProfi
 import type { AudioItem } from "../components/modals.js";
 import type { TeacherCorrection } from "../components/CorrectionView.js";
 import { DEFAULT_CATEGORY, INIT_EXERCISES, INIT_AUDIO_LIBRARY } from "../seed.js";
-import { LOCAL_USERS, LOCAL_GROUPS, LOCAL_COURSES, LOCAL_UNITS, LOCAL_EXERCISES, LOCAL_RESULTS } from "../localSeed.js";
 import { normalizeExercise } from "../lib/domain.js";
 import { createDb } from "../data/db.js";
 
@@ -28,15 +27,38 @@ interface UseAppDataArgs {
 export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseAppDataArgs) {
   const pendingSavesRef = useRef(0);
 
-  const [exercises,    setExercises]    = useState<Exercise[]>(() =>
-    ([...(INIT_EXERCISES as Exercise[]), ...(localMode ? LOCAL_EXERCISES : [])]).map(normalizeExercise));
-  const [users,        setUsers]        = useState<UserProfile[]>(localMode ? LOCAL_USERS : []);
-  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>(localMode ? LOCAL_RESULTS : {});   // { userId: { exerciseId: result } }
+  const [exercises,    setExercises]    = useState<Exercise[]>(() => (INIT_EXERCISES as Exercise[]).map(normalizeExercise));
+  const [users,        setUsers]        = useState<UserProfile[]>([]);
+  const [results,      setResults]      = useState<Record<string, Record<string, ExerciseResult>>>({});   // { userId: { exerciseId: result } }
   const [categories,   setCategories]   = useState<Category[]>([DEFAULT_CATEGORY as Category]);
-  const [courses,      setCourses]      = useState<Course[]>(localMode ? LOCAL_COURSES : []);
-  const [units,        setUnits]        = useState<Unit[]>(localMode ? LOCAL_UNITS : []);
-  const [groups,       setGroups]       = useState<Group[]>(localMode ? LOCAL_GROUPS : []);
+  const [courses,      setCourses]      = useState<Course[]>([]);
+  const [units,        setUnits]        = useState<Unit[]>([]);
+  const [groups,       setGroups]       = useState<Group[]>([]);
   const [audioLibrary, setAudioLibrary] = useState<AudioItem[]>(INIT_AUDIO_LIBRARY as AudioItem[]);
+
+  // A7-07: import() DINÁMICO — ni el ternario de `localMode` ni un gate directo
+  // con el literal `import.meta.env.DEV` bastan para que el bundler pode
+  // `localSeed.ts` del build de producción (verificado empíricamente: el array
+  // seguía en el bundle aunque la rama fuera inalcanzable en runtime, porque
+  // Rollup mantiene cualquier referencia alcanzable sin evaluar la condición).
+  // Con `import()` la semilla vive en su propio chunk, cargado solo si
+  // `localMode` está activo (solo posible en dev).
+  useEffect(() => {
+    if (!localMode) return;
+    let cancelled = false;
+    import("../localSeed.js").then((seed) => {
+      if (cancelled) return;
+      setUsers(seed.LOCAL_USERS);
+      setResults(seed.LOCAL_RESULTS);
+      setCourses(seed.LOCAL_COURSES);
+      setUnits(seed.LOCAL_UNITS);
+      setExercises((prev) => [...prev, ...(seed.LOCAL_EXERCISES as Exercise[])].map(normalizeExercise));
+      setGroups(seed.LOCAL_GROUPS);
+    });
+    return () => { cancelled = true; };
+  // Solo al montar: localMode es constante durante la vida de la sesión.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [dbReady, setDbReady] = useState(!!localMode);
   // Mensaje de error de guardado (persistencia). null = sin error.
