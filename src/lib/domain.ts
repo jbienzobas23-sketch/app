@@ -58,6 +58,17 @@ export const answerStats = (exercise?: Exercise | null): { recorded: number; tot
   return { recorded, total: cats.length };
 };
 
+export interface SerializedInterval { fn: string; start: number; end: number; fig?: string | null; }
+
+// Serializa intervalos para el submit/las claves conservando `fig` (cifrado/
+// inversión) cuando está presente, sin añadir la clave si no lo está (evita
+// `fig: undefined` explícito en el JSONB). A2-01: los dos submits (interactivo
+// suelto y SessionShell) lo hacían inline con un map que descartaba `fig`.
+export function serializeIntervals(ivs: Array<{ fn: string; start: number; end: number; fig?: string | null }>): SerializedInterval[] {
+  return ivs.map(({ fn, start, end, fig }) =>
+    fig !== undefined ? { fn, start, end, fig } : { fn, start, end });
+}
+
 // ── Resolución de referencias curso→unidad→ejercicio ─────────────────────────
 // Los ids se comparan SIEMPRE normalizados a texto: el id de un ejercicio puede
 // ser numérico (creado con Date.now()) mientras que unit.exerciseIds se guarda

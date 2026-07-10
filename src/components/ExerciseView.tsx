@@ -10,7 +10,7 @@ import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
 import type { FigItem } from "../lib/figures.js";
 import { SCHEMA_MIN_DUR } from "../lib/schema.js";
 import { resolveOverlap } from "../lib/scoring.js";
-import { answerFor } from "../lib/domain.js";
+import { answerFor, serializeIntervals } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, EMPTY_IVS } from "../lib/sessionConstants.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -283,7 +283,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     onSubmit({
       entries: source.map(([categoryId, ivs]) => ({
         categoryId,
-        intervals: ivs.map(({ fn, start, end }) => ({ fn, start, end })),
+        intervals: serializeIntervals(ivs),
       })),
       currentCategoryId,
     });

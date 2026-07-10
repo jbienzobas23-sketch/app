@@ -3,8 +3,9 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
-  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf,
+  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals,
 } from "./domain.js";
+import { interactiveFigureDiagnostics } from "./scoring.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
 
 describe("categoriesOf", () => {
@@ -413,5 +414,36 @@ describe("normalizeExercise", () => {
     expect(twice.categories).toBe(once.categories); // segunda pasada no reconstruye nada
     expect(twice.models).toBe(once.models);
     expect(twice.parts).toEqual(once.parts); // partsOf().map() siempre da un array nuevo; el contenido es igual
+  });
+});
+
+// A2-01: ambos submits (ExerciseView, SessionShell) serializaban con un
+// `map(({fn,start,end}) => ({fn,start,end}))` inline que descartaba `fig`
+// (cifrado/inversión). Resultado: claves grabadas sin fig (diagnóstico de
+// cifrado siempre null) y respuestas de alumno que perdían el suyo.
+describe("serializeIntervals", () => {
+  it("conserva fig cuando existe", () => {
+    const ivs = [{ id: "x", fn: "T", start: 0, end: 2, fig: "6" }];
+    expect(serializeIntervals(ivs)).toEqual([{ fn: "T", start: 0, end: 2, fig: "6" }]);
+  });
+  it("omite la clave fig cuando no existe (compatibilidad JSONB: sin fig:undefined explícito)", () => {
+    const ivs = [{ id: "x", fn: "T", start: 0, end: 2 }];
+    const [out] = serializeIntervals(ivs);
+    expect(out).toEqual({ fn: "T", start: 0, end: 2 });
+    expect("fig" in out).toBe(false);
+  });
+  it("integración: la serialización antigua rompía interactiveFigureDiagnostics; serializeIntervals lo arregla", () => {
+    const raw = [{ id: "x", fn: "T", start: 0, end: 2, fig: "6" }];
+    // Serialización antigua (inline, antes del fix de A2-01): descartaba `fig`.
+    const legacySerialize = (list) => list.map(({ fn, start, end }) => ({ fn, start, end }));
+    const brokenKey = legacySerialize(raw);
+    const brokenStudent = legacySerialize(raw);
+    expect(interactiveFigureDiagnostics(brokenKey, brokenStudent, 2)).toBeNull(); // el bug
+
+    const key = serializeIntervals(raw);
+    const student = serializeIntervals(raw);
+    const diag = interactiveFigureDiagnostics(key, student, 2);
+    expect(diag).not.toBeNull();
+    expect(diag.evaluable).toBeGreaterThan(0);
   });
 });

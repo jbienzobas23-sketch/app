@@ -19,7 +19,7 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense, type ReactNode } 
 import type { Exercise, Part } from "../lib/types.js";
 import type { Block } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
-import { partsOf, partToExercise, modelsOf } from "../lib/domain.js";
+import { partsOf, partToExercise, modelsOf, serializeIntervals } from "../lib/domain.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { ConfirmModal } from "./primitives.jsx";
@@ -59,10 +59,10 @@ function isModelStarted(modelId: string, draft: unknown, projected: Exercise): b
 function draftToPayload(modelId: string, draft: unknown, projected: Exercise): unknown {
   if (modelId === "cuestionario") return { answers: (draft as Record<string, string>) || {} };
   if (modelId === "esquema") return { blocks: (draft as Block[]) || [], schemaPalette: projected.schemaPalette };
-  const byCategory = (draft as Record<string, Array<{ fn: string; start: number; end: number }>>) || {};
+  const byCategory = (draft as Record<string, Array<{ fn: string; start: number; end: number; fig?: string | null }>>) || {};
   const entries = Object.entries(byCategory).map(([categoryId, ivs]) => ({
     categoryId,
-    intervals: (ivs || []).map(({ fn, start, end }) => ({ fn, start, end })),
+    intervals: serializeIntervals(ivs || []),
   }));
   const currentCategoryId = entries[0]?.categoryId || (projected.categories ?? [])[0]?.id;
   return { entries, currentCategoryId };
