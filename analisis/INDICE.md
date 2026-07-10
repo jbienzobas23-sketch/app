@@ -8,7 +8,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A1 — Inventario estructural | ✅ Completa | 2026-07-09 | `f263089` | 0 | 3 | 3 | 3 |
 | A2 — Arquitectura y flujo de datos | ✅ Completa | 2026-07-09 | `f263089` | 0 | 2 | 11 | 14 |
 | A3 — Capa de datos (Supabase) | ✅ Completa | 2026-07-10 | `f263089` | 0 | 3 | 5 | 4 |
-| A4 — Dominio musical y tests | ⬜ Pendiente | — | — | — | — | — | — |
+| A4 — Dominio musical y tests | ✅ Completa | 2026-07-10 | `f263089` | 0 | 1 | 5 | 4 |
 | A5 — UI, accesibilidad CVD y móvil | ⬜ Pendiente | — | — | — | — | — | — |
 | A6 — Audio | ⬜ Pendiente | — | — | — | — | — | — |
 | A7 — Rendimiento y build | ⬜ Pendiente | — | — | — | — | — | — |
@@ -67,3 +67,14 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - [A3-12] baja — historia de migraciones repo ≠ prod (0001/0005 por equivalencia) y prefijo `0003` duplicado.
 - **Observación para Jon (no numerada):** contenido de prod bajó de 17→3 ejercicios y 5→2 resultados entre el 2026-07-01 y el 2026-07-10 — confirmar si fue limpieza intencionada antes de A9.
 - Contraste servidor (2026-07-10): 10 tablas `fa_*` todas con RLS ON; advisors de seguridad = solo los "por diseño" conocidos, nada nuevo; el código no presupone migraciones pendientes.
+
+### A4 — Dominio musical y tests
+- **[A4-01] alta — `lib/repeats.ts` a 0% de cobertura**: ningún test lo importa; la lógica más compleja del dominio (sincronía de repeticiones) sin red, y no determinista (`uid()` sin inyección).
+- [A4-02] media — la nota del interactivo multi-categoría depende de la pestaña activa al entregar (`useSubmitAnswer.ts:236-256`): extras no promedian. Decisión de producto pendiente.
+- [A4-03] media — sembrar bloques por toda la línea da 100% de colocación en esquema (sobrantes no penalizan, `scoring.ts:85-100`); mitigado por revisión manual.
+- [A4-04] media — se puede publicar sin clave → entrega con score null y status "auto" (ni nota ni cola de corrección).
+- [A4-05] media — cifrado sin test de integración (el hueco que dejó pasar A2-01).
+- [A4-06] media — `palette.ts` 46%: sistema de color del esquema sin test (insumo CVD → A5).
+- [A4-07..10] bajas — casos límite de scoring sin fijar (duration undefined→0, points:0), routing 40%, impureza `uid()` en repeats, helpers db sin ejecutar.
+- Cobertura global: 196/196 tests verdes; `src/lib` 75,4% stmts; <70%: modelMeta, figures, palette, routing, ids, a11y, pointer, repeats. Lista priorizada de 12 tests en `A4_dominio_tests.md §6`.
+- Purity check: ninguna función de `lib` toca Supabase; impurezas = routing (React/DOM), audio (fetch), ids (Date/random), pointer (DOM), repeats (uid).
