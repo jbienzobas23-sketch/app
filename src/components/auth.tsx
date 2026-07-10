@@ -261,9 +261,11 @@ export function ForgotPinView({ onBack }: ForgotPinViewProps) {
     try {
       // El servidor busca el correo de recuperación (en fa_user_secrets) y envía el
       // enlace. Respuesta genérica: mostramos "enviado" exista o no el usuario, para
-      // no revelar quién tiene cuenta.
-      await requestPinReset(username.trim().toLowerCase(), window.location.origin + (window.location.pathname || "/"));
-      setSent(true);
+      // no revelar quién tiene cuenta. Si el servicio en sí está caído (404/5xx:
+      // función sin desplegar), lo distinguimos del envío genérico (A3-01).
+      const ok = await requestPinReset(username.trim().toLowerCase(), window.location.origin + (window.location.pathname || "/"));
+      if (ok) setSent(true);
+      else setError("El servicio de recuperación no está disponible ahora mismo.");
     } catch (e) { setError((e as Error).message || "No se pudo enviar el correo. Inténtalo de nuevo."); }
     finally { setLoading(false); }
   };

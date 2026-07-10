@@ -115,14 +115,18 @@ export async function resetCredential(payload: Record<string, unknown>): Promise
 // siempre genérica (no revela si el usuario existe).
 export async function requestPinReset(username: string, redirectTo: string): Promise<boolean> {
   const headers = authHeaders();
+  let res: Response;
   try {
-    await fetch(`${SUPABASE_URL}/functions/v1/request-pin-reset`, {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/request-pin-reset`, {
       method: "POST", headers, body: JSON.stringify({ username, redirectTo }),
     });
   } catch {
     throw new Error("Sin conexión con el servidor. Inténtalo más tarde.");
   }
-  return true;
+  // 200 = respuesta genérica del servidor (exista o no el usuario, A3-01 NO TOCAR).
+  // Cualquier otro estado (404/5xx: función sin desplegar o caída) es un fallo
+  // distinguible — no debe leerse como "correo enviado".
+  return res.ok;
 }
 
 // resetPin(credential, credType) — fija un nuevo PIN usando la sesión ACTUAL de
