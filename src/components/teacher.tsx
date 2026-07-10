@@ -1080,6 +1080,7 @@ export function TeacherDash({
   if (selectedExerciseId === "new") {
     return (
       <EditorShell
+        key={String(selectedExerciseId ?? "new")}
         exercise={null}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={() => {}}
@@ -1101,6 +1102,7 @@ export function TeacherDash({
   if (selectedExercise) {
     return (
       <EditorShell
+        key={String(selectedExerciseId ?? "new")}
         exercise={selectedExercise}
         onBack={() => setSelectedExerciseId(null)}
         onRecord={onRecord}
