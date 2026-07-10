@@ -342,8 +342,12 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
 
                         {q.type === "corta" && (
                           <div>
-                            {/* Respuesta como cita con canto del color del veredicto */}
+                            {/* Respuesta como cita con canto del color del veredicto; el
+                                canto de color va reforzado por glifo+palabra (A5-01): el
+                                veredicto no puede depender solo del color. */}
                             <div style={{ display: "flex", alignItems: "center", gap: 9, borderLeft: `3px solid ${v.color}`, background: C.paper2, borderRadius: "0 8px 8px 0", padding: "9px 12px" }}>
+                              <span aria-hidden="true" style={{ fontSize: 15, fontWeight: 800, color: v.color, flexShrink: 0 }}>{v.symbol}</span>
+                              <span style={{ fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: v.color, flexShrink: 0 }}>{v.word}</span>
                               <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: studentAnswer ? C.ink : C.muted2, fontStyle: studentAnswer ? "normal" : "italic" }}>
                                 {studentAnswer || "Sin respuesta"}
                               </span>
@@ -563,6 +567,8 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                       {q.type === "corta" && (
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 9, borderLeft: `3px solid ${v.color}`, background: C.paper2, borderRadius: "0 8px 8px 0", padding: "9px 12px" }}>
+                            <span aria-hidden="true" style={{ fontSize: 15, fontWeight: 800, color: v.color, flexShrink: 0 }}>{v.symbol}</span>
+                            <span style={{ fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: v.color, flexShrink: 0 }}>{v.word}</span>
                             <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: studentAnswer ? C.ink : C.muted2, fontStyle: studentAnswer ? "normal" : "italic" }}>
                               {studentAnswer || "Sin respuesta"}
                             </span>
