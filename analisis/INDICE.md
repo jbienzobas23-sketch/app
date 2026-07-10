@@ -9,7 +9,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A2 — Arquitectura y flujo de datos | ✅ Completa | 2026-07-09 | `f263089` | 0 | 2 | 11 | 14 |
 | A3 — Capa de datos (Supabase) | ✅ Completa | 2026-07-10 | `f263089` | 0 | 3 | 5 | 4 |
 | A4 — Dominio musical y tests | ✅ Completa | 2026-07-10 | `f263089` | 0 | 1 | 5 | 4 |
-| A5 — UI, accesibilidad CVD y móvil | ⬜ Pendiente | — | — | — | — | — | — |
+| A5 — UI, accesibilidad CVD y móvil | ✅ Completa | 2026-07-10 | `f263089` | 0 | 6 | 7 | 7 |
 | A6 — Audio | ⬜ Pendiente | — | — | — | — | — | — |
 | A7 — Rendimiento y build | ⬜ Pendiente | — | — | — | — | — | — |
 | A8 — Seguridad | ⬜ Pendiente | — | — | — | — | — | — |
@@ -78,3 +78,11 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - [A4-07..10] bajas — casos límite de scoring sin fijar (duration undefined→0, points:0), routing 40%, impureza `uid()` en repeats, helpers db sin ejecutar.
 - Cobertura global: 196/196 tests verdes; `src/lib` 75,4% stmts; <70%: modelMeta, figures, palette, routing, ids, a11y, pointer, repeats. Lista priorizada de 12 tests en `A4_dominio_tests.md §6`.
 - Purity check: ninguna función de `lib` toca Supabase; impurezas = routing (React/DOM), audio (fetch), ids (Date/random), pointer (DOM), repeats (uid).
+
+### A5 — UI, accesibilidad CVD y móvil
+- **[A5-01..05] altas (CVD, verificadas una a una):** veredicto de respuesta corta solo color de canto (QuizCorrection:346/565); marcas estrechas del interactivo solo color (etiqueta solo si >5%/14px); bloques estrechos del esquema pierden la etiqueta (fontSize:0 si wPct<3.5); libro vs audio solo tinte azul (teacher:547); minimapa del cuestionario verde/azul sin glifo (mitigado por tarjetas con ✓).
+- **[A5-08] alta — el modelo esquema es inoperable sin puntero** (bloques no enfocables, zoom solo rueda/pinch).
+- Medias: opción correcta relleno-vs-contorno (modals:903), scrubber sin role=slider/teclado, divs clicables sin teclado (incl. cabecera de pregunta del alumno), FieldLabel sin htmlFor en toda la app, error de datos invisible en listas (refuerza A3-04), targets táctiles <40px (asa 6px + `SCHEMA_HND_W` del comentario NO existe — hitbox fantasma), radios de facto 10/12 sin tokenizar + CTAs bespoke PasoClaves (insumo nº1 PLAN_UNIFICACION).
+- Bajas: RepeatBand asas, 2 play sin nombre accesible, Menu sin autofocus, vacíos que faltan (curso sin unidades; sin-audio silencioso; sin "Guardando…"), minmax(340) desborda en 375px (SchemaCorrection:332/352), SaveErrorToast sin safe-area + touchAction ausente en 2 superficies, #555/#888 hardcodeados.
+- Positivo verificado: hold-to-record SÍ tiene teclado (ExerciseView:174-214); ModalShell/Menu/focus-visible correctos; tipografía 100% tokenizada; TypePlate distingue por FORMA de icono; CategoryDots con inicial.
+- Falsos positivos descartados en verificación: courses.tsx:426/:178 y teacher.tsx:735 (gateados o solo-escritorio); el fragmento de pregunta sí tiene campos numéricos (modal → FragmentRangeSelector).
