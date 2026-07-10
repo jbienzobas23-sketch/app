@@ -10,7 +10,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A3 — Capa de datos (Supabase) | ✅ Completa | 2026-07-10 | `f263089` | 0 | 3 | 5 | 4 |
 | A4 — Dominio musical y tests | ✅ Completa | 2026-07-10 | `f263089` | 0 | 1 | 5 | 4 |
 | A5 — UI, accesibilidad CVD y móvil | ✅ Completa | 2026-07-10 | `f263089` | 0 | 6 | 7 | 7 |
-| A6 — Audio | ⬜ Pendiente | — | — | — | — | — | — |
+| A6 — Audio | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 3 | 5 |
 | A7 — Rendimiento y build | ⬜ Pendiente | — | — | — | — | — | — |
 | A8 — Seguridad | ⬜ Pendiente | — | — | — | — | — | — |
 | A9 — Cruce con planes y síntesis final | ⬜ Pendiente | — | — | — | — | — | — |
@@ -86,3 +86,11 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - Bajas: RepeatBand asas, 2 play sin nombre accesible, Menu sin autofocus, vacíos que faltan (curso sin unidades; sin-audio silencioso; sin "Guardando…"), minmax(340) desborda en 375px (SchemaCorrection:332/352), SaveErrorToast sin safe-area + touchAction ausente en 2 superficies, #555/#888 hardcodeados.
 - Positivo verificado: hold-to-record SÍ tiene teclado (ExerciseView:174-214); ModalShell/Menu/focus-visible correctos; tipografía 100% tokenizada; TypePlate distingue por FORMA de icono; CategoryDots con inicial.
 - Falsos positivos descartados en verificación: courses.tsx:426/:178 y teacher.tsx:735 (gateados o solo-escritorio); el fragmento de pregunta sí tiene campos numéricos (modal → FragmentRangeSelector).
+
+### A6 — Audio
+- **Alcance real:** NO hay captura de micrófono ni Supabase Storage (verificado: cero getUserMedia/MediaRecorder/createObjectURL/FileReader/input-file). El audio entra SOLO por URL pegada (host externo); "hold-to-record" = marcar intervalos, no grabar.
+- **Arquitectura sólida verificada:** un solo useAudioPlayer compartido por parte (SessionShell:96, keep-mounted sin doble decode), cleanup completo (ctx.close en las 3 vías, cero object URLs), resume() para iOS, sourceId contra onended obsoletos, sincronía marca↔tiempo por timeRef/RAF.
+- [A6-01] media — sesión exige CORS del host y todo fallo se disfraza de "Error al decodificar el audio" (useAudioPlayer:112); el `<audio>` del selector reproduce sin CORS → señales contradictorias.
+- [A6-02] media — el editor traga en silencio el error de URL (useExerciseEditor.ts:226); el modal del almacén sí avisa.
+- [A6-03] media — sin streaming: PCM completo en RAM (~85 MB para 4 min estéreo) y nada suena hasta descargar el fichero entero.
+- [A6-04..08] bajas — fetch sin AbortController; promesas play/resume sin manejar (playing fantasma); mismo audio descargado hasta 4× por flujo (→A7); stopAtLoopEnd "reanudar tras parada" pendiente de verificación manual desde 2026-07-06 (hook al 25% cobertura); enlaces externos sin verificación (ejercicio mudo si el host borra).
