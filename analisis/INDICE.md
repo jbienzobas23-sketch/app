@@ -11,7 +11,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A4 — Dominio musical y tests | ✅ Completa | 2026-07-10 | `f263089` | 0 | 1 | 5 | 4 |
 | A5 — UI, accesibilidad CVD y móvil | ✅ Completa | 2026-07-10 | `f263089` | 0 | 6 | 7 | 7 |
 | A6 — Audio | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 3 | 5 |
-| A7 — Rendimiento y build | ⬜ Pendiente | — | — | — | — | — | — |
+| A7 — Rendimiento y build | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 4 | 7 |
 | A8 — Seguridad | ⬜ Pendiente | — | — | — | — | — | — |
 | A9 — Cruce con planes y síntesis final | ⬜ Pendiente | — | — | — | — | — | — |
 
@@ -94,3 +94,9 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - [A6-02] media — el editor traga en silencio el error de URL (useExerciseEditor.ts:226); el modal del almacén sí avisa.
 - [A6-03] media — sin streaming: PCM completo en RAM (~85 MB para 4 min estéreo) y nada suena hasta descargar el fichero entero.
 - [A6-04..08] bajas — fetch sin AbortController; promesas play/resume sin manejar (playing fantasma); mismo audio descargado hasta 4× por flujo (→A7); stopAtLoopEnd "reanudar tras parada" pendiente de verificación manual desde 2026-07-06 (hook al 25% cobertura); enlaces externos sin verificación (ejercicio mudo si el host borra).
+
+### A7 — Rendimiento y build
+- **Salud general muy buena**: build 1,96 s, tests ~5,3 s, inicial 686 kB JS (gzip ~190), manualChunks + 3 lazy correctos, cero contexts, keys estables, throttle 10fps + refs 60fps bien hecho, memos existentes funcionan (salvo 1 derrotado).
+- Medias: [A7-01] drag de bloques del esquema = setState por mousemove sobre 1859 líneas/44 hooks (verificado, SchemaExerciseView:627-665); [A7-02] renderSegBlocks recalcula filtros/sorts/colores 10×/s; [A7-03] PartRunner re-renderiza la vista oculta del combo 10×/s (sharedAudioPlayer nuevo por tick); [A7-04] modals.tsx (54 kB) en el inicial por UN import (App.tsx:33 RecoveryEmailModal — extraerlo lo manda al chunk teacher).
+- Bajas: lista de preguntas/minimapa por tick; ExerciseItem sin memo (keystroke×N); localSeed 9,9 kB en prod; correcciones ~85 kB en el inicial; memo de WaveformDisplay derrotado por []/{} inline; zoom por setState; 8 selects anónimos vacíos por visita.
+- **Top-10 impacto/esfuerzo en A7_rendimiento.md §5** — nº1: extraer RecoveryEmailModal (−52 kB, esfuerzo mínimo).
