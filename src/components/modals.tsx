@@ -3,14 +3,14 @@
 // audios, preguntas). Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
 import { useState, useRef } from "react";
 import type { Category, Course, Unit, Group, Exercise, Question, QuestionOption } from "../lib/types.js";
-import { C, F, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
+import { C, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { uid, toggleInSet } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelsOf, questionScopeOf } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
-import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, Overline, GhostButton, CtaButton, FieldLabel } from "./primitives.jsx";
+import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput } from "./primitives.jsx";
 import { FragmentRangeSelector } from "./session.js";
 
 // ── Tipos locales compartidos por los modales ────────────────────────────────
@@ -458,56 +458,6 @@ export function ResetCredentialModal({ targetUser, onSave, onClose }: { targetUs
 
       <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={loading ? "Actualizando…" : "Resetear"} />
     </ModalShell>
-  );
-}
-
-// Modal para configurar el correo de recuperación en el primer login
-export function RecoveryEmailModal({ onSave, onSkip }: { onSave: (email: string) => Promise<void> | void; onSkip: () => void }) {
-  const [email,   setEmail]   = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState("");
-
-  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-
-  const handleSave = async () => {
-    if (!valid || loading) return;
-    setLoading(true); setError("");
-    try { await onSave(email.trim().toLowerCase()); }
-    catch { setError("Error al guardar el correo. Inténtalo de nuevo."); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ maxWidth: 400, width: "100%" }}>
-        <div style={{ marginBottom: 30, paddingBottom: 20, borderBottom: `2px solid ${C.ink}` }}>
-          <Overline>Primer acceso</Overline>
-          <h1 style={{ ...S.h1 }}>Correo de recuperación</h1>
-        </div>
-        <p style={{ fontFamily: F.sans, fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 24 }}>
-          Añade un correo para poder recuperar tu acceso si olvidas tu PIN. Puedes saltarte este paso, pero no podrás recuperar tu cuenta sin ayuda del profesor.
-        </p>
-        <div style={{ marginBottom: 8 }}>
-          <FieldLabel>Correo electrónico</FieldLabel>
-          <input
-            type="email"
-            style={{ ...S.input }}
-            value={email}
-            autoFocus
-            onChange={(e) => { setEmail(e.target.value); setError(""); }}
-            placeholder="correo@ejemplo.com"
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
-          />
-        </div>
-        {error && <ErrorMsg style={{ marginBottom: 12 }}>{error}</ErrorMsg>}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 24 }}>
-          <CtaButton full lg onClick={handleSave} disabled={!valid || loading}>
-            {loading ? "Guardando…" : "Guardar y continuar →"}
-          </CtaButton>
-          <GhostButton full lg onClick={onSkip}>Ahora no</GhostButton>
-        </div>
-      </div>
-    </div>
   );
 }
 

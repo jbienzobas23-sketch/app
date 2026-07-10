@@ -31,7 +31,7 @@ import { useInjectFonts } from "./theme/fonts.js";
 import { logout } from "./auth/authClient.js";
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
 import type { AuthUser, Teacher } from "./components/auth.js";
-import { RecoveryEmailModal } from "./components/modals.jsx";
+import { RecoveryEmailModal } from "./components/RecoveryEmailModal.jsx";
 
 import { ExerciseView } from "./components/ExerciseView.jsx";
 import { CorrectionView } from "./components/CorrectionView.jsx";
