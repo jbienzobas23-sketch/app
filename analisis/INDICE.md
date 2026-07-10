@@ -12,7 +12,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A5 — UI, accesibilidad CVD y móvil | ✅ Completa | 2026-07-10 | `f263089` | 0 | 6 | 7 | 7 |
 | A6 — Audio | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 3 | 5 |
 | A7 — Rendimiento y build | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 4 | 7 |
-| A8 — Seguridad | ⬜ Pendiente | — | — | — | — | — | — |
+| A8 — Seguridad | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 2 | 4 |
 | A9 — Cruce con planes y síntesis final | ⬜ Pendiente | — | — | — | — | — | — |
 
 ## Notas transversales para próximas fases
@@ -100,3 +100,13 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - Medias: [A7-01] drag de bloques del esquema = setState por mousemove sobre 1859 líneas/44 hooks (verificado, SchemaExerciseView:627-665); [A7-02] renderSegBlocks recalcula filtros/sorts/colores 10×/s; [A7-03] PartRunner re-renderiza la vista oculta del combo 10×/s (sharedAudioPlayer nuevo por tick); [A7-04] modals.tsx (54 kB) en el inicial por UN import (App.tsx:33 RecoveryEmailModal — extraerlo lo manda al chunk teacher).
 - Bajas: lista de preguntas/minimapa por tick; ExerciseItem sin memo (keystroke×N); localSeed 9,9 kB en prod; correcciones ~85 kB en el inicial; memo de WaveformDisplay derrotado por []/{} inline; zoom por setState; 8 selects anónimos vacíos por visita.
 - **Top-10 impacto/esfuerzo en A7_rendimiento.md §5** — nº1: extraer RecoveryEmailModal (−52 kB, esfuerzo mínimo).
+
+### A8 — Seguridad
+- **Base sólida, cero altas:** hash PBKDF2 en servidor, secretos fuera del cliente (service_role solo en Edge Functions), RLS por rol verificada en prod, autorización correcta en las 5 Edge Functions (bootstrap admin gate, teacher forzado a sus alumnos, timingSafeEqual+rate-limit+401 genérico en login), SIN dangerouslySetInnerHTML/eval → XSS almacenado no explotable (React escapa), anon key pública por diseño, .env ignorado, historial limpio.
+- [A8-01] media — recuperación de PIN inalcanzable en prod (= A3-01, control de recuperación roto).
+- [A8-02] media — «Salir» no hace signOut (= A3-02, sesión reanudable en aula compartida).
+- [A8-03] baja — request-pin-reset sin rate limit → email-bombing a un recovery_email (login sí lo tiene).
+- [A8-04] baja — escrituras JSONB sin límite de tamaño (solo staff, mitigado por RLS).
+- [A8-05] baja — **npm audit: 3 vulns (undici←jsdom, vite, @babel/core) TODAS build/test-only, ninguna en el bundle de prod; fixAvailable:true.** Este es el audit que A0 dejó "solo capturado".
+- [A8-06] baja — chequeo de rol de login cosmético + perfiles legibles por todos (enumeración de usernames, no escalada; aceptable para modelo de aula).
+- Storage: sin superficie privada (audios = URLs públicas de material; entregas de alumno sí aisladas por RLS). El riesgo "alumno accede a audio de otro" del plan NO aplica.
