@@ -19,4 +19,5 @@
 | Tarea | Commit | Puertas | Incidencias | Verificación MANUAL pendiente |
 |---|---|---|---|---|
 | C0.1 | (sin commit, verificación) | lint 0 / typecheck 0 / test 196/196 / build OK | ninguna | — |
+| C0.2 | `8bbbd7d` | lint 0 / typecheck 0 / test 196/196 / build OK | ninguna | — |
 
