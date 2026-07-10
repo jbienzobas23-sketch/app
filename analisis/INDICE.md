@@ -1,6 +1,8 @@
 # INDICE — Análisis integral de Funciones Armónicas (rama beta)
 
-Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md` (en Downloads, fuente del plan) para el detalle de cada fase.
+**ANÁLISIS CERRADO (2026-07-10).** Las 10 fases completas sobre el mismo commit `f263089`. Síntesis ejecutiva, matriz impacto×esfuerzo y secuencia recomendada en **`INFORME_ANALISIS.md`** — ese documento basta para decidir el próximo mes de trabajo. Ver `PLAN_ANALISIS.md` (en Downloads, fuente del plan) para el detalle de cada fase.
+
+**Totales: 0 críticas · 15 altas · ~41 medias · ~49 bajas** (A8-01/02 = A3-01/02, sin duplicar).
 
 | Fase | Estado | Fecha | Commit analizado | Crítica | Alta | Media | Baja |
 |---|---|---|---|---|---|---|---|
@@ -13,7 +15,7 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 | A6 — Audio | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 3 | 5 |
 | A7 — Rendimiento y build | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 4 | 7 |
 | A8 — Seguridad | ✅ Completa | 2026-07-10 | `f263089` | 0 | 0 | 2 | 4 |
-| A9 — Cruce con planes y síntesis final | ⬜ Pendiente | — | — | — | — | — | — |
+| A9 — Cruce con planes y síntesis final | ✅ Completa | 2026-07-10 | `f263089` | 0 | 1 | 1 | 0 |
 
 ## Notas transversales para próximas fases
 
@@ -110,3 +112,11 @@ Registro vivo de fases. Se actualiza al cerrar cada fase. Ver `PLAN_ANALISIS.md`
 - [A8-05] baja — **npm audit: 3 vulns (undici←jsdom, vite, @babel/core) TODAS build/test-only, ninguna en el bundle de prod; fixAvailable:true.** Este es el audit que A0 dejó "solo capturado".
 - [A8-06] baja — chequeo de rol de login cosmético + perfiles legibles por todos (enumeración de usernames, no escalada; aceptable para modelo de aula).
 - Storage: sin superficie privada (audios = URLs públicas de material; entregas de alumno sí aisladas por RLS). El riesgo "alumno accede a audio de otro" del plan NO aplica.
+
+### A9 — Cruce con planes y síntesis final
+- **[A9-01] alta — 4 planes referenciados PERDIDOS**: PLAN_EVALUACION.md, PLAN_UNIFICACION.md, plan_placas_hibridas.md y plan_obra.md no existen ni en el repo ni en Downloads (el riesgo que AUDITORIA-A4 avisaba se materializó). AUDITORIA.md solo en Downloads, sin versionar. Reconstruibles desde A5 §5 (unificación) y A4 §4-6 (evaluación).
+- [A9-02] media — contradicción entre planes: PLAN_MAESTRO_2 declara "no extraer SchemaTimeline" mientras AUDITORIA-A2.1 ordena trocear SchemaExerciseView (sigue en 1.859 líneas exactas). Necesita decisión de Jon.
+- **Cruce PLAN_MAESTRO_2**: M0–M6 ✅ hechas y verificadas en código; M7 opt-in pendiente de Jon; métricas blandas sin alcanzar (any=53, diff +184).
+- **Cruce AUDITORIA**: AU-A0 (lint) ✅, AU-A1 (=M4.1) ✅, AU-A2.3 (App.tsx 635) ✅, AU-A3 ✅ en su alcance (pero A5 encontró 5 huecos CVD fuera de él); AU-A2.1 ❌ no iniciada, AU-A2.2 ❌ CONTRADICHA (inline 1438→1506), AU-A4 ❌ agravada.
+- **Deuda resuelta**: lint vite.config ✓, App.tsx 1189→635 ✓, MultiModel/Part 12→0 ✓, fa_settings ✓, build 4,77→1,96 s ✓, npm audit clasificado (todo build/test) ✓.
+- Secuencia recomendada en INFORME_ANALISIS.md §4: 4 lotes (quick wins → CVD → robustez de datos → proyecto "Esquema" unificando A1-01+A4-01+A5-08+A7-01/02) + 6 decisiones de producto para Jon.
