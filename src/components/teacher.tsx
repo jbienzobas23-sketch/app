@@ -15,7 +15,8 @@ import { rowButtonProps } from "../lib/a11y.js";
 import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon, MobileHeaderMenu } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, BookFormModal, type AudioItem } from "./modals.js";
-import { CoursesTab, KebabMenu } from "./courses.js";
+import { CoursesTab } from "./courses.js";
+import { KebabMenu } from "./KebabMenu.js";
 import { EditorShell } from "./editor/EditorShell.js";
 import { ExerciseItem } from "./ExerciseItem.js";
 

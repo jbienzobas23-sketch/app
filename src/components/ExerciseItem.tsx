@@ -13,7 +13,7 @@ import { partsOf, modelsOf, partKeyReadyOf, composersOf, durationOf, resultStatu
 import { rowButtonProps } from "../lib/a11y.js";
 import { Chevron } from "./primitives.jsx";
 import { ExercisePlate } from "./TypePlate.jsx";
-import { KebabMenu } from "./courses.jsx";
+import { KebabMenu } from "./KebabMenu.jsx";
 
 type AskConfirm = (message: string, onConfirm: () => void, confirmLabel?: string) => void;
 
