@@ -28,6 +28,7 @@ import { useInjectFonts } from "./theme/fonts.js";
 
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
+import { logout } from "./auth/authClient.js";
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
 import type { AuthUser, Teacher } from "./components/auth.js";
 import { RecoveryEmailModal } from "./components/modals.jsx";
@@ -314,7 +315,7 @@ export default function App() {
         teachers={teacherList as unknown as Teacher[]}
         currentTeacherId={user.teacherId}
         onPick={(t) => { const upd = { ...user, teacherId: t.id }; updateUser(upd); navigate("/alumno"); }}
-        onLogout={() => { setUser(null); navigate("/"); }}
+        onLogout={() => { logout(); setUser(null); navigate("/"); }}
       />
     );
   }
@@ -416,7 +417,7 @@ export default function App() {
   }
 
   // Vistas autenticadas
-  const onLogout = () => { setUser(null); navigate("/"); };
+  const onLogout = () => { logout(); setUser(null); navigate("/"); };
   const userResults = results[user.id] || {};
   const isStudent = user.role === "student";
 
