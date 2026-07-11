@@ -166,6 +166,47 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     setLibraryPickerForPart(null);
   };
 
+  // A2-08: al pegar una URL en una parte (a diferencia de elegir del almacén,
+  // donde la duración ya viene calculada), había que decodificar y fijar la
+  // duración igual que hace handleUrlInput para el modo de una sola parte —
+  // si no, la parte se quedaba con duration undefined y calcScore devolvía un
+  // 0 injusto en vez de "pendiente".
+  const partUrlReqRef = useRef<Record<string, number>>({});
+  const [partAudioUrlErrors, setPartAudioUrlErrors] = useState<Record<string, string>>({});
+  const handlePartUrlInput = (partId: string, rawUrl: string) => {
+    const url = rawUrl.trim();
+    updatePartField(partId, {
+      audioUrl: url || null,
+      audioName: url ? (url.split("/").pop()?.split("?")[0] || "audio") : null,
+      duration: undefined, audioTotalDuration: undefined, waveformData: undefined,
+      audioFragmentStart: undefined, audioFragmentEnd: undefined,
+    });
+    setPartAudioUrlErrors((prev) => { const next = { ...prev }; delete next[partId]; return next; });
+    if (!url) return;
+    const reqId = (partUrlReqRef.current[partId] ?? 0) + 1;
+    partUrlReqRef.current[partId] = reqId;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    fetchAudioBuffer(url)
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => {
+        ctx.close();
+        if (partUrlReqRef.current[partId] !== reqId) return;
+        const dur = Math.ceil(decoded.duration);
+        updatePartField(partId, {
+          duration: dur, audioTotalDuration: dur,
+          waveformData: buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration),
+        });
+      })
+      .catch(() => {
+        try { ctx.close(); } catch { /* ignora */ }
+        if (partUrlReqRef.current[partId] === reqId) {
+          setPartAudioUrlErrors((prev) => ({ ...prev, [partId]: "No se pudo verificar la URL del audio." }));
+        }
+      });
+  };
+
   const toggleCategory = (id: string) => setSelectedCategoryIds((prev) => {
     const next = new Set(prev);
     if (next.has(id)) { if (next.size > 1) next.delete(id); return next; }
@@ -311,7 +352,11 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     return false;
   }, [isCreating, title, selectedModels, audioUrl, audioName, selectedCategoryIds, selectedButtonIds, manualDuration, exercise, hasExistingAudio, listenOnly, immediateSchemaFeedback, showComposer, schemaLevels, fragStart, fragEnd, exMargin, exSchemaMargin, isMultiPart, parts, initialParts]);
 
-  const canSave = title.trim().length > 0 && (isMultiPart || effDuration > 0) && (isCreating || isDirty);
+  // A2-08: en multiparte, cada parte CON audio necesita su duración detectada
+  // — si no, calcScore la trataría como sin duración (null/"pendiente") en
+  // vez de poder corregirse jamás con una nota real.
+  const partsAudioReady = !isMultiPart || parts.every((p) => !p.audioUrl || (p.duration ?? 0) > 0);
+  const canSave = title.trim().length > 0 && (isMultiPart || effDuration > 0) && partsAudioReady && (isCreating || isDirty);
 
   // ── Guardias de cambios sin guardar ────────────────────────────────────────
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -436,7 +481,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     showComposer, setShowComposer,
     // partes
     parts, isMultiPart, addMultiPart, updatePartField, movePart, duplicatePart, removePart, addEmptyPart,
-    pickAudioForPart, libraryPickerForPart, setLibraryPickerForPart, confirmDeletePart, setConfirmDeletePart,
+    pickAudioForPart, handlePartUrlInput, partAudioUrlErrors, libraryPickerForPart, setLibraryPickerForPart, confirmDeletePart, setConfirmDeletePart,
     // guardado / dirty / guardias
     isDirty, canSave, handleSave, pendingAction, setPendingAction,
     guardedOnBack, guardedOnRecord, guardedOnPreview, guardedOnManageOrRecord,

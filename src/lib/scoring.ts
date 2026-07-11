@@ -24,8 +24,13 @@ export const resolveOverlap = (existing: Interval[], newInterval: Interval): Int
   return result;
 };
 
+// A2-08: sin duración (0/undefined/NaN) no hay nada que medir — devolver 0
+// sería una nota injusta (el alumno "suspende" un ejercicio mal configurado,
+// no su respuesta). null ya significa "pendiente" en todo el resto del código
+// (clave vacía → null); esta rama usa la misma semántica.
 export const calcScore = (teacherAns: Interval[], studentAns: Interval[], duration: number, margin = 1): number | null => {
   if (!teacherAns.length) return null;
+  if (!duration || duration <= 0) return null;
   const STEP = 0.1;
   let tot = 0, ok = 0;
   for (let t = 0; t < duration; t += STEP) {

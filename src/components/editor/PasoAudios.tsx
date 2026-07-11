@@ -22,7 +22,7 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
     audioUrl, audioName, audioDuration, waveformData, hasExistingAudio, totalAudioDuration, effDuration,
     fragStart, setFragStart, fragEnd, setFragEnd, manualDuration, setManualDuration,
     handleUrlInput, audioUrlError, clearAudio, setShowLibraryPicker, addMultiPart,
-    parts, updatePartField, movePart, duplicatePart, addEmptyPart,
+    parts, updatePartField, handlePartUrlInput, partAudioUrlErrors, movePart, duplicatePart, addEmptyPart,
     setConfirmDeletePart, setLibraryPickerForPart,
     showComposer, setShowComposer,
   } = ed;
@@ -218,15 +218,10 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
                     )}
                     <input type="url" style={{ ...S.input, fontSize: 12.5 }}
                       placeholder="O pega una URL de audio"
-                      onChange={(e) => {
-                        const url = e.target.value.trim();
-                        updatePartField(selPart.id, {
-                          audioUrl: url || null,
-                          audioName: url ? (url.split("/").pop()?.split("?")[0] || "audio") : null,
-                        });
-                      }} />
+                      onChange={(e) => handlePartUrlInput(selPart.id, e.target.value)} />
                   </div>
                 )}
+                {partAudioUrlErrors[selPart.id] && <p style={{ fontSize: 11, color: C.danger, margin: "0 0 8px" }}>{partAudioUrlErrors[selPart.id]}</p>}
 
                 {partHasAudio && partTotalDur > 0 && showFragment && (
                   <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 14, marginBottom: 4 }}>

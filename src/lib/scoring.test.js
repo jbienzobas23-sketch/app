@@ -73,6 +73,34 @@ describe("calcScore", () => {
     const loose  = calcScore(t, s, 8, 2);   // margen del ejercicio B
     expect(loose).toBeGreaterThan(strict);
   });
+
+  // A2-08: sin duración medible, null ("pendiente") — nunca un 0 injusto.
+  it("duration 0 → null, no 0", () => {
+    const t = [{ fn: "T", start: 0, end: 4 }];
+    expect(calcScore(t, t, 0)).toBeNull();
+  });
+  it("duration undefined → null", () => {
+    const t = [{ fn: "T", start: 0, end: 4 }];
+    expect(calcScore(t, t, undefined)).toBeNull();
+  });
+  it("duration negativa (dato corrupto) → null", () => {
+    const t = [{ fn: "T", start: 0, end: 4 }];
+    expect(calcScore(t, t, -5)).toBeNull();
+  });
+  it("clave que excede la duración: solo se mide hasta duration", () => {
+    const t = [{ fn: "T", start: 0, end: 100 }];
+    const s = [{ fn: "T", start: 0, end: 4 }]; // el alumno solo cubre los primeros 4s
+    // Con duration=4, todo lo evaluable (0-4s) coincide → 100, aunque la
+    // clave "diga" que sigue hasta 100.
+    expect(calcScore(t, s, 4, 0)).toBe(100);
+  });
+  it("margen ≥ tramo entero: no revienta ni cuela aciertos fuera del intervalo del alumno", () => {
+    const t = [{ fn: "T", start: 0, end: 2 }];
+    const s = [{ fn: "S", start: 0, end: 2 }]; // función distinta en todo el tramo
+    // Margen mayor que la duración total: sigue sin encontrar "T" en ningún
+    // punto (el alumno marcó "S"), así que el resultado es 0, no un throw.
+    expect(calcScore(t, s, 2, 10)).toBe(0);
+  });
 });
 
 describe("calcQuestionnaireScore", () => {
