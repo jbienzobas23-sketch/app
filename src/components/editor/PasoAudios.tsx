@@ -21,7 +21,7 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
     isCreating, isMultiPart, selectedModels, audioLibrary, exercise,
     audioUrl, audioName, audioDuration, waveformData, hasExistingAudio, totalAudioDuration, effDuration,
     fragStart, setFragStart, fragEnd, setFragEnd, manualDuration, setManualDuration,
-    handleUrlInput, clearAudio, setShowLibraryPicker, addMultiPart,
+    handleUrlInput, audioUrlError, clearAudio, setShowLibraryPicker, addMultiPart,
     parts, updatePartField, movePart, duplicatePart, addEmptyPart,
     setConfirmDeletePart, setLibraryPickerForPart,
     showComposer, setShowComposer,
@@ -104,6 +104,7 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
                   value={audioUrl || ""} onChange={(e) => handleUrlInput(e.target.value)}
                   placeholder={audioLibrary.length > 0 ? "O pega una URL de audio" : "URL pública de audio"} />
               </div>
+              {audioUrlError && <p style={{ fontSize: 11, color: C.danger, margin: "6px 0 0" }}>{audioUrlError}</p>}
               <div style={{ ...S.row, gap: 10, marginTop: 8, flexWrap: "wrap" }}>
                 <label style={{ ...S.label, margin: 0, whiteSpace: "nowrap" }}>Sin audio · duración manual (s)</label>
                 <input type="number" min={1} style={{ ...S.input, width: 90, flex: "0 0 auto" }}

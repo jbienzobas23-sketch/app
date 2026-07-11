@@ -202,6 +202,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
   };
 
   const urlReqRef = useRef(0);
+  const [audioUrlError, setAudioUrlError] = useState("");
   const handleUrlInput = (rawUrl: string) => {
     const url = rawUrl.trim();
     setAudioUrl(url || null);
@@ -210,6 +211,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     setWaveformData(null);
     setFragStart(null);
     setFragEnd(null);
+    setAudioUrlError("");
     if (!url) return;
     const reqId    = ++urlReqRef.current;
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -223,7 +225,11 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
         setAudioDuration(Math.ceil(decoded.duration));
         setWaveformData(buildWaveformFromPCM(decoded.getChannelData(0), decoded.duration));
       })
-      .catch(() => { try { ctx.close(); } catch { /* ignora */ } });
+      .catch(() => {
+        try { ctx.close(); } catch { /* ignora */ }
+        // A6-02: mismo aviso que el almacén (modals.tsx) — antes no pasaba nada.
+        if (reqId === urlReqRef.current) setAudioUrlError("No se pudo verificar la URL del audio.");
+      });
   };
 
   const clearAudio = () => {
@@ -418,7 +424,7 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     selectedCategoryIds, selectedButtonIds, toggleCategory, toggleButton, selectNewCategory,
     // audio / fragmento (single-part)
     audioUrl, audioName, audioDuration, waveformData, fragStart, setFragStart, fragEnd, setFragEnd,
-    manualDuration, setManualDuration, handleUrlInput, clearAudio, handlePickFromLibrary,
+    manualDuration, setManualDuration, handleUrlInput, audioUrlError, clearAudio, handlePickFromLibrary,
     showLibraryPicker, setShowLibraryPicker,
     hasExistingAudio, totalAudioDuration, effDuration, activeComposer,
     // esquema
