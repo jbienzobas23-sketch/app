@@ -56,3 +56,5 @@
 
 **Fase C3 cerrada** (salvo C3.7, `[BLOQUEADA: D8]`, no ejecutada).
 
+| C4.1 | `b8a7ed4` | lint 0 / typecheck 0 / test 214/214 / build OK | El default literal que sugiere el informe (`= uid`) cambiaría el prefijo de "sb" a "id" para los 3 llamantes reales (SchemaExerciseView.tsx×2, useSchemaEditor.ts — `ExerciseView.tsx` que citaba el informe no es llamante real, R11). Se usó `= () => uid("sb")` para reproducir el comportamiento EXACTO actual. No se tocó `uid()` en `ids.ts` (la parametrización `now?/rand?` era opcional "(+)"; C4.2 puede inyectar determinismo vía `makeId` sin ella). | — |
+
