@@ -98,6 +98,10 @@ export default tseslint.config(
       'src/components/QuestionManagerView.tsx',
       'src/components/MultiModelSessionView.tsx',
       'src/App.tsx',
+      // C4.3d: handlers de puntero ratón+touch extraídos de
+      // SchemaExerciseView.tsx (mismo motivo que esa entrada — la exención
+      // viaja con el código al trocearlo).
+      'src/hooks/useListenOnlyMarks.ts',
     ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',

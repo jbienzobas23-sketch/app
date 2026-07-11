@@ -25,6 +25,7 @@ import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, g
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
 import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
+import { useListenOnlyMarks } from "../hooks/useListenOnlyMarks.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
@@ -89,9 +90,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   const listenOnly = !!exercise.listenOnly;
   const [playCount,   setPlayCount]   = useState(0);
-  const [schemaMarks, setSchemaMarks] = useState<number[]>([]);
-  const schemaMarksRef = useRef<number[]>([]);
-  schemaMarksRef.current = schemaMarks;
 
   // ── Zoom y desplazamiento horizontal del esquema (F7, T7.1) ──────────────
   const {
@@ -471,52 +469,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
   };
 
-  // ── Marcas (listen-only): mapeo visual → tiempo grabación ───────────────
-  const containerXToRec = (xFrac: number) => {
-    const segs = segmentsRef.current;
-    for (const sg of segs) {
-      if (xFrac >= sg.vStart - 0.001 && xFrac <= sg.vEnd + 0.001) {
-        const f = sg.vEnd > sg.vStart
-          ? Math.max(0, Math.min(1, (xFrac - sg.vStart) / (sg.vEnd - sg.vStart))) : 0;
-        if (sg.type === "normal") return sg.recStart + f * sg.canonDur;
-        if (sg.type === "repeat-first")  return sg.recStart + f * sg.canonDur;
-        if (sg.type === "repeat-second") return sg.recStart + f * sg.canonDur;
-        return sg.rep.first.start + f * (sg.rep.first.end - sg.rep.first.start);
-      }
-    }
-    return 0;
-  };
-  const handleMarksContainerDown = (e: any) => {
-    if (e.target.closest("[data-mark]")) return;
-    const el = rulerContainerRef.current; if (!el) return;
-    e.preventDefault();
-    const rect = el.getBoundingClientRect();
-    const t = containerXToRec(Math.max(0, Math.min(1, (getClientX(e) - rect.left) / rect.width)));
-    setSchemaMarks(prev => [...prev, t].sort((a, b) => a - b));
-  };
-  const handleMarkDown = (e: any, idx: number) => {
-    e.stopPropagation(); e.preventDefault();
-    const el = rulerContainerRef.current; if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const startX = getClientX(e);
-    let moved = false;
-    const mv = (ev: any) => {
-      if (ev.cancelable) ev.preventDefault();
-      const x = getClientX(ev);
-      if (!moved && Math.abs(x - startX) > 3) moved = true;
-      if (moved) {
-        const t = containerXToRec(Math.max(0, Math.min(1, (x - rect.left) / rect.width)));
-        setSchemaMarks(prev => { const n = [...prev]; n[idx] = t; return n; });
-      }
-    };
-    const up = () => {
-      if (!moved) setSchemaMarks(prev => prev.filter((_, i) => i !== idx));
-      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
-      window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up);
-    };
-    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
-    window.addEventListener("touchmove", mv, { passive: false }); window.addEventListener("touchend", up);
-  };
+  // ── Marcas (listen-only): estado + handlers en su propio hook (C4.3d) ────
+  const { schemaMarks, schemaMarksRef, handleMarksContainerDown, handleMarkDown } =
+    useListenOnlyMarks(rulerContainerRef, segmentsRef, getClientX);
 
   // ── Drag principal (crear / mover / redimensionar bloques) ───────────────
   useEffect(() => {
@@ -732,10 +687,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       window.removeEventListener("touchcancel", onUp);
     };
     // blocksRef/setBlocks/setHistory/setSelected vienen de useSchemaEditor (F7,
-    // T7.1) pero siguen siendo la misma referencia estable de useState/useRef
-    // de siempre — añadidos al array tras el troceo, sin cambiar cuándo se
-    // reinstala el efecto (nunca cambian de identidad).
-  }, [duration, blocksRef, setBlocks, setHistory, setSelected]);
+    // T7.1) y schemaMarksRef de useListenOnlyMarks (C4.3d), pero siguen siendo
+    // la misma referencia estable de useState/useRef de siempre — añadidos al
+    // array tras cada troceo, sin cambiar cuándo se reinstala el efecto (nunca
+    // cambian de identidad).
+  }, [duration, blocksRef, setBlocks, setHistory, setSelected, schemaMarksRef]);
 
   // ── Inicio de drag en pista (crear bloque) ───────────────────────────────
   const handleTrackSegDown = (e: any, lvId: number, seg: any, pass: string) => {
