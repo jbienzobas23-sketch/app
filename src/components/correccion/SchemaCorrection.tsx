@@ -137,8 +137,10 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                     );
                   }
                   return (
-                    <div key={i} onClick={onBlk(b)} title={titleAttr} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", ...blockEvents }}>
-                      <span style={{ fontSize: 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "84%", padding: "0 3px" }}>{b.label}</span>
+                    <div key={i} onClick={onBlk(b)} title={titleAttr ?? b.label} style={{ position: "absolute", top: 3, bottom: 3, left: `${lPct}%`, width: `${wPct}%`, background: bg, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", overflow: wPct < 3.5 ? "visible" : "hidden", ...blockEvents }}>
+                      {/* A5-02/A5-03: bajo el umbral, al menos la inicial de la
+                          etiqueta — nunca queda el bloque sin ningún carácter. */}
+                      <span style={{ fontSize: wPct < 3.5 ? 9 : 11, fontWeight: lv.id === 1 ? 700 : 500, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap", overflow: wPct < 3.5 ? "visible" : "hidden", textOverflow: wPct < 3.5 ? "clip" : "ellipsis", maxWidth: "84%", padding: "0 3px" }}>{wPct < 3.5 ? (b.label ?? "").charAt(0) : b.label}</span>
                     </div>
                   );
                 })}

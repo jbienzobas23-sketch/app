@@ -628,6 +628,16 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
               ctx.font = `700 13px ${FONT_SANS}`;
               ctx.fillText(iv.fn, cx, cy);
             }
+          } else if (fullBw > 3 && (!iv._anim || animAlpha > 0.85)) {
+            // A5-02/A5-03: bloque demasiado estrecho para la etiqueta completa —
+            // nunca queda sin NINGÚN carácter visible (garantía CVD mínima).
+            ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
+            ctx.fillStyle = C.paper;
+            const cx = (Math.max(0, x1) + Math.min(W, x2)) / 2;
+            const cy = bandTop + BAND_H / 2 + 0.5;
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.font = `700 9px ${FONT_SANS}`;
+            ctx.fillText(iv.fn.charAt(0), cx, cy);
           }
           ctx.globalAlpha = 1;
         }

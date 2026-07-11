@@ -1058,7 +1058,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         if (lvId === 4) {
           const pillBg = block.isPreview ? `${bBg}60` : bBg;
           return (
-            <div key={block.id} data-block="true" style={{
+            <div key={block.id} data-block="true" title={block.label ?? undefined} style={{
               position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
               display: "flex", alignItems: "stretch",
               overflow: "hidden",
@@ -1078,8 +1078,10 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 </div>
               ) : (
                 <div style={{ flex: 1, background: pillBg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "5px 11px", overflow: "hidden" }}>
-                  <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 11, fontWeight: 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
-                    {block.label}
+                  {/* A5-02/A5-03: nunca fontSize:0 — bajo el umbral, al menos la
+                      inicial de la etiqueta, con overflow visible si hace falta. */}
+                  <span style={{ fontSize: wPct < 3.5 ? 8 : wPct < 6 ? 9 : 11, fontWeight: 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "90%", overflow: wPct < 3.5 ? "visible" : "hidden", textOverflow: wPct < 3.5 ? "clip" : "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
+                    {wPct < 3.5 ? (block.label ?? "").charAt(0) : block.label}
                   </span>
                 </div>
               )}
@@ -1098,7 +1100,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         // imantado el bloque.
         const ins = 1;
         return (
-          <div key={block.id} data-block="true" style={{
+          <div key={block.id} data-block="true" title={block.label ?? undefined} style={{
             position: "absolute", top: 6, bottom: 6, left: `calc(${lPct}% + ${ins}px)`, width: `calc(${wPct}% - ${ins * 2}px)`,
             background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
             // El borde depende SOLO de la selección (acción del usuario), nunca del
@@ -1119,8 +1121,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 onClick={e => e.stopPropagation()}
                 style={{ width: "82%", background: "rgba(0,0,0,0.18)", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.85)", color: "white", fontSize: 12, fontWeight: lvId === 1 ? 700 : 500, textAlign: "center", outline: "none", padding: "2px 4px", fontFamily: FONT_SANS, borderRadius: 2 }} />
             ) : (
-              <span style={{ fontSize: wPct < 3.5 ? 0 : wPct < 6 ? 9 : 12, fontWeight: lvId === 1 ? 700 : 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
-                {block.label}
+              <span style={{ fontSize: wPct < 3.5 ? 8 : wPct < 6 ? 9 : 12, fontWeight: lvId === 1 ? 700 : 500, color: bTx, textShadow: bTx === "#FFFFFF" ? "0 1px 3px rgba(0,0,0,0.28)" : "none", maxWidth: "84%", overflow: wPct < 3.5 ? "visible" : "hidden", textOverflow: wPct < 3.5 ? "clip" : "ellipsis", whiteSpace: "nowrap", fontFamily: FONT_SANS, pointerEvents: "none" }}>
+                {wPct < 3.5 ? (block.label ?? "").charAt(0) : block.label}
               </span>
             )}
           </div>

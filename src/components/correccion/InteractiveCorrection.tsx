@@ -81,12 +81,16 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
           const figId = (iv.fig as string | null | undefined) ?? null;
           const tc = textOn(b.color);
           return (
-            <div key={i} style={{ position: "absolute", top: 3, bottom: 3, left: pct(iv.start), width: pct(iv.end - iv.start), background: b.color, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, overflow: "hidden", pointerEvents: "none" }}>
-              {(iv.end - iv.start) / dur > 0.05 && (
+            <div key={i} title={`${iv.fn} · ${fmtClock(iv.start)}–${fmtClock(iv.end)}`} style={{ position: "absolute", top: 3, bottom: 3, left: pct(iv.start), width: pct(iv.end - iv.start), background: b.color, borderRadius: 4, border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, overflow: "hidden", pointerEvents: "none" }}>
+              {(iv.end - iv.start) / dur > 0.05 ? (
                 <>
                   <span style={{ fontSize: 11, fontWeight: 700, color: tc, fontFamily: FONT_SANS }}>{iv.fn}</span>
                   {figId != null && <FigureLabel item={figureOf(figId)} color={tc} size={9} />}
                 </>
+              ) : (
+                // A5-02/A5-03: nunca ocultar del todo la etiqueta — al menos la
+                // inicial, siempre visible (el title lleva la etiqueta completa).
+                <span style={{ fontSize: 9, fontWeight: 700, color: tc, fontFamily: FONT_SANS }}>{iv.fn.charAt(0)}</span>
               )}
             </div>
           );
