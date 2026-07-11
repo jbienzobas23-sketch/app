@@ -102,7 +102,10 @@ export function buildCompleteViewSegments(duration: number, repetitions?: Rep[] 
  *  - Bloques anclados a bordes de zona (_lockedStart/_lockedEnd): el asa
  *    correspondiente no se muestra para impedir separarlo del borde.
  */
-export function syncSecondPassBlocks(blocks: Block[], reps: Rep[]): Block[] {
+// A4-09: generador de ids inyectable — parámetro opcional con default que
+// reproduce EXACTAMENTE el comportamiento actual (prefijo "sb"), para que
+// C4.2 pueda inyectar un generador determinista sin tocar los llamantes.
+export function syncSecondPassBlocks(blocks: Block[], reps: Rep[], makeId: () => string = () => uid("sb")): Block[] {
   let result = [...blocks];
   for (const rep of reps) {
     const fd    = (rep.first.end  - rep.first.start)  || 1;
@@ -140,7 +143,7 @@ export function syncSecondPassBlocks(blocks: Block[], reps: Rep[]): Block[] {
       } else if (mirror) {
         newSecond.push({ ...mirror, start: ds, end: de, label: fb.label, level: fb.level, customColor: fb.customColor, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
       } else {
-        newSecond.push({ ...fb, id: uid("sb"), pass: "second", mirrorId: fb.id, start: ds, end: de, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+        newSecond.push({ ...fb, id: makeId(), pass: "second", mirrorId: fb.id, start: ds, end: de, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
       }
     }
     // Overridden sin espejo primario: conservar
