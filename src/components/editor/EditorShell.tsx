@@ -5,7 +5,7 @@
 // interactivo) · Claves · Revisión. Por eso el asistente tiene 5 pasos en
 // interactivo y 4 en cuestionario/esquema. El estado y el guardado viven en
 // useExerciseEditor (extraídos verbatim); esto es la presentación.
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { Unit, Category } from "../../lib/types.js";
 import { C, F, S, FONT_SANS } from "../../theme/tokens.js";
 import { keyReadyOf, partsOf, partKeyReadyOf, modelsOf } from "../../lib/domain.js";
@@ -100,6 +100,17 @@ export function EditorShell(props: EditorShellProps) {
 
   // Guardar (con punto de sucio) + ⋯
   const saveDot = ed.isDirty || ed.isCreating;
+  // Feedback de "Guardando…" (Jon: el guardado local es síncrono — dueño real
+  // es dbUpsertExercise en segundo plano — pero el punto de sucio desaparecer
+  // solo no confirma la acción; un texto breve junto al botón sí).
+  const [saving, setSaving] = useState(false);
+  const savingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSaveClick = () => {
+    ed.handleSave();
+    setSaving(true);
+    if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
+    savingTimerRef.current = setTimeout(() => setSaving(false), 700);
+  };
   const menuItems = [
     ...(ed.guardedOnPreview ? [{ label: "Previsualizar como alumno", onClick: () => ed.guardedOnPreview!() }] : []),
     ...(onToggleVisibility && !ed.isCreating ? [{ label: ed.exercise.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: onToggleVisibility }] : []),
@@ -129,9 +140,10 @@ export function EditorShell(props: EditorShellProps) {
             {ed.title.trim() || <span style={{ color: C.chevron, fontStyle: "italic" }}>Título del ejercicio</span>}
           </button>
         </div>
-        <button onClick={ed.handleSave} disabled={!ed.canSave}
+        <button onClick={handleSaveClick} disabled={!ed.canSave}
           style={{ ...S.btnPrimary, padding: "8px 14px", opacity: ed.canSave ? 1 : 0.5, cursor: ed.canSave ? "pointer" : "default" }}>
-          Guardar{saveDot && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#e0b13d", marginLeft: 6, verticalAlign: "middle" }} />}
+          {saving ? "Guardando…" : "Guardar"}
+          {!saving && saveDot && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#e0b13d", marginLeft: 6, verticalAlign: "middle" }} />}
         </button>
         {menuItems.length > 0 && (
           <Menu align="right" ariaLabel="Más acciones" panelStyle={{ minWidth: 210 }}
@@ -217,7 +229,7 @@ export function EditorShell(props: EditorShellProps) {
           ) : (
             <>
               {ed.guardedOnPreview && <button onClick={() => ed.guardedOnPreview!()} style={{ ...S.btn, flex: 1, padding: 11 }}>Previsualizar</button>}
-              <button onClick={ed.handleSave} disabled={!ed.canSave} style={{ ...S.btnPrimary, flex: 1, padding: 11, opacity: ed.canSave ? 1 : 0.5 }}>Guardar</button>
+              <button onClick={handleSaveClick} disabled={!ed.canSave} style={{ ...S.btnPrimary, flex: 1, padding: 11, opacity: ed.canSave ? 1 : 0.5 }}>{saving ? "Guardando…" : "Guardar"}</button>
             </>
           )}
         </div>

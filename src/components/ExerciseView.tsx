@@ -377,6 +377,11 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
 
         {hasAudio && !audioReady && !audioError && <AudioLoadingOverlay />}
         {audioError && <div style={{ textAlign: "center", color: C.danger, fontSize: 12, marginBottom: 10 }}>{audioError}</div>}
+        {!hasAudio && (
+          <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 10 }}>
+            Este ejercicio no tiene audio — el tiempo avanza igualmente para marcar el ritmo.
+          </div>
+        )}
 
         {mode === "student" && <SessionHint modelId="interactivo" extra={<>Pulsa <b>Espacio</b> para reproducir o pausar.</>} />}
 
