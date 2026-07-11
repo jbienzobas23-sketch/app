@@ -14,6 +14,7 @@ import type { Ref } from "react";
 import { C, FONT_SANS } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
 import { startPointerDrag } from "../lib/pointer.js";
+import { rowButtonProps } from "../lib/a11y.js";
 
 export interface MinimapQuestion { id: string; audioStart?: number; audioEnd?: number; [k: string]: unknown; }
 
@@ -104,11 +105,15 @@ export function QuestionMinimap<Q extends MinimapQuestion>({
           // un bloque. Así navegar y "abrir pregunta" (que se hace desde su
           // tarjeta de la lista) dejan de competir por el mismo pixel.
           const marker = !editable && !!onSeek;
+          // Modo lectura (gestor, sin onSeek): el bloque es accionable — foco y
+          // teclado además del clic (A5-10).
+          const readSelectable = !editable && !marker;
           return (
             <div key={q.id}
               onMouseDown={editable ? (e) => onDragBody?.(e, q) : marker ? undefined : (e) => e.stopPropagation()}
               onTouchStart={editable ? (e) => onDragBody?.(e, q) : marker ? undefined : (e) => e.stopPropagation()}
               onClick={editable || marker ? undefined : () => onSelect?.(q)}
+              {...(readSelectable ? rowButtonProps(() => onSelect?.(q)) : {})}
               title={`P${idx + 1}${answered ? " · respondida" : ""}: ${fmtClock(start)} – ${fmtClock(end)}`}
               style={{
                 position: "absolute", top: 3, bottom: 3, left, width,

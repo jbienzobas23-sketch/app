@@ -6,6 +6,7 @@ import { C, F, S } from "../theme/tokens.js";
 import { fmtClock } from "../lib/time.js";
 import { calcQuestionnaireScore } from "../lib/scoring.js";
 import { questionScopeOf } from "../lib/domain.js";
+import { rowButtonProps } from "../lib/a11y.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, Chevron } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
@@ -191,7 +192,9 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
             <div key={q.id} onMouseDown={(e) => e.stopPropagation()}
               style={{ background: C.paper, border: isLocked ? `1.5px solid ${C.quiz}` : `1px solid ${C.line}`, borderRadius: 12, marginBottom: 8, padding: "14px 16px", transition: "border-color .15s" }}>
               <div style={{ cursor: "pointer" }}
-                onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}>
+                onClick={() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); }}
+                {...rowButtonProps(() => { if (isExpanded) setExpandedId(null); else selectQuestion(q); })}
+                aria-expanded={isExpanded}>
                 {/* Fila de metadatos — número + estado + chevron */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: answered ? C.fnT : `${C.quiz}1A`, color: answered ? C.paper : C.quiz, fontFamily: F.sans, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>

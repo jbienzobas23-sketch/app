@@ -9,6 +9,7 @@ import { fmtClock } from "../lib/time.js";
 import { nota10 } from "../lib/scoring.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT } from "../lib/palette.js";
+import { rowButtonProps } from "../lib/a11y.js";
 
 // ── Tipos de props de los primitivos ────────────────────────────────────────
 // `dot`: aviso rojo en la esquina superior izquierda de la pestaña (p. ej.
@@ -540,7 +541,8 @@ export function TagInput({ tags = [], onChange, suggestions = [] }: TagInputProp
         {tags.map((t) => (
           <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.ink, color: "#fff", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: FONT_SANS, fontWeight: 500 }}>
             {t}
-            <span onClick={() => removeTag(t)} style={{ cursor: "pointer", opacity: 0.7, fontSize: 13, lineHeight: 1, marginLeft: 1 }}>×</span>
+            <span onClick={() => removeTag(t)} aria-label={`Quitar etiqueta ${t}`} {...rowButtonProps(() => removeTag(t))}
+              style={{ cursor: "pointer", opacity: 0.7, fontSize: 13, lineHeight: 1, marginLeft: 1 }}>×</span>
           </span>
         ))}
         <input
