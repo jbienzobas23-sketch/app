@@ -77,7 +77,7 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "â
       <div onClick={hasAudio ? handleTimelineClick : undefined}
         style={{ background: C.paper2, borderRadius: 8, height: 40, position: "relative", cursor: hasAudio ? "pointer" : "default", overflow: "hidden" }}>
         {(ivs ?? []).map((iv, i) => {
-          const b = btnOf(exCategory, iv.fn);
+          const b = btnOf(exCategory, iv.fn) ?? { id: iv.fn, color: C.muted };
           const figId = (iv.fig as string | null | undefined) ?? null;
           const tc = textOn(b.color);
           return (

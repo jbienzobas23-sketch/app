@@ -3,7 +3,7 @@ import {
   categoriesOf, modelOf, modelsOf, answerFor, comboIdFromModels,
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
-  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals,
+  questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals, btnOf,
 } from "./domain.js";
 import { interactiveFigureDiagnostics } from "./scoring.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -445,5 +445,26 @@ describe("serializeIntervals", () => {
     const diag = interactiveFigureDiagnostics(key, student, 2);
     expect(diag).not.toBeNull();
     expect(diag.evaluable).toBeGreaterThan(0);
+  });
+});
+
+// A3-08: fa_categories se asigna cruda del JSONB — una fila sin `buttons` (o
+// con `buttons` corrupto/no-array) no debe tirar abajo el render de sesión.
+describe("btnOf", () => {
+  it("encuentra el botón por id cuando existe", () => {
+    const category = { buttons: [{ id: "T", name: "Tónica" }, { id: "D", name: "Dominante" }] };
+    expect(btnOf(category, "D")).toEqual({ id: "D", name: "Dominante" });
+  });
+  it("cae al primer botón si el id no existe", () => {
+    const category = { buttons: [{ id: "T", name: "Tónica" }] };
+    expect(btnOf(category, "no-existe")).toEqual({ id: "T", name: "Tónica" });
+  });
+  it("categoría sin `buttons` no lanza (el bug)", () => {
+    expect(() => btnOf({}, "T")).not.toThrow();
+    expect(btnOf({}, "T")).toBeUndefined();
+  });
+  it("`buttons` no-array (JSONB corrupto) no lanza", () => {
+    expect(() => btnOf({ buttons: "no-es-array" }, "T")).not.toThrow();
+    expect(btnOf({ buttons: null }, "T")).toBeUndefined();
   });
 });

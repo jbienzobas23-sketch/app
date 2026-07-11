@@ -87,7 +87,12 @@ export const unitExList = (unit: Unit | null | undefined, exercises: Exercise[],
   return role === "student" ? ordered.filter((e) => !e.hidden) : ordered;
 };
 
-export const btnOf       = (category: { buttons: Button[] }, id: string): Button => category.buttons.find((b) => b.id === id) || category.buttons[0];
+// A3-08: `fa_categories` se asigna cruda del JSONB — una fila sin `buttons`
+// (o con `buttons` no-array) no debe lanzar en pleno render de sesión.
+export const btnOf = (category: { buttons?: Button[] } | null | undefined, id: string): Button | undefined => {
+  const btns = Array.isArray(category?.buttons) ? category.buttons : [];
+  return btns.find((b) => b.id === id) || btns[0];
+};
 export const questionsOf = (exercise?: Exercise | null): Question[] => (Array.isArray(exercise?.questions) ? exercise.questions : []);
 
 // Lector tolerante de las preguntas de una entrega ya hecha (F5, T5.5): si el
