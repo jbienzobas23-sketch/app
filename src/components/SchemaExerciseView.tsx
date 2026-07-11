@@ -31,6 +31,7 @@ import { RepeatManagerModal } from "./ExerciseView.js";
 import { RepeatBand } from "./schema/RepeatBand.js";
 import { SchemaPalettePicker } from "./schema/SchemaPalettePicker.js";
 import { BlockDetailPanel } from "./schema/BlockDetailPanel.js";
+import { ViewModeToggle } from "./schema/ViewModeToggle.js";
 
 // ── Tipos locales del editor de esquema ──────────────────────────────────────
 // Block y Rep se reutilizan de repeats.ts (forma compartida con los helpers).
@@ -1223,31 +1224,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
               {/* Columna izq: switch (si hay repeticiones) + ⏮ a la derecha */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                {hasRepeats ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                    <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.9, fontFamily: FONT_SANS, paddingLeft: 2 }}>Vista de repetición</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div role="tablist"
-                        style={{ display: "flex", flexDirection: "row", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, overflow: "hidden", padding: 2, gap: 2, height: 26, boxSizing: "border-box" }}>
-                        {[["completa", "Completa"], ["resumida", "Resumida"]].map(([v, label]) => (
-                          <button key={v} type="button" role="tab" aria-selected={viewMode === v}
-                            onClick={() => setViewMode(v)}
-                            title={v === "completa" ? "Vista secuencial editable" : "Vista comprimida (solo lectura)"}
-                            style={{
-                              flex: "1 1 0", border: "none", borderRadius: 999,
-                              background: viewMode === v ? C.ink : "transparent",
-                              color: viewMode === v ? C.paper : C.muted,
-                              padding: "0 10px", fontSize: 11, fontWeight: viewMode === v ? 600 : 400,
-                              cursor: "pointer", transition: "all .12s", fontFamily: FONT_SANS,
-                              whiteSpace: "nowrap",
-                            }}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : <div />}
+                {hasRepeats ? <ViewModeToggle viewMode={viewMode} onChange={setViewMode} /> : <div />}
                 <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
               </div>
               {/* Columna central: ▶ centrado */}
