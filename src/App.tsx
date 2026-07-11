@@ -27,7 +27,7 @@ import { useInjectFonts } from "./theme/fonts.js";
 
 // ═══ 6. VISTAS DE AUTENTICACIÓN ═════════════════════════════════════════════
 
-import { logout } from "./auth/authClient.js";
+import { logout, saveSessionUser, clearSessionUser } from "./auth/authClient.js";
 import { SetupView, LoginView, HomeView, ForgotPinView, ResetPinView, TeacherPickerView } from "./components/auth.jsx";
 import type { AuthUser, Teacher } from "./components/auth.js";
 import { RecoveryEmailModal } from "./components/RecoveryEmailModal.jsx";
@@ -223,6 +223,23 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A3-05/A2-06: expiración/cierre de sesión detectados en cuanto ocurren (antes
+  // solo se descubrían al fallar un guardado, ~13s después). TOKEN_REFRESHED no
+  // cambia nada de la UI — el token se renueva solo.
+  useEffect(() => {
+    if (LOCAL_MODE) return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        clearSessionUser();
+        setUser(null);
+        navigate("/");
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  // Solo al montar: navigate/setUser son estables entre renders para este uso.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // M4.2: normaliza los enlaces heredados /profesor/ejercicio/:id/parte/:pid/…
   // a la única convención emitida (…/…?parte=:pid), una vez y con {replace} para
   // no dejar entrada de historial. El segmento se sigue ACEPTANDO (routing.ts,
@@ -303,6 +320,9 @@ export default function App() {
     // sesión. loadData devuelve los usuarios para decidir el flujo del alumno.
     let loaded = { users };
     if (!profile.isGuest) {
+      // A3-05: perfil mínimo para poder restaurar la sesión de UI si se recarga
+      // la página (el token de Supabase ya persiste solo; esto es lo que falta).
+      saveSessionUser(profile);
       try { loaded = await loadData(supabase); } catch { /* mantiene el estado actual */ }
     }
     const dest = redirectAfterLogin.current;

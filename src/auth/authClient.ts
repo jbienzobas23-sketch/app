@@ -29,6 +29,32 @@ async function withSessionToken(headers: Record<string, string>): Promise<void> 
   } catch { /* sin sesión: bootstrap/recuperación */ }
 }
 
+// ─── Rehidratación de sesión (A3-05, A2-06) ──────────────────────────────────
+// Perfil MÍNIMO ({id, role}) para restaurar la UI al recargar — la fuente de
+// verdad de permisos sigue siendo RLS; esto solo ayuda a saber a quién
+// mostrar mientras se confirma contra los datos reales servidos tras el login.
+const SESSION_USER_KEY = "fa_session_user";
+export interface StoredSessionUser { id: string; role: string; }
+
+export function saveSessionUser(profile: { id: unknown; role?: string }): void {
+  if (!profile.role) return;
+  try { localStorage.setItem(SESSION_USER_KEY, JSON.stringify({ id: profile.id, role: profile.role })); }
+  catch { /* localStorage inaccesible (privado/cuota): sin rehidratación, no rompe el login */ }
+}
+
+export function readSessionUser(): StoredSessionUser | null {
+  try {
+    const raw = localStorage.getItem(SESSION_USER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.id != null && typeof parsed.role === "string" ? parsed : null;
+  } catch { return null; }
+}
+
+export function clearSessionUser(): void {
+  try { localStorage.removeItem(SESSION_USER_KEY); } catch { /* ignora */ }
+}
+
 // login(username, credential) → perfil público del usuario.
 // Lanza Error con .status (401 credencial incorrecta, 429 demasiados intentos).
 export async function login(username: string, credential: string): Promise<unknown> {
@@ -56,6 +82,7 @@ export async function login(username: string, credential: string): Promise<unkno
 
 // Cierra la sesión de Supabase Auth.
 export async function logout(): Promise<void> {
+  clearSessionUser();
   try { await supabase.auth.signOut(); } catch { /* sin sesión */ }
 }
 

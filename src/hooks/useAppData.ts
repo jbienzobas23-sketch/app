@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../supabase.js";
+import { readSessionUser, clearSessionUser } from "../auth/authClient.js";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult, UserProfile } from "../lib/types.js";
 import type { AudioItem } from "../components/modals.js";
 import type { TeacherCorrection } from "../components/CorrectionView.js";
@@ -157,7 +158,23 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
         window.history.replaceState(null, "", "#/");
       }
 
-      await loadData(sb);
+      const loaded = await loadData(sb);
+
+      // A3-05/A2-06: rehidratación de sesión al recargar. El token de Supabase
+      // ya persiste solo (por eso loadData de arriba corre autenticado); lo que
+      // faltaba era restaurar el estado de UI (`user`, dueño de App). Solo para
+      // sesiones de LOGIN normal (email sintético @fa.local) — las de
+      // recuperación (correo real) siguen su flujo intacto, ya gestionado arriba.
+      // Verificación SIEMPRE contra los datos reales recién cargados (con RLS),
+      // nunca confianza ciega en el perfil mínimo de localStorage.
+      if (existingSession && sEmail.endsWith("@fa.local")) {
+        const saved = readSessionUser();
+        if (saved) {
+          const match = (loaded.users || []).find((u) => String(u.id) === String(saved.id) && u.role === saved.role);
+          if (match) onCurrentUserSync(match);
+          else clearSessionUser();
+        }
+      }
 
       // ¿Existe ya un admin? (primer arranque) — vía RPC, porque con RLS anon no
       // puede leer fa_users.
