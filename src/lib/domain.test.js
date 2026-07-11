@@ -4,6 +4,7 @@ import {
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
   questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals, btnOf,
+  flattenSinglePart,
 } from "./domain.js";
 import { interactiveFigureDiagnostics } from "./scoring.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -157,6 +158,53 @@ describe("partsOf", () => {
   });
   it("una parts vacío también sintetiza", () => {
     expect(partsOf({ parts: [], audioUrl: "x.mp3" })[0]).toMatchObject({ audioUrl: "x.mp3" });
+  });
+});
+
+// A2-02: quitar una parte de un multiparte de 2→1 dejaba `parts:[A]` guardado,
+// pero partsOf() con length===1 sintetiza desde los CAMPOS PLANOS del
+// ejercicio (obsoletos desde que se hizo multiparte) — el audio/clave/
+// preguntas de la parte superviviente quedaban enmascarados.
+describe("flattenSinglePart", () => {
+  const partA = { id: "a", audioUrl: "a.mp3", duration: 30, answers: { c1: [{ fn: "T", start: 0, end: 1 }] }, questions: [{ id: "qa" }] };
+  const partB = { id: "b", audioUrl: "b.mp3", duration: 20, answers: {}, questions: [{ id: "qb" }] };
+
+  it("con ≥2 partes, devuelve el ejercicio intacto", () => {
+    const ex = { id: "e1", parts: [partA, partB], audioUrl: "viejo.mp3" };
+    expect(flattenSinglePart(ex)).toBe(ex);
+  });
+  it("sin `parts`, devuelve el ejercicio intacto", () => {
+    const ex = { id: "e1", audioUrl: "x.mp3" };
+    expect(flattenSinglePart(ex)).toBe(ex);
+  });
+  it("el bug: sin el aplanado, partsOf tras quitar B muestra los planos viejos, no los de A", () => {
+    const savedWithoutFix = { id: "e1", title: "T", audioUrl: "viejo.mp3", duration: 99, answers: { vieja: [1] }, questions: [{ id: "vieja" }], parts: [partA] };
+    const got = partsOf(savedWithoutFix)[0];
+    expect(got.audioUrl).toBe("viejo.mp3"); // el bug: no es "a.mp3"
+    expect(got.questions).toEqual([{ id: "vieja" }]); // el bug: no son las de A
+  });
+  it("con el aplanado antes de guardar, partsOf refleja los datos de la parte superviviente (A)", () => {
+    const ex = { id: "e1", title: "T", audioUrl: "viejo.mp3", duration: 99, answers: { vieja: [1] }, questions: [{ id: "vieja" }], parts: [partA] };
+    const flattened = flattenSinglePart(ex);
+    expect(flattened.parts).toBeUndefined();
+    expect(flattened.audioUrl).toBe("a.mp3");
+    expect(flattened.duration).toBe(30);
+    expect(flattened.questions).toEqual([{ id: "qa" }]);
+    const got = partsOf(flattened)[0];
+    expect(got.audioUrl).toBe("a.mp3");
+    expect(got.questions).toEqual([{ id: "qa" }]);
+  });
+  it("es idempotente aplicado sobre un ejercicio ya aplanado", () => {
+    const ex = { id: "e1", title: "T", parts: [partA] };
+    const once = flattenSinglePart(ex);
+    const twice = flattenSinglePart(once);
+    expect(twice).toEqual(once);
+  });
+  it("normalizeExercise(flattenSinglePart(ex)) re-materializa parts coherentes con A", () => {
+    const ex = { id: "e1", title: "T", audioUrl: "viejo.mp3", parts: [partA] };
+    const norm = normalizeExercise(flattenSinglePart(ex));
+    expect(norm.parts).toHaveLength(1);
+    expect(norm.parts[0]).toMatchObject({ audioUrl: "a.mp3", duration: 30, questions: [{ id: "qa" }] });
   });
 });
 

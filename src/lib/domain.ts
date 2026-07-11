@@ -128,7 +128,7 @@ export const resultStatusOf = (result: ExerciseResult | null | undefined, exerci
 const SINGLE_PART_ID = "p1";
 // Campos que definen una parte — exactamente el subconjunto de Exercise que
 // depende del audio y de la clave (ver Part en types.ts).
-const PART_FIELDS = [
+export const PART_FIELDS = [
   "title", "composerName", "showComposer",
   "audioUrl", "audioName", "duration",
   "audioFragmentStart", "audioFragmentEnd", "audioTotalDuration", "waveformData",
@@ -153,6 +153,23 @@ export const partsOf = (exercise?: Exercise | null): Part[] => {
   for (const field of PART_FIELDS) (synthesized as Record<string, unknown>)[field] = exercise[field];
   return [synthesized];
 };
+
+// A2-02: al pasar de multiparte a una única parte superviviente (removePart
+// 2→1), el guardado escribía `parts:[A]` sin tocar los campos planos del
+// ejercicio (obsoletos desde que se hizo multiparte) — partsOf(), con
+// length===1, sintetiza SIEMPRE desde esos planos, así que el audio/clave/
+// preguntas de A quedaban enmascarados. Aplicar esto ANTES de guardar copia
+// los PART_FIELDS de la parte superviviente a los planos y quita `parts`, de
+// modo que partsOf() vuelve a sintetizar correctamente. Idempotente con
+// ejercicios sin `parts` o con ≥2 partes (los devuelve intactos).
+export function flattenSinglePart(exercise: Exercise): Exercise {
+  if (!Array.isArray(exercise.parts) || exercise.parts.length !== 1) return exercise;
+  const [only] = exercise.parts;
+  const flat: Record<string, unknown> = { ...exercise };
+  for (const field of PART_FIELDS) flat[field] = (only as Record<string, unknown>)[field];
+  delete flat.parts;
+  return flat as Exercise;
+}
 
 // ── Frontera de datos (M1.1) ──────────────────────────────────────────────────
 // Aplica de una vez, en la frontera (carga desde Supabase, escrituras y

@@ -9,7 +9,7 @@
 import { useState, useRef, useMemo } from "react";
 import type { Exercise, Category, Button, Part } from "../../lib/types.js";
 import { buildWaveformFromPCM, fetchAudioBuffer } from "../../lib/audio.js";
-import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, modelsOf, answerStats, partsOf } from "../../lib/domain.js";
+import { DEFAULT_MODEL_ID, MODEL_COMBOS, comboIdFromModels, modelsOf, answerStats, partsOf, flattenSinglePart, PART_FIELDS } from "../../lib/domain.js";
 import { DEFAULT_CATEGORY } from "../../seed.js";
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../../lib/sessionConstants.js";
 import type { AudioItem } from "../modals.js";
@@ -356,8 +356,18 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
     }
 
     const patch: Record<string, unknown> = { title: title.trim(), model, models: selectedModels };
-    if (isMultiPart) {
+    if (isMultiPart && parts.length > 1) {
       patch.parts = parts;
+    } else if (isMultiPart) {
+      // A2-02: queda UNA sola parte superviviente (removePart de 2→1) — se
+      // aplana a los campos planos en vez de guardar `parts:[A]`. Sin esto,
+      // partsOf() en la lectura (length===1) sintetiza siempre desde los
+      // planos, que quedarían obsoletos y enmascararían el audio/clave/
+      // preguntas de A. `patch.parts = undefined` limpia el array viejo del
+      // merge superficial de updateExercise (si no, sobrevive con longitud 2).
+      const flattened = flattenSinglePart({ ...exercise, parts } as Exercise);
+      for (const field of PART_FIELDS) (patch as Record<string, unknown>)[field] = (flattened as Record<string, unknown>)[field];
+      patch.parts = undefined;
     } else {
       patch.duration = effDuration;
     }
