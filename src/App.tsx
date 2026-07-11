@@ -71,6 +71,23 @@ function SaveErrorToast({ message, onClose }: { message: string | null; onClose:
   );
 }
 
+// Aviso de error de CARGA (A3-04, distinto de SaveErrorToast): persistente
+// mientras el error dure (no se autooculta) — las semillas puestas en su
+// ausencia no deben leerse como datos reales. Banner arriba, ámbar, con
+// "Reintentar" — visualmente distinto del toast rojo de guardado, abajo.
+function LoadErrorBanner({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  if (!message || typeof document === "undefined") return null;
+  return createPortal(
+    <div style={{ position: "fixed", left: 0, right: 0, top: 0, zIndex: 2000, display: "flex", justifyContent: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 0" }}>
+      <div role="alert" style={{ maxWidth: 620, width: "100%", background: "#8a5a12", color: "#fff", borderRadius: 10, padding: "12px 14px", boxShadow: "0 8px 30px rgba(0,0,0,0.28)", display: "flex", alignItems: "center", gap: 12, fontFamily: FONT_SANS, fontSize: 13, lineHeight: 1.4 }}>
+        <span style={{ flex: 1 }}>{message}</span>
+        <button onClick={onRetry} className="fa-pressable" style={{ flexShrink: 0, background: "rgba(255,255,255,0.22)", border: "none", color: "#fff", borderRadius: 6, padding: "6px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_SANS }}>Reintentar</button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Modo local de desarrollo (?local | ?local=alumno) ───────────────────────
 // Arranca la app COMPLETA sin backend: datos de semilla en memoria y sesión ya
 // iniciada (profesor por defecto; `?local=alumno` para el alumno). Sirve para
@@ -110,7 +127,7 @@ export default function App() {
   const {
     exercises, users, results, categories, courses, units, groups, audioLibrary,
     setUsers, setResults,
-    dbReady, saveError, setSaveError, serverHasAdmin, setServerHasAdmin,
+    dbReady, saveError, setSaveError, loadError, retryLoad, serverHasAdmin, setServerHasAdmin,
     loadData, bootstrap, dbUpsertUser, dbUpsertResult,
     addUser, removeUser, updateUser,
     saveCorrection,
@@ -569,6 +586,7 @@ export default function App() {
       <>
       {localUserSwitcher}
       <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
+      <LoadErrorBanner message={!LOCAL_MODE ? loadError : null} onRetry={retryLoad} />
       <StudentDash
         user={user as unknown as StudentUser}
         exercises={visibleExercises}
@@ -601,6 +619,7 @@ export default function App() {
     {localUserSwitcher}
     <Suspense fallback={lazyFallback}>
     <SaveErrorToast message={saveError} onClose={() => setSaveError(null)} />
+    <LoadErrorBanner message={!LOCAL_MODE ? loadError : null} onRetry={retryLoad} />
     <TeacherDash
       currentUser={user}
       users={users}

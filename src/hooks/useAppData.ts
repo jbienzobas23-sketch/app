@@ -63,6 +63,10 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
   const [dbReady, setDbReady] = useState(!!localMode);
   // Mensaje de error de guardado (persistencia). null = sin error.
   const [saveError, setSaveError] = useState<string | null>(null);
+  // A3-04: error de CARGA (distinto de saveError). No se autooculta — las
+  // semillas (INIT_EXERCISES, etc.) no deben leerse como datos reales mientras
+  // el servidor no haya respondido con éxito.
+  const [loadError, setLoadError] = useState<string | null>(null);
   // ¿Hay admin? null = desconocido; true/false = confirmado por el servidor (RPC).
   const [serverHasAdmin, setServerHasAdmin] = useState<boolean | null>(localMode ? true : null);
 
@@ -127,8 +131,14 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
       });
       setResults(byUser);
     }
+    // A3-04: cualquier tabla fallida deja el banner visible — las semillas que
+    // hayan quedado puestas (o los datos a medias) no deben leerse como reales.
+    const anyError = [exRes, userRes, catRes, courseRes, unitRes, resultRes, audioRes, groupRes].some((r) => r.error);
+    setLoadError(anyError ? "No se pudieron cargar los datos del servidor. Lo que ves puede estar incompleto." : null);
     return { users: loadedUsers || users };
   };
+
+  const retryLoad = () => { loadData(supabase); };
 
   // Arranque: detecta sesión de recuperación (magic link) y carga inicial desde
   // Supabase. `onResetSession` es la única salida hacia el estado de sesión de
@@ -397,6 +407,7 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
     exercises, users, results, categories, courses, units, groups, audioLibrary,
     setUsers, setResults,
     dbReady, saveError, setSaveError, serverHasAdmin, setServerHasAdmin,
+    loadError, retryLoad,
     loadData, bootstrap, dbUpsertUser, dbUpsertResult,
     addUser, removeUser, updateUser,
     saveCorrection,
