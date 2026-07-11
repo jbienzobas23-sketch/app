@@ -102,6 +102,9 @@ export default tseslint.config(
       // SchemaExerciseView.tsx (mismo motivo que esa entrada — la exención
       // viaja con el código al trocearlo).
       'src/hooks/useListenOnlyMarks.ts',
+      // C4.3e: renderSegBlocks extraído de SchemaExerciseView.tsx (mismo
+      // motivo — seg/eventos de puntero sin forma común, misma exención).
+      'src/components/schema/SegBlocks.tsx',
     ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
