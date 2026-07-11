@@ -30,3 +30,6 @@
 
 **Fase C1 cerrada** (salvo C1.4 y C1.5, `[BLOQUEADA: D2/D3]`, no ejecutadas).
 
+| C2.1 | `0f9ab09` | lint 0 / typecheck 0 / test 199/199 / build OK | ninguna | — |
+| C2.2 | `1196b81` | lint 0 / typecheck 0 / test 199/199 / build OK | ninguna | — |
+
