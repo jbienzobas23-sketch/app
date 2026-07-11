@@ -1,7 +1,7 @@
 // ═══ INFRAESTRUCTURA DE SESIÓN (ONDA / SCRUBBER / BOTONES) ═══════════════════
 // FragmentRangeSelector, WaveformDisplay, AudioScrubber, FigureLabel y
 // FunctionButtons. Extraídos de App.jsx (Fase 2) sin cambiar su lógica.
-import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo, useLayoutEffect, useId } from "react";
 import { C, S, FONT_SANS, FONT_SERIF } from "../theme/tokens.js";
 import { startPointerDrag } from "../lib/pointer.js";
 import { VISIBLE_SECS, IV_BAND_H, IV_BAND_GAP } from "../lib/sessionConstants.js";
@@ -37,6 +37,7 @@ interface FragmentRangeSelectorProps {
 
 // Selector visual de fragmento (barra de rango con handles arrastrables)
 export function FragmentRangeSelector({ totalDuration, start, end, onChange, onClear, onDefine, audioUrl, waveformData, waveformSeed, height = 32 }: FragmentRangeSelectorProps) {
+  const idPrefix  = useId();
   const barRef    = useRef<HTMLDivElement | null>(null);
   const audioRef  = useRef<HTMLAudioElement | null>(null);
   const rafRef    = useRef<number>(0);
@@ -307,8 +308,8 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
       {start != null && end != null && (
         <div style={{ ...S.row, gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>
-            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
-            <input type="number" min={0} max={end - 0.5} step={0.1}
+            <label htmlFor={`${idPrefix}-start`} style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Inicio (s)</label>
+            <input id={`${idPrefix}-start`} type="number" min={0} max={end - 0.5} step={0.1}
               style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={start}
               onChange={(e) => {
@@ -317,8 +318,8 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
               }} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
-            <input type="number" min={start + 0.5} max={totalDuration} step={0.1}
+            <label htmlFor={`${idPrefix}-end`} style={{ ...S.label, fontSize: 11, marginBottom: 3 }}>Fin (s)</label>
+            <input id={`${idPrefix}-end`} type="number" min={start + 0.5} max={totalDuration} step={0.1}
               style={{ ...S.input, fontFamily: FONT_SANS, fontSize: 13, fontVariantNumeric: "tabular-nums" }}
               value={end}
               onChange={(e) => {

@@ -22,7 +22,7 @@ interface ConfirmModalProps { message: string; onConfirm: () => void; onCancel: 
 interface ErrorMsgProps { children?: ReactNode; style?: CSSProperties; }
 interface TabBarProps { tabs: Tab[]; value: string; onChange: (id: string) => void; variant?: "primary"|"secondary"; }
 interface ScoreBadgeProps { score?: number | null; emptyLabel?: string; status?: "auto" | "pendiente" | "corregido" | null; }
-interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; }
+interface CredentialInputProps { kind?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; marginBottom?: number; style?: CSSProperties; id?: string; }
 interface CircleButtonProps { onClick?: () => void; disabled?: boolean; title?: string; children: ReactNode; size?: number; primary?: boolean; fontSize?: number; }
 interface ModalFooterProps { onCancel: () => void; onSave: () => void; canSave?: boolean; saveLabel?: ReactNode; cancelLabel?: string; }
 interface SessionHeaderProps { exercise: { title?: string; composerName?: string; showComposer?: boolean; [k: string]: unknown }; onBack: () => void; modelId: string; rightSlot?: ReactNode; }
@@ -43,8 +43,8 @@ interface TeacherFilterBarProps { filterModel: string; setFilterModel: (v: strin
 interface StudentFilterBarProps { filterModel: string; setFilterModel: (v: string) => void; filterDone: string; setFilterDone: (v: string) => void; searchQuery?: string; setSearchQuery?: (v: string) => void; }
 interface OverlineProps { children: ReactNode; style?: CSSProperties; }
 interface ButtonProps { children: ReactNode; onClick?: () => void; full?: boolean; lg?: boolean; disabled?: boolean; }
-interface FieldLabelProps { children: ReactNode; }
-interface TextInputProps { value: string; onChange: (v: string) => void; placeholder?: string; type?: string; big?: boolean; }
+interface FieldLabelProps { children: ReactNode; htmlFor?: string; }
+interface TextInputProps { value: string; onChange: (v: string) => void; placeholder?: string; type?: string; big?: boolean; id?: string; }
 interface MetaItemProps { label: string; children: ReactNode; }
 interface SchemaPlayheadProps { timeRef: { current: number }; duration: number; }
 interface CorrectionAudioBarProps { time: number; timeRef: { current: number }; duration: number; playing: boolean; audioReady: boolean; togglePlay: () => void; onSeek: (e: React.MouseEvent<HTMLDivElement>) => void; }
@@ -173,10 +173,11 @@ export function ScoreBadge({ score, emptyLabel = "—", status = null }: ScoreBa
 }
 
 // Input de credencial (PIN numérico o contraseña)
-export function CredentialInput({ kind, value, onChange, placeholder, autoFocus, onSubmit, marginBottom = 14, style }: CredentialInputProps) {
+export function CredentialInput({ kind, value, onChange, placeholder, autoFocus, onSubmit, marginBottom = 14, style, id }: CredentialInputProps) {
   const isPin = kind === "pin";
   return (
     <input
+      id={id}
       type={isPin ? "tel" : "password"}
       inputMode={isPin ? "numeric" : undefined}
       style={{ ...S.input, marginBottom, letterSpacing: isPin ? "0.25em" : undefined, ...style }}
@@ -1103,14 +1104,14 @@ export function CtaButton({ children, onClick, disabled, full, lg }: ButtonProps
   );
 }
 
-export function FieldLabel({ children }: FieldLabelProps) {
-  return <label style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#767670", marginBottom: 6 }}>{children}</label>;
+export function FieldLabel({ children, htmlFor }: FieldLabelProps) {
+  return <label htmlFor={htmlFor} style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#767670", marginBottom: 6 }}>{children}</label>;
 }
 
-export function TextInput({ value, onChange, placeholder, type = "text", big }: TextInputProps) {
+export function TextInput({ value, onChange, placeholder, type = "text", big, id }: TextInputProps) {
   const [focus, setFocus] = useState(false);
   return (
-    <input type={type} value={value} placeholder={placeholder}
+    <input id={id} type={type} value={value} placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
       style={{ width: "100%", boxSizing: "border-box", fontFamily: big ? F.serif : F.sans, fontSize: big ? 18 : 13, fontWeight: big ? 500 : 400, color: C.ink, background: C.field, border: `1px solid ${focus ? C.fieldFocus : C.border}`, borderRadius: 7, padding: big ? "10px 14px" : "9px 12px", outline: "none", transition: "border-color .15s" }} />
   );

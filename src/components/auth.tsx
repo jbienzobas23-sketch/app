@@ -67,20 +67,20 @@ export function SetupView({ onSetup }: SetupViewProps) {
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <FieldLabel>Tu nombre (visible para los alumnos)</FieldLabel>
-          <TextInput value={displayName} onChange={setDisplayName} placeholder="Ej: Prof. García" />
+          <FieldLabel htmlFor="setup-displayname">Tu nombre (visible para los alumnos)</FieldLabel>
+          <TextInput id="setup-displayname" value={displayName} onChange={setDisplayName} placeholder="Ej: Prof. García" />
         </div>
         <div style={{ marginBottom: 14 }}>
-          <FieldLabel>Nombre de usuario</FieldLabel>
-          <TextInput value={username} onChange={(v) => setUsername(v.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
+          <FieldLabel htmlFor="setup-username">Nombre de usuario</FieldLabel>
+          <TextInput id="setup-username" value={username} onChange={(v) => setUsername(v.toLowerCase().replace(/\s/g, ""))} placeholder="admin" />
         </div>
         <div style={{ marginBottom: 14 }}>
-          <FieldLabel>Contraseña (mínimo 6 caracteres)</FieldLabel>
-          <TextInput value={pass} onChange={setPass} placeholder="••••••" type="password" />
+          <FieldLabel htmlFor="setup-password">Contraseña (mínimo 6 caracteres)</FieldLabel>
+          <TextInput id="setup-password" value={pass} onChange={setPass} placeholder="••••••" type="password" />
         </div>
         <div style={{ marginBottom: mismatch ? 6 : 24 }}>
-          <FieldLabel>Confirmar contraseña</FieldLabel>
-          <input type="password" autoComplete="new-password"
+          <FieldLabel htmlFor="setup-password2">Confirmar contraseña</FieldLabel>
+          <input id="setup-password2" type="password" autoComplete="new-password"
             style={{ ...S.input, borderColor: mismatch ? C.danger : undefined }}
             value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••"
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
@@ -165,13 +165,13 @@ export function LoginView({ roleLabel, filterRole, users, onLogin, onBack, onGue
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <FieldLabel>Nombre de usuario</FieldLabel>
-          <input style={{ ...S.input }} value={username} autoFocus autoComplete="username"
+          <FieldLabel htmlFor="login-username">Nombre de usuario</FieldLabel>
+          <input id="login-username" style={{ ...S.input }} value={username} autoFocus autoComplete="username"
             onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="usuario" />
         </div>
         <div style={{ marginBottom: 24 }}>
-          <FieldLabel>{credLabel}</FieldLabel>
-          <CredentialInput kind={isPin ? "pin" : "password"} value={credential}
+          <FieldLabel htmlFor="login-credential">{credLabel}</FieldLabel>
+          <CredentialInput id="login-credential" kind={isPin ? "pin" : "password"} value={credential}
             onChange={(v) => { setCredential(v); setError(""); }} onSubmit={handleLogin} marginBottom={0} />
         </div>
 
@@ -297,8 +297,9 @@ export function ForgotPinView({ onBack }: ForgotPinViewProps) {
           Introduce tu nombre de usuario. Te enviaremos un enlace a tu correo de recuperación.
         </p>
         <div style={{ marginBottom: 24 }}>
-          <FieldLabel>Nombre de usuario</FieldLabel>
+          <FieldLabel htmlFor="forgot-username">Nombre de usuario</FieldLabel>
           <input
+            id="forgot-username"
             style={{ ...S.input }}
             value={username}
             autoFocus
@@ -365,8 +366,8 @@ export function ResetPinView({ onBack }: ResetPinViewProps) {
           Elige un nuevo PIN de 4 a 6 dígitos.
         </p>
         <div style={{ marginBottom: 24 }}>
-          <FieldLabel>Nuevo PIN</FieldLabel>
-          <CredentialInput kind="pin" value={pin} onChange={setPin} onSubmit={handleReset} marginBottom={0} />
+          <FieldLabel htmlFor="reset-pin">Nuevo PIN</FieldLabel>
+          <CredentialInput id="reset-pin" kind="pin" value={pin} onChange={setPin} onSubmit={handleReset} marginBottom={0} />
         </div>
         {error && <ErrorMsg style={{ marginBottom: 14 }}>{error}</ErrorMsg>}
         <CtaButton full lg onClick={handleReset} disabled={!canSave}>
