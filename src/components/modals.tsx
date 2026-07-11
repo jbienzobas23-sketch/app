@@ -853,6 +853,7 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
                   <button type="button" onClick={() => setCorrectOptionId(opt.id)}
                     title={isCorrect ? "Esta es la opción correcta" : "Marcar como correcta"}
                     style={{
+                      position: "relative",
                       width: 32, height: 32, borderRadius: "50%",
                       background: isCorrect ? C.fnT : C.paper,
                       border:     `1.5px solid ${isCorrect ? C.fnT : C.line}`,
@@ -861,6 +862,13 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
                       display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                     }}>
                     {opt.id}
+                    {isCorrect && (
+                      <span aria-hidden="true" style={{
+                        position: "absolute", top: -4, right: -4, width: 15, height: 15, borderRadius: "50%",
+                        background: C.fnT, color: C.paper, border: `1.5px solid ${C.paper}`,
+                        fontSize: 9, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>✓</span>
+                    )}
                   </button>
                   <input style={{ ...S.input, flex: 1 }} value={opt.text}
                     onChange={(e) => updateOpt(i, e.target.value)} placeholder={`Texto de la opción ${opt.id}`} />
