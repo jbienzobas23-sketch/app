@@ -253,7 +253,7 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
 
         {/* La barra principal (clicable para seek) */}
         <div ref={barRef} onMouseDown={beginSeek} onTouchStart={beginSeek}
-          style={{ position: "relative", height, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible" }}>
+          style={{ position: "relative", height, background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 6, cursor: "crosshair", overflow: "visible", touchAction: "none" }}>
 
           {/* Onda de fondo (decorativa) */}
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 1, padding: "4px 4px", pointerEvents: "none", overflow: "hidden", borderRadius: 6 }}>

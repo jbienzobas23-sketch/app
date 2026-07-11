@@ -91,7 +91,7 @@ export function QuestionMinimap<Q extends MinimapQuestion>({
   return (
     <>
       <div ref={setRefs} onMouseDown={handleBackgroundDown} onTouchStart={!editable && onSeek ? handleBackgroundDown : undefined}
-        style={{ position: "relative", height, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", ...(editable ? { touchAction: "none" as const, userSelect: "none" as const, cursor: "default" as const } : { userSelect: "none" as const, cursor: onSeek ? "pointer" : undefined }) }}>
+        style={{ position: "relative", height, marginBottom: 4, background: C.paper2, borderRadius: 6, border: `1px solid ${C.line}`, overflow: "hidden", ...(editable ? { touchAction: "none" as const, userSelect: "none" as const, cursor: "default" as const } : { userSelect: "none" as const, cursor: onSeek ? "pointer" : undefined, ...(onSeek ? { touchAction: "none" as const } : {}) }) }}>
         {questions.map((q, idx) => {
           const start = q.audioStart ?? 0;
           const end   = q.audioEnd ?? 0;

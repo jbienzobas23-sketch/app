@@ -178,7 +178,7 @@ export function EditorShell(props: EditorShellProps) {
             </div>
           </aside>
         ) : (
-          <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "2px 2px 10px" }}>
+          <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "2px 2px 10px", WebkitOverflowScrolling: "touch" }}>
             {stepKeys.map((k, i) => {
               const s = states[k];
               const cur = activeStep === k;

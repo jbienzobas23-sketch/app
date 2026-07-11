@@ -61,7 +61,7 @@ const lazyFallback = (
 function SaveErrorToast({ message, onClose }: { message: string | null; onClose: () => void }) {
   if (!message || typeof document === "undefined") return null;
   return createPortal(
-    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 2000, display: "flex", justifyContent: "center", padding: "0 16px 16px", pointerEvents: "none" }}>
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 2000, display: "flex", justifyContent: "center", padding: "0 16px calc(16px + env(safe-area-inset-bottom))", pointerEvents: "none" }}>
       <div role="alert" style={{ pointerEvents: "auto", maxWidth: 540, width: "100%", background: C.danger, color: "#fff", borderRadius: 10, padding: "12px 14px", boxShadow: "0 8px 30px rgba(0,0,0,0.28)", display: "flex", alignItems: "center", gap: 12, fontFamily: FONT_SANS, fontSize: 13, lineHeight: 1.4 }}>
         <span style={{ flex: 1 }}>{message}</span>
         <button onClick={onClose} className="fa-pressable" style={{ flexShrink: 0, background: "rgba(255,255,255,0.22)", border: "none", color: "#fff", borderRadius: 6, padding: "6px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_SANS }}>Cerrar</button>
