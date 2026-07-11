@@ -43,3 +43,7 @@
 | C2.12 | `5f7b741` | lint 0 / typecheck 0 / test 199/199 / build OK | `aria-valuenow`/`aria-valuetext` se actualizan dentro del mismo bucle rAF (vía `setAttribute`, sin re-render de React) para no romper el patrón de rendimiento de NO TOCAR §1.1. Sirve a las 4 vistas que reusan `AudioScrubber`. | — |
 | C2.13 | `398c9c4` | lint 0 / typecheck 0 / test 199/199 / build OK | **"Curso sin unidades" ya existía** (courses.tsx:314 y :515, mensaje "Este curso no tiene unidades todavía.") — no era un vacío que faltara (R11, cita del informe desactualizada); no se tocó. Para "Guardando…": el guardado local es síncrono (dbUpsertExercise persiste en 2º plano, fuera del alcance de este componente) — se optó por un estado transitorio local (700ms tras el clic) en vez de intentar hilar un `isSaving` real desde useAppData, desproporcionado para esta tarea. | — |
 
+**Fase C2 cerrada.**
+
+| C3.1 | `0df649f` | lint 0 / typecheck 0 / test 199/199 / build OK | Banner arriba (ámbar) para distinguirlo visualmente del toast rojo de guardado (abajo); no se autooculta (persiste mientras `loadError` sea no-nulo, a diferencia de `saveError` que sí se autooculta a los 9s — intencional, ver comentario en el código). | **[MANUAL]** Jon: cortar red / URL de Supabase inválida en dev → banner visible arriba, "Reintentar" recarga los datos. |
+
