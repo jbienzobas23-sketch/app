@@ -245,7 +245,7 @@ export function RepeatBand({
               </div>
               {/* Botón eliminar */}
               <button onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-                onClick={() => onDeleteRepeat(rep.id ?? "")} title="Eliminar repetición"
+                onClick={() => onDeleteRepeat(rep.id ?? "")} title="Eliminar repetición" aria-label="Eliminar repetición"
                 style={{ position: "absolute", top: 3, right: 4, zIndex: 20, background: "rgba(255,255,255,0.85)", border: `1px solid ${C.line}`, borderRadius: 3, padding: "0px 5px", fontSize: 9, cursor: "pointer", color: C.muted, lineHeight: 1.6 }}>
                 ✕
               </button>

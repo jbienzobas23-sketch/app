@@ -189,7 +189,7 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <CircleButton onClick={() => seekTo(Math.max(0, time - 5))} size={36} fontSize={10}>−5s</CircleButton>
               <CircleButton onClick={togglePlay} disabled={hasAudio && !audioReady && !audioError}
-                primary size={42} fontSize={14}>{playing ? "❚❚" : "▶"}</CircleButton>
+                primary size={42} fontSize={14} title={playing ? "Pausar" : "Reproducir"}>{playing ? "❚❚" : "▶"}</CircleButton>
               <CircleButton onClick={() => seekTo(Math.min(dur, time + 5))} size={36} fontSize={10}>+5s</CircleButton>
             </div>
             <div style={{ textAlign: "right", fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums", fontSize: 18, fontWeight: 600, color: C.ink }}>

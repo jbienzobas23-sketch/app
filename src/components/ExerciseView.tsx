@@ -439,7 +439,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
                 </button>
               );
             })}
-            <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+            <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento" aria-label="Eliminar fragmento"
               style={{ ...S.btnDanger, marginLeft: "auto", padding: "5px 9px", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
         )}
@@ -517,7 +517,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
               </div>
 
               {/* Eliminar fragmento, al final de la fila */}
-              <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento"
+              <button onClick={deleteSelected} className="fa-pressable" title="Eliminar fragmento" aria-label="Eliminar fragmento"
                 style={{ ...S.btnDanger, width: 36, height: 36, padding: 0, fontSize: 14, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
             </div>
           );
@@ -526,7 +526,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
 
       <StickyActionBar
         secondary={
-          <button onClick={togglePaintMode} className="fa-pressable" title="Pintar respuestas a mano sobre la onda"
+          <button onClick={togglePaintMode} className="fa-pressable" title="Pintar respuestas a mano sobre la onda" aria-label="Pintar respuestas a mano sobre la onda"
             style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, cursor: "pointer", flexShrink: 0,
               fontFamily: F.sans, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
               border: `1.5px solid ${paintFn ? C.ink : C.line}`, background: paintFn ? C.ink : C.paper, color: paintFn ? C.paper : C.ink2,

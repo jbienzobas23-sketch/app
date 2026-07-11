@@ -1254,7 +1254,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
               </div>
               {/* Columna central: ▶ centrado */}
-              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError}>
+              <CircleButton onClick={() => { if (time >= duration) seekTo(0); togglePlay(); }} primary size={48} disabled={hasAudio && !audioReady && !audioError} title={playing ? "Pausar" : "Reproducir"}>
                 {playing ? "❚❚" : "▶"}
               </CircleButton>
               <div style={{ textAlign: "right", fontFamily: F.sans, fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, color: C.ink, letterSpacing: -0.5 }}>
@@ -1749,7 +1749,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 );
               })()}
               {selBlock.level !== 4 && selBlock.customColor && (
-                <button title="Restablecer color automático" className="fa-pressable"
+                <button title="Restablecer color automático" aria-label="Restablecer color automático" className="fa-pressable"
                   onClick={() => setBlocks(prev => { const selB = prev.find(b => b.id === selected); return prev.map(b => { if (b.id === selected) return { ...b, customColor: undefined }; if (selB?.pass === "first" && b.mirrorId === selected) return { ...b, customColor: undefined }; return b; }); })}
                   style={{ border: `1px solid ${C.line}`, background: C.paper2, borderRadius: 7, padding: "6px 9px", fontSize: 11, cursor: "pointer", color: C.muted, lineHeight: 1 }}>↺</button>
               )}
