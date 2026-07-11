@@ -8,7 +8,7 @@ import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { FIG_GROUPS, isTriadFig, quadGroupsForDegree } from "../lib/figures.js";
 import type { FigItem } from "../lib/figures.js";
-import { SCHEMA_MIN_DUR } from "../lib/schema.js";
+import { SCHEMA_MIN_DUR, SCHEMA_HND_HIT_W } from "../lib/schema.js";
 import { resolveOverlap } from "../lib/scoring.js";
 import { answerFor, serializeIntervals } from "../lib/domain.js";
 import { startPointerDrag } from "../lib/pointer.js";
@@ -342,7 +342,7 @@ export function ExerciseView({ exercise, mode, onSubmit, onBack, modelToggleNode
     const t       = timeRef.current;
     const xRel    = clientX - rect.left;
     const timeAtClick = Math.max(0, Math.min(dur, t + (xRel - W / 2) * VISIBLE_SECS / W));
-    const EDGE_PX = 14;
+    const EDGE_PX = SCHEMA_HND_HIT_W / 2; // A5-16: hitbox real ≥40px, sin cambiar el dibujo del asa
 
     // ¿Cerca del borde de un intervalo seleccionado?
     if (selected) {

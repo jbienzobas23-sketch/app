@@ -57,6 +57,11 @@ export function useInjectFonts(): void {
         + "}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
         + ".fa-pressable:active{transform:scale(.97)}"
+        // Hitbox táctil mínima de 40px (A5-16): zona invisible vía ::before,
+        // centrada sobre el elemento, sin cambiar su dibujo/tamaño visual. El
+        // propio elemento debe ser position:relative (o quedar así al aplicarla).
+        + ".fa-hit40{position:relative}"
+        + ".fa-hit40::before{content:\"\";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:max(100%,40px);height:max(100%,40px)}"
         // Fade-in sin altura: para secciones con overflow o márgenes negativos donde
         // fa-expand cortaría el contenido. Pura opacidad, sin translate.
         + "@keyframes faFadeIn{from{opacity:0}to{opacity:1}}"

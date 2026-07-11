@@ -25,4 +25,5 @@ export const SCHEMA_MIN_DUR        = 2;
 export const SCHEMA_CLICK_MS       = 320;
 export const SCHEMA_CLICK_MOVE_THR = 6;
 export const SCHEMA_CLICK_DUR_FRAC = 0.12;
-export const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px) — hitbox permanece en SCHEMA_HND_W
+export const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px)
+export const SCHEMA_HND_HIT_W      = 40;    // hitbox táctil real del asa (px, A5-16) — zona invisible más ancha que el dibujo

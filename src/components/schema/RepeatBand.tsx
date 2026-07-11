@@ -225,23 +225,23 @@ export function RepeatBand({
                 style={{ position: "absolute", top: 3, bottom: 3, left: `${fE}%`, width: `${sW}%`, background: selectedRepId === rep.id ? `${C.fnT}38` : `${C.fnT}22`, borderRadius: 4, border: selectedRepId === rep.id ? `1.5px solid ${C.fnT}` : `1px solid ${C.fnT}55`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", zIndex: 5 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: C.fnT, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap", pointerEvents: "none" }}>repetición</span>
               </div>
-              {/* Asa: inicio del original */}
+              {/* Asa: inicio del original — hitbox 40px (A5-16), dibujo intacto */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "first.start")} onTouchStart={e => handleBandHandleDown(e, rep, "first.start")}
                 title={`Inicio original: ${fmtClock(rep.first.start)}`}
-                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fS}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnS, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fS}% - 20px)`, width: 40, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnS, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", pointerEvents: "none" }} />
               </div>
               {/* Asa: unión original/repetición */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "junction")} onTouchStart={e => handleBandHandleDown(e, rep, "junction")}
                 title={`Fin original / inicio repetición: ${fmtClock(rep.first.end)}`}
-                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fE}% - 6px)`, width: 12, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 4, height: 20, borderRadius: 2, background: C.ink2, boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }} />
+                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${fE}% - 20px)`, width: 40, cursor: "ew-resize", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 4, height: 20, borderRadius: 2, background: C.ink2, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none" }} />
               </div>
               {/* Asa: fin de la repetición */}
               <div onMouseDown={e => handleBandHandleDown(e, rep, "second.end")} onTouchStart={e => handleBandHandleDown(e, rep, "second.end")}
                 title={`Fin repetición: ${fmtClock(rep.second.end)}`}
-                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${sE}% - 5px)`, width: 10, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnT, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${sE}% - 20px)`, width: 40, cursor: "ew-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 3, height: 16, borderRadius: 2, background: C.fnT, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", pointerEvents: "none" }} />
               </div>
               {/* Botón eliminar */}
               <button onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}

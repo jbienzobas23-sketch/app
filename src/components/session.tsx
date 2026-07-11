@@ -180,12 +180,18 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
   );
 
   const HANDLE_W = 12;
-  const handleStyle = (pct: number): React.CSSProperties => ({
+  const HANDLE_HIT_W = 40; // A5-16: hitbox táctil real ≥40px — el dibujo (HANDLE_W) no cambia
+  // Zona de arrastre invisible, más ancha que el asa dibujada — mismo criterio
+  // que SCHEMA_HND_HIT_W del esquema (lib/schema.ts).
+  const handleHitStyle = (pct: number): React.CSSProperties => ({
     position: "absolute", top: 0, bottom: 0,
-    left: `calc(${pct}% - ${HANDLE_W / 2}px)`, width: HANDLE_W,
-    background: C.quiz, borderRadius: 3, cursor: "ew-resize",
-    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
+    left: `calc(${pct}% - ${HANDLE_HIT_W / 2}px)`, width: HANDLE_HIT_W,
+    cursor: "ew-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
   });
+  const handleVisualStyle: React.CSSProperties = {
+    width: HANDLE_W, height: "100%", background: C.quiz, borderRadius: 3,
+    display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none",
+  };
 
   return (
     <div>
@@ -291,14 +297,18 @@ export function FragmentRangeSelector({ totalDuration, start, end, onChange, onC
 
           {/* Handle izquierdo */}
           {start != null && startPct != null && (
-            <div onMouseDown={(e) => beginDrag(e, "start")} onTouchStart={(e) => beginDrag(e, "start")} style={handleStyle(startPct)}>
-              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            <div onMouseDown={(e) => beginDrag(e, "start")} onTouchStart={(e) => beginDrag(e, "start")} style={handleHitStyle(startPct)}>
+              <div style={handleVisualStyle}>
+                <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+              </div>
             </div>
           )}
           {/* Handle derecho */}
           {end != null && endPct != null && (
-            <div onMouseDown={(e) => beginDrag(e, "end")} onTouchStart={(e) => beginDrag(e, "end")} style={handleStyle(endPct)}>
-              <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+            <div onMouseDown={(e) => beginDrag(e, "end")} onTouchStart={(e) => beginDrag(e, "end")} style={handleHitStyle(endPct)}>
+              <div style={handleVisualStyle}>
+                <span style={{ width: 2, height: 14, background: "rgba(255,255,255,0.7)", borderRadius: 1, display: "block" }} />
+              </div>
             </div>
           )}
         </div>

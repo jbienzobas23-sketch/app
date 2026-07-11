@@ -33,6 +33,7 @@ function ClaveCell({ exercise, part, model, onRecordPart, onQuestionsPart }: {
         {ready ? `${label} ✓` : `Sin ${label.toLowerCase()}`}
       </span>
       <button type="button" onClick={() => (isQuiz ? onQuestionsPart(part.id) : onRecordPart(part.id))}
+        className="fa-hit40"
         style={{ ...S.btn, padding: "3px 9px", fontSize: 11.5 }}>
         {ready ? (isQuiz ? "Gestionar" : "Regrabar") : (isQuiz ? "Añadir" : "Grabar")}
       </button>

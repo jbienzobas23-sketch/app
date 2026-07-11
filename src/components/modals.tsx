@@ -102,7 +102,7 @@ export function CategoryEditorModal({ initialCategory, onSave, onClose }: { init
             <input value={b.key} onChange={(e) => updateBtn(i, { key: e.target.value.slice(0, 1) })}
               style={{ ...S.input, width: 36, fontFamily: FONT_SANS, textAlign: "center", padding: "6px 4px", flexShrink: 0 }}
               maxLength={1} placeholder="t" />
-            <button onClick={() => removeBtn(i)} disabled={buttons.length <= 2}
+            <button onClick={() => removeBtn(i)} disabled={buttons.length <= 2} className="fa-hit40"
               style={{ ...S.btnDanger, padding: "4px 8px", fontSize: 11, ...disabledStyle(buttons.length > 2), flexShrink: 0 }}>×</button>
           </div>
         ))}
