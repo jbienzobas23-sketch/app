@@ -4,7 +4,7 @@
 // toca el motor de arrastre (dragRef/trackSegRefs) — recibe handleBlockDown/
 // handleSharedHandleDown ya cerrados sobre esos refs en el padre, y se limita
 // a invocarlos en los eventos de puntero, igual que antes.
-import type { ReactNode, CSSProperties } from "react";
+import { useMemo, type ReactNode, type CSSProperties } from "react";
 import { C, FONT_SANS } from "../../theme/tokens.js";
 import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
@@ -46,21 +46,55 @@ export function SegBlocks({
   const bounds = getSegBounds(seg, pass);
   const segDur = (bounds.max - bounds.min) || 1;
 
-  const segBlocks = blocks.filter(b => {
+  // Bloques/orden/adyacencia filtrados por nivel×segmento — memoizados porque
+  // `time`/`activeAt` (playhead a 10fps) NO están en las dependencias: solo se
+  // recalculan cuando cambian los bloques o el segmento, no en cada tick.
+  const segBlocks = useMemo(() => blocks.filter(b => {
     if (b.level !== lvId) return false;
     if (seg.type === "normal") return !b.repeatId && b.end > bounds.min - 0.01 && b.start < bounds.max + 0.01;
     if (seg.type === "repeat-first")  return b.repeatId === seg.rep.id && b.pass === "first";
     if (seg.type === "repeat-second") return b.repeatId === seg.rep.id && b.pass === "second";
     return b.repeatId === seg.rep.id && b.pass === pass;
-  });
-  const real = segBlocks.filter(b => !b.isPreview).sort((a, b) => a.start - b.start);
-  const adjPairs = [];
-  for (let i = 0; i < real.length - 1; i++) {
-    if (Math.abs(real[i].end - real[i + 1].start) < 0.5)
-      adjPairs.push({ left: real[i], right: real[i + 1] });
-  }
-  const adjLIds = new Set(adjPairs.map(p => p.right.id));
-  const adjRIds = new Set(adjPairs.map(p => p.left.id));
+  }), [blocks, lvId, seg, pass, bounds.min, bounds.max]);
+
+  const { real, adjPairs, adjLIds, adjRIds } = useMemo(() => {
+    const realArr = segBlocks.filter(b => !b.isPreview).sort((a, b) => a.start - b.start);
+    const pairs = [];
+    for (let i = 0; i < realArr.length - 1; i++) {
+      if (Math.abs(realArr[i].end - realArr[i + 1].start) < 0.5)
+        pairs.push({ left: realArr[i], right: realArr[i + 1] });
+    }
+    return {
+      real: realArr,
+      adjPairs: pairs,
+      adjLIds: new Set(pairs.map(p => p.right.id)),
+      adjRIds: new Set(pairs.map(p => p.left.id)),
+    };
+  }, [segBlocks]);
+
+  // Color por bloque (cadena `harmonyBlockColors`/`partColorFromPalette`/
+  // `phraseColorFromPalette`, incluida la búsqueda del bloque "Parte" padre
+  // para el nivel 2) — memoizado por el mismo motivo: no depende de time/selected.
+  const blockColors = useMemo(() => {
+    const map = new Map<string, { bg: string; textColor: string }>();
+    for (const block of segBlocks) {
+      const colors = block.isPreview
+        ? { bg: lv.color, textColor: "#FFFFFF" }
+        : block.customColor ? harmonyBlockColors(null, block.customColor)
+        : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
+        : lv.id === 1 ? harmonyBlockColors(null, partColorFromPalette(block.label, schemaPalette))
+        : lv.id === 2 ? (() => {
+            const partB = blocks.find(b => b.level === 1 && !b.isPreview &&
+              b.start <= block.start + 0.01 && b.end > block.start + 0.01 &&
+              (block.repeatId ? b.repeatId === block.repeatId && b.pass === block.pass : !b.repeatId));
+            const parentColor = partB ? (partB.customColor || partColorFromPalette(partB.label, schemaPalette)) : lv.color;
+            return harmonyBlockColors(null, phraseColorFromPalette(block.label, parentColor, schemaPalette));
+          })()
+        : { bg: lv.color, textColor: "#FFFFFF" };
+      map.set(block.id, colors);
+    }
+    return map;
+  }, [segBlocks, blocks, schemaPalette, lv]);
 
   // Posición del cursor de reproducción en esta fila. "repeat-first"/
   // "repeat-second" (vista completa, Jon 2026-07-07) faltaban aquí — el
@@ -148,19 +182,7 @@ export function SegBlocks({
         lPct = Math.max(0, ((block.start - bounds.min) / segDur) * 100);
         wPct = Math.max(0, ((block.end - block.start) / segDur) * 100);
       }
-      const { bg: bBg, textColor: bTx } = block.isPreview
-        ? { bg: lv.color, textColor: "#FFFFFF" }
-        : block.customColor ? harmonyBlockColors(null, block.customColor)
-        : lv.id === 3 ? harmonyBlockColors(block.label, lv.color)
-        : lv.id === 1 ? harmonyBlockColors(null, partColorFromPalette(block.label, schemaPalette))
-        : lv.id === 2 ? (() => {
-            const partB = blocks.find(b => b.level === 1 && !b.isPreview &&
-              b.start <= block.start + 0.01 && b.end > block.start + 0.01 &&
-              (block.repeatId ? b.repeatId === block.repeatId && b.pass === block.pass : !b.repeatId));
-            const parentColor = partB ? (partB.customColor || partColorFromPalette(partB.label, schemaPalette)) : lv.color;
-            return harmonyBlockColors(null, phraseColorFromPalette(block.label, parentColor, schemaPalette));
-          })()
-        : { bg: lv.color, textColor: "#FFFFFF" };
+      const { bg: bBg, textColor: bTx } = blockColors.get(block.id)!;
 
       // ── Nivel 3 (Armonía): píldora de color + línea horizontal ─────────
       if (lvId === 3) {
