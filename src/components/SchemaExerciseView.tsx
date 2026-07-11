@@ -20,15 +20,16 @@ import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { harmonyBlockColors } from "../lib/harmony.js";
 import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC } from "../lib/schema.js";
-import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, getSchemaPalette, partColorFromPalette, phraseColorFromPalette, schemaBlockColor, snapToNearest } from "../lib/palette.js";
+import { SCHEMA_PALETTE_DEFAULT, partColorFromPalette, phraseColorFromPalette, schemaBlockColor, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
 import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
-import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton, Chevron } from "./primitives.jsx";
+import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
 import { RepeatBand } from "./schema/RepeatBand.js";
+import { SchemaPalettePicker } from "./schema/SchemaPalettePicker.js";
 
 // ── Tipos locales del editor de esquema ──────────────────────────────────────
 // Block y Rep se reutilizan de repeats.ts (forma compartida con los helpers).
@@ -114,17 +115,10 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const resetAll = () => { resetBlocks(); setLocalReps([]); };
 
   // ── Paleta de color elegida por el alumno para los bloques del esquema ──────
-  // "p1".."p5" = paletas de Adobe.
+  // "p1".."p5" = paletas de Adobe. El selector (UI + estado de abierto/cerrado)
+  // vive en SchemaPalettePicker (C4.3a); aquí solo el valor elegido, que
+  // consumen los niveles 1/2 al colorear bloques.
   const [schemaPalette, setSchemaPalette] = useState(exercise.schemaPalette || SCHEMA_PALETTE_DEFAULT);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const paletteRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!paletteOpen) return;
-    const onDown = (e: Event) => { if (paletteRef.current && !paletteRef.current.contains(e.target as Node)) setPaletteOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
-  }, [paletteOpen]);
 
   const segments: any[] = useMemo(() =>
     viewMode === "resumida"
@@ -1269,37 +1263,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         {/* Selector de paleta — discreto y desplegable. Solo si hay nivel de
             Partes o Frases activo (afecta a esos niveles, no a Armonía/Texto). */}
         {!listenOnly && activeLevels.some(lv => lv.id === 1 || lv.id === 2) && (
-          <div ref={paletteRef} style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, position: "relative" }}
-            onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-            {(() => { const cur = getSchemaPalette(schemaPalette) || SCHEMA_PALETTES[0]; return (
-              <button type="button" onClick={() => setPaletteOpen(o => !o)} className="fa-pressable"
-                title="Cambiar paleta de color"
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 9px 4px 8px", borderRadius: 8, cursor: "pointer", background: C.paper2, border: `1px solid ${C.line}`, fontFamily: F.sans }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted }}>Paleta</span>
-                <span style={{ display: "inline-flex", borderRadius: 3, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
-                  {cur.parts.map((c, i) => <span key={i} style={{ width: 9, height: 12, background: c, display: "block" }} />)}
-                </span>
-                <Chevron open={paletteOpen} size={11} color={C.muted} />
-              </button>
-            ); })()}
-            {paletteOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 30, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 168 }}>
-                {SCHEMA_PALETTES.map(pal => {
-                  const active = schemaPalette === pal.id;
-                  return (
-                    <button key={pal.id} type="button" onClick={() => { setSchemaPalette(pal.id); setPaletteOpen(false); }}
-                      style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", borderRadius: 7, cursor: "pointer", background: active ? C.paper2 : "transparent", border: "none", fontFamily: F.sans, textAlign: "left", width: "100%" }}>
-                      <span style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
-                        {pal.parts.map((c, i) => <span key={i} style={{ width: 13, height: 16, background: c, display: "block" }} />)}
-                      </span>
-                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? C.ink : C.ink2 }}>{pal.name}</span>
-                      {active && <span style={{ fontSize: 12, color: C.ink, flexShrink: 0 }}>✓</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <SchemaPalettePicker schemaPalette={schemaPalette} onChange={setSchemaPalette} />
         )}
 
         {/* Regla + pistas (layout flex-segmentado) */}
