@@ -32,4 +32,6 @@
 
 | C2.1 | `0f9ab09` | lint 0 / typecheck 0 / test 199/199 / build OK | ninguna | — |
 | C2.2 | `1196b81` | lint 0 / typecheck 0 / test 199/199 / build OK | ninguna | — |
+| C2.3 | `c25297a` | lint 0 / typecheck 0 / test 199/199 / build OK | Se mantuvo la letra de la opción visible en el círculo (no se sustituyó por ✓) y se añadió un badge ✓ superpuesto, para no perder la identidad A/B/C — más fiel a "además del relleno" que reemplazar el contenido. | — |
+| C2.4 | `f3d7f28` | lint 0 / typecheck 0 / test 199/199 / build OK | `CircleButton`/`BarIconButton` ya reenviaban `title` como `aria-label` — solo hacía falta en botones `<button>` planos (icon-only) y en el play/pausa de Schema/QuestionManager sin `title`. La cita de línea 1777 del informe ya no aplica: ese botón ya tiene texto visible "Eliminar" (no es solo-icono); no se tocó (R11). | — |
 
