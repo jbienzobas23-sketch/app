@@ -139,7 +139,26 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
     return { users: loadedUsers || users };
   };
 
-  const retryLoad = () => { loadData(supabase); };
+  const retryLoad = () => { loadData(supabase); checkHasAdmin(supabase); };
+
+  // A3-06: has_admin distingue true | false | null (no confirmado) — un fallo
+  // de red NUNCA debe enseñar SetupView por defecto (eso pisaría un despliegue
+  // real ya configurado). Reintenta con backoff corto; si sigue fallando, se
+  // integra con el banner de carga (C3.1) para que "Reintentar" también
+  // reintente esto, en vez de quedar indefinidamente sin confirmar y en silencio.
+  const checkHasAdmin = async (sb: SupabaseClient, attempt = 0): Promise<void> => {
+    try {
+      const { data: ha, error } = await sb.rpc("has_admin");
+      if (error) throw error;
+      setServerHasAdmin(ha === true);
+    } catch {
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        return checkHasAdmin(sb, attempt + 1);
+      }
+      setLoadError((prev) => prev ?? "No se pudo verificar el estado del servidor.");
+    }
+  };
 
   // Arranque: detecta sesión de recuperación (magic link) y carga inicial desde
   // Supabase. `onResetSession` es la única salida hacia el estado de sesión de
@@ -178,7 +197,7 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
 
       // ¿Existe ya un admin? (primer arranque) — vía RPC, porque con RLS anon no
       // puede leer fa_users.
-      try { const { data: ha } = await sb.rpc("has_admin"); setServerHasAdmin(ha === true); } catch { /* ignora */ }
+      await checkHasAdmin(sb);
     } catch (e) {
       console.error("Error cargando datos de Supabase:", e);
     } finally {
