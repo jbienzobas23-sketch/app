@@ -160,7 +160,10 @@ export function QuestionnaireView({ exercise, onSubmit, onBack, modelToggleNode 
             const fragmentQs = questions.filter((q) => questionScopeOf(q) === "fragmento");
             return (
               <QuestionMinimap questions={fragmentQs} duration={dur} time={time}
-                blockState={(q) => ({ fill: (answers[q.id] !== undefined && answers[q.id] !== "") ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id })}
+                blockState={(q) => {
+                  const done = answers[q.id] !== undefined && answers[q.id] !== "";
+                  return { fill: done ? C.fnT : C.quiz, active: lockedQuestion?.id === q.id, answered: done };
+                }}
                 onSeek={(t) => { if (lockedQuestion) unlockAudio(); seekTo(t); }}
                 showRuler />
             );

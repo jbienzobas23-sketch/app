@@ -24,8 +24,10 @@ interface QuestionMinimapProps<Q extends MinimapQuestion> {
   editable?: boolean;
   height?: number;
   // Estado visual por bloque. `active` = seleccionado (gestor) o fijado/bucle
-  // (sesión): opacidad plena + borde blanco. `fill` = color de fondo.
-  blockState: (q: Q, idx: number) => { fill: string; active: boolean };
+  // (sesión): opacidad plena + borde blanco. `fill` = color de fondo. `answered`
+  // (A5-05, opcional): respondida — el bloque lleva además un ✓, no solo el
+  // tono, para no depender solo del color (CVD).
+  blockState: (q: Q, idx: number) => { fill: string; active: boolean; answered?: boolean };
   inactiveOpacity?: number;     // 0.7 gestor · 0.5 sesión
   label?: (idx: number) => string;   // "P{n}" gestor · "{n}" sesión
   // Solo lectura: clic en un bloque.
@@ -93,7 +95,7 @@ export function QuestionMinimap<Q extends MinimapQuestion>({
         {questions.map((q, idx) => {
           const start = q.audioStart ?? 0;
           const end   = q.audioEnd ?? 0;
-          const { fill, active } = blockState(q, idx);
+          const { fill, active, answered } = blockState(q, idx);
           const left  = `${(start / dur) * 100}%`;
           const width = `${Math.max(0, (end - start) / dur) * 100}%`;
           // Con onSeek activo (sesión del alumno, 2026-07-06): el bloque es un
@@ -107,7 +109,7 @@ export function QuestionMinimap<Q extends MinimapQuestion>({
               onMouseDown={editable ? (e) => onDragBody?.(e, q) : marker ? undefined : (e) => e.stopPropagation()}
               onTouchStart={editable ? (e) => onDragBody?.(e, q) : marker ? undefined : (e) => e.stopPropagation()}
               onClick={editable || marker ? undefined : () => onSelect?.(q)}
-              title={`P${idx + 1}: ${fmtClock(start)} – ${fmtClock(end)}`}
+              title={`P${idx + 1}${answered ? " · respondida" : ""}: ${fmtClock(start)} – ${fmtClock(end)}`}
               style={{
                 position: "absolute", top: 3, bottom: 3, left, width,
                 background: fill, opacity: active ? 1 : inactiveOpacity,
@@ -122,7 +124,9 @@ export function QuestionMinimap<Q extends MinimapQuestion>({
                      onTouchStart={(e) => { e.stopPropagation(); onDragEdge?.(e, q, "start"); }}
                      style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 3, background: active ? "rgba(255,255,255,0.22)" : "transparent" }} />
               )}
-              <span style={{ fontSize: 8, color: C.paper, fontWeight: 700, fontFamily: FONT_SANS, pointerEvents: "none", ...(editable ? { padding: "0 12px", overflow: "hidden" as const, whiteSpace: "nowrap" as const } : {}) }}>{label(idx)}</span>
+              <span style={{ fontSize: 8, color: C.paper, fontWeight: 700, fontFamily: FONT_SANS, pointerEvents: "none", display: "flex", alignItems: "center", gap: 2, ...(editable ? { padding: "0 12px", overflow: "hidden" as const, whiteSpace: "nowrap" as const } : {}) }}>
+                {answered && <span aria-hidden="true">✓</span>}{label(idx)}
+              </span>
               {editable && (
                 <div onMouseDown={(e) => { e.stopPropagation(); onDragEdge?.(e, q, "end"); }}
                      onTouchStart={(e) => { e.stopPropagation(); onDragEdge?.(e, q, "end"); }}
