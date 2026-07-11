@@ -333,7 +333,7 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
 
                 {/* Comentarios de NIVEL abiertos */}
                 {openLv.size > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10, marginTop: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))", gap: 10, marginTop: 12 }}>
                     {activeLevels.filter((lv) => openLv.has(lv.id)).map((lv) => (
                       <div key={lv.id}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -353,7 +353,7 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
 
                 {/* Comentarios de BLOQUE abiertos (uno por bloque pulsado) */}
                 {openBlk.size > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10, marginTop: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))", gap: 10, marginTop: 12 }}>
                     {blocks.filter((b) => openBlk.has(b.id)).map((b) => {
                       const lv = SCHEMA_LEVELS.find((l) => l.id === b.level);
                       return (
