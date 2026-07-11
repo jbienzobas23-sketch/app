@@ -822,6 +822,17 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
     });
   };
 
+  // A5-09: operable por teclado — flechas mueven 1s (Shift 5s), Home/End van a
+  // los extremos. No toca el mecanismo rAF de pintado (NO TOCAR §1.1).
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const t = timeRef?.current ?? 0;
+    const step = e.shiftKey ? 5 : 1;
+    if (e.key === "ArrowRight")      { e.preventDefault(); onSeek(Math.min(duration, t + step)); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); onSeek(Math.max(0, t - step)); }
+    else if (e.key === "Home")      { e.preventDefault(); onSeek(0); }
+    else if (e.key === "End")       { e.preventDefault(); onSeek(duration); }
+  };
+
   // Bucle rAF: actualiza thumb/fill/live directamente sobre el DOM
   useEffect(() => {
     let raf: number;
@@ -831,6 +842,12 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
       const p = clamp(t);
       if (fillRef.current)  fillRef.current.style.width = p + "%";
       if (thumbRef.current) thumbRef.current.style.left = p + "%";
+      // Valores accesibles del slider: mismo cauce (rAF-sobre-refs) que el
+      // resto, no re-render de React por tick.
+      if (barRef.current) {
+        barRef.current.setAttribute("aria-valuenow", String(Math.round(t)));
+        barRef.current.setAttribute("aria-valuetext", fmtClock(t));
+      }
       const pr = pressingRef.current, el = liveRef.current;
       if (el) {
         if (pr) {
@@ -857,7 +874,9 @@ export function AudioScrubber({ timeRef, duration, intervals, pressingRef, color
 
   return (
     <div ref={barRef}
-      onMouseDown={handlePointerDown} onTouchStart={handlePointerDown}
+      role="slider" tabIndex={0} aria-label="Posición de reproducción"
+      aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={0} aria-valuetext={fmtClock(0)}
+      onMouseDown={handlePointerDown} onTouchStart={handlePointerDown} onKeyDown={handleKeyDown}
       style={{ userSelect: "none", touchAction: "none", cursor: "pointer" }}>
 
       {/* ── Track + thumb ──────────────────────────────────────────── */}
