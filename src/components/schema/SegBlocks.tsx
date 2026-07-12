@@ -4,7 +4,12 @@
 // toca el motor de arrastre (dragRef/trackSegRefs) — recibe handleBlockDown/
 // handleSharedHandleDown ya cerrados sobre esos refs en el padre, y se limita
 // a invocarlos en los eventos de puntero, igual que antes.
-import { useMemo, type ReactNode, type CSSProperties } from "react";
+// C4.3g: cada bloque expone su nodo DOM en `blockElRefs` (mapa compartido con
+// el padre) para que el bucle rAF del arrastre pueda pintar su posición ahí
+// directamente, sin pasar por props/estado durante el propio arrastre. Las
+// guías de snap ya no se renderizan aquí (antes una copia por nivel×segmento)
+// — viven en un overlay propio en el padre, pintado por ref.
+import { useMemo, type ReactNode, type CSSProperties, type RefObject } from "react";
 import { C, FONT_SANS } from "../../theme/tokens.js";
 import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
@@ -20,7 +25,6 @@ interface SegBlocksProps {
   duration: number;
   listenOnly: boolean;
   schemaMarks: number[];
-  guides: number[];
   time: number;
   activeAt: Record<number, string>;
   selected: string | null;
@@ -35,12 +39,13 @@ interface SegBlocksProps {
   recToVisXResumed: (t: number) => number;
   handleBlockDown: (e: any, block: Block, type?: string) => void;
   handleSharedHandleDown: (e: any, leftBlock: Block, rightBlock: Block) => void;
+  blockElRefs: RefObject<Record<string, HTMLElement | null>>;
 }
 
 export function SegBlocks({
-  seg, pass, lvId, blocks, duration, listenOnly, schemaMarks, guides, time, activeAt,
+  seg, pass, lvId, blocks, duration, listenOnly, schemaMarks, time, activeAt,
   selected, viewMode, schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
-  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown,
+  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs,
 }: SegBlocksProps) {
   const lv = SCHEMA_LEVELS.find(l => l.id === lvId)!;
   const bounds = getSegBounds(seg, pass);
@@ -157,10 +162,6 @@ export function SegBlocks({
     {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, i) => (
       <div key={i} style={{ position: "absolute", top: 0, left: `${((mt - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(184,74,58,0.28)", pointerEvents: "none", zIndex: 7 }} />
     ))}
-    {/* Guías de snap */}
-    {guides.filter(g => g >= bounds.min && g <= bounds.max).map((g, i) => (
-      <div key={i} style={{ position: "absolute", top: 0, left: `${((g - bounds.min) / segDur) * 100}%`, width: 1, height: "100%", background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8 }} />
-    ))}
     {/* Cursor de reproducción */}
     {phPct !== null && (
       <div style={{ position: "absolute", top: 0, left: `${phPct}%`, width: 1, height: "100%", background: C.danger, opacity: 0.5, pointerEvents: "none", zIndex: 6 }} />
@@ -188,7 +189,7 @@ export function SegBlocks({
       if (lvId === 3) {
         const pillBg = block.isPreview ? `${bBg}60` : bBg;
         return (
-          <div key={block.id} data-block="true" style={{
+          <div key={block.id} data-block="true" ref={el => { blockElRefs.current[block.id] = el; }} style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
             background: "transparent",
             borderRadius: 999,
@@ -231,7 +232,7 @@ export function SegBlocks({
       if (lvId === 4) {
         const pillBg = block.isPreview ? `${bBg}60` : bBg;
         return (
-          <div key={block.id} data-block="true" title={block.label ?? undefined} style={{
+          <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
             display: "flex", alignItems: "stretch",
             overflow: "hidden",
@@ -273,7 +274,7 @@ export function SegBlocks({
       // imantado el bloque.
       const ins = 1;
       return (
-        <div key={block.id} data-block="true" title={block.label ?? undefined} style={{
+        <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} style={{
           position: "absolute", top: 6, bottom: 6, left: `calc(${lPct}% + ${ins}px)`, width: `calc(${wPct}% - ${ins * 2}px)`,
           background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
           // El borde depende SOLO de la selección (acción del usuario), nunca del

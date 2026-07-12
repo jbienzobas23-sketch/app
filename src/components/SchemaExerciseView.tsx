@@ -79,7 +79,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   timeRef.current = time;
 
   const [selectedRepId, setSelectedRepId] = useState<string | null>(null); // rep seleccionada en la banda
-  const [guides,       setGuides]       = useState<number[]>([]);
+  // Las guías de snap durante el arrastre ya NO son estado — se pintan por
+  // ref (guideElRefs, C4.3g) para no forzar un render en cada evento.
   const [localReps,    setLocalReps]    = useState<Repetition[]>((exercise.repetitions as Repetition[] | undefined) || []);
   const [showRepModal, setShowRepModal] = useState(false);
   // selectedPass: { [repId]: "first"|"second" } — qué vez mostrar cuando no está sonando
@@ -153,6 +154,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const trackSegRefs  = useRef<Record<string, HTMLElement | null>>({});
   const dragRef       = useRef<any>(null);
   const colorInputRef = useRef<HTMLInputElement | null>(null);
+  // C4.3g: refs para pintar el arrastre de bloques directamente sobre el DOM
+  // (rAF), sin pasar por setBlocks/setGuides en cada evento — ver el efecto
+  // principal de arrastre más abajo para el porqué.
+  const blockElRefs = useRef<Record<string, HTMLElement | null>>({});
+  const guideElRefs = useRef<(HTMLDivElement | null)[]>([null, null]); // máx. 2 guías simultáneas
+  const dragRafRef  = useRef<number | null>(null);
 
   // Ruler container width (para calcular densidad de marcas)
   const [rulerW, setRulerW] = useState(600);
@@ -474,6 +481,77 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const { schemaMarks, schemaMarksRef, handleMarksContainerDown, handleMarkDown } =
     useListenOnlyMarks(rulerContainerRef, segmentsRef, getClientX);
 
+  // ── Pintado del arrastre por refs + rAF (C4.3g, A7-01) ───────────────────
+  // Durante mousemove/touchmove NO se llama a setBlocks/setGuides (eso
+  // dispararía un render de toda la vista, incl. la memoización de C4.3f, en
+  // cada evento de puntero). En su lugar, `onMove` (más abajo) escribe la
+  // posición calculada directamente en `dragRef.current`, y este bucle rAF
+  // pinta esos valores sobre los nodos DOM ya montados (vía `blockElRefs`).
+  // El commit real a estado (setBlocks) ocurre UNA sola vez, al soltar.
+  const timeToVisFrac = (t: number) => {
+    for (const sg of segmentsRef.current) {
+      if ((sg.type === "normal" || sg.type === "repeat-first" || sg.type === "repeat-second") &&
+          t >= sg.recStart - 0.01 && t <= sg.recEnd + 0.01)
+        return sg.vStart + Math.max(0, Math.min(1, (t - sg.recStart) / (sg.canonDur || 1))) * (sg.vEnd - sg.vStart);
+    }
+    return t <= 0 ? 0 : 1;
+  };
+  const paintBlockPos = (id: string, level: number, start: number, end: number, segMin: number, segMax: number) => {
+    const el = blockElRefs.current[id]; if (!el) return;
+    const segSpan = (segMax - segMin) || 1;
+    const lPct = Math.max(0, ((start - segMin) / segSpan) * 100);
+    const wPct = Math.max(0, ((end - start) / segSpan) * 100);
+    const isPill = level === 3 || level === 4;
+    el.style.left  = isPill ? `${lPct}%` : `calc(${lPct}% + 1px)`;
+    el.style.width = isPill ? `${wPct}%` : `calc(${wPct}% - 2px)`;
+  };
+  const paintCascade = (d: any) => {
+    if (!d.cascadeIds?.length) return;
+    for (const ci of d.cascadeIds) {
+      const b = blocksRef.current.find((bl: Block) => bl.id === ci.id);
+      if (!b) continue;
+      const s = ci.side === "start" ? d.liveBoundary : b.start;
+      const e = ci.side === "end"   ? d.liveBoundary : b.end;
+      paintBlockPos(ci.id, b.level as number, s, e, d.segMin, d.segMax);
+    }
+  };
+  const hideGuideOverlay = () => {
+    for (const el of guideElRefs.current) if (el) el.style.display = "none";
+  };
+  const paintDrag = () => {
+    const d = dragRef.current;
+    if (!d) { dragRafRef.current = null; return; }
+    if (d.type === "create") {
+      paintBlockPos(d.pid, d.level, d.ps, d.pe, d.segMin, d.segMax);
+    } else if (d.type === "move") {
+      if (d.liveStart != null) paintBlockPos(d.bid, d.level, d.liveStart, d.liveEnd, d.segMin, d.segMax);
+    } else if (d.type === "resize-l") {
+      if (d.liveBoundary != null) { paintBlockPos(d.bid, d.level, d.liveBoundary, d.oe, d.segMin, d.segMax); paintCascade(d); }
+    } else if (d.type === "resize-r") {
+      if (d.liveBoundary != null) { paintBlockPos(d.bid, d.level, d.os, d.liveBoundary, d.segMin, d.segMax); paintCascade(d); }
+    } else if (d.type === "shared-edge") {
+      if (d.liveBoundary != null) {
+        const leftB  = blocksRef.current.find((b: Block) => b.id === d.leftId);
+        const rightB = blocksRef.current.find((b: Block) => b.id === d.rightId);
+        if (leftB)  paintBlockPos(d.leftId,  d.level, leftB.start, d.liveBoundary, d.segMin, d.segMax);
+        if (rightB) paintBlockPos(d.rightId, d.level, d.liveBoundary, rightB.end,  d.segMin, d.segMax);
+        paintCascade(d);
+      }
+    }
+    const gs = d.liveGuides ?? [];
+    guideElRefs.current.forEach((el, i) => {
+      if (!el) return;
+      const g = gs[i];
+      if (g == null) { el.style.display = "none"; return; }
+      el.style.display = "block";
+      el.style.left = `${timeToVisFrac(g) * 100}%`;
+    });
+    dragRafRef.current = requestAnimationFrame(paintDrag);
+  };
+  const startDragPaint = () => {
+    if (dragRafRef.current == null) dragRafRef.current = requestAnimationFrame(paintDrag);
+  };
+
   // ── Drag principal (crear / mover / redimensionar bloques) ───────────────
   useEffect(() => {
     // pixToTime vive dentro del efecto para acceder a los refs sin clausura vieja
@@ -494,7 +572,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             setHistory(prev => prev.slice(0, -1));
             setBlocks(prev => prev.filter(b => b.id !== d.pid));
           }
-          setGuides([]); dragRef.current = null;
+          hideGuideOverlay(); dragRef.current = null;
         }
         return;
       }
@@ -528,26 +606,17 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         ];
         return snapToNearest(v, pts);
       };
-      // Cascada vertical: aplica los bloques pre-identificados al inicio del drag
-      const cascadeBoundary = (arr: Block[], newT: number) => {
-        if (!d.cascadeIds?.length) return arr;
-        return arr.map((b: Block) => {
-          const ci = d.cascadeIds.find((c: any) => c.id === b.id);
-          if (!ci) return b;
-          return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
-        });
-      };
       const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+      // C4.3g: aquí solo se CALCULA la posición (snap/cascada incluidos) y se
+      // guarda en `dragRef.current` (d.live*) — el pintado lo hace el bucle
+      // rAF (paintDrag) y el commit a estado ocurre una sola vez, en onUp.
       if (d.type === "create") {
         let s  = cl(Math.min(d.anchor, t), d.segMin, d.segMax);
         let e2 = cl(Math.max(d.anchor, t), d.segMin, d.segMax);
         s = cl(snap(s), d.segMin, d.segMax); e2 = cl(snap(e2), d.segMin, d.segMax);
         d.ps = s; d.pe = e2;
-        const ng = [s, e2].filter(v => v > d.segMin + 0.1 && v < d.segMax - 0.1);
-        setGuides(ng);
-        setBlocks(prev => [...prev.filter(b => b.id !== d.pid),
-          { id: d.pid, level: d.level, start: s, end: e2, label: "…", isPreview: true, repeatId: d.repeatId, pass: d.pass }]);
+        d.liveGuides = [s, e2].filter(v => v > d.segMin + 0.1 && v < d.segMax - 0.1);
         return;
       }
 
@@ -576,8 +645,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           }
         }
         ns = cl(ns, d.segMin, d.segMax - dur2); ne = ns + dur2;
-        setGuides([ns, ne]);
-        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: ns, end: ne } : b));
+        d.liveStart = ns; d.liveEnd = ne; d.liveGuides = [ns, ne];
         return;
       }
 
@@ -591,10 +659,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         // solo el asa se detenía en el tope. Aquí sí atraemos el borde al canto
         // del vecino contiguo cuando queda a menos del umbral: se imantan.
         if (leftNb && Math.abs(ns - leftNb.end) < SCHEMA_SNAP_THR) ns = leftNb.end;
-        setGuides([ns]);
-        setBlocks(prev => cascadeBoundary(
-          prev.map(b => b.id === d.bid ? { ...b, start: ns } : b),
-          ns));
+        d.liveBoundary = ns; d.liveGuides = [ns];
         return;
       }
 
@@ -604,22 +669,26 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         let ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
         // Imán al vecino inmediato del mismo nivel (ver resize-l).
         if (rightNb && Math.abs(ne - rightNb.start) < SCHEMA_SNAP_THR) ne = rightNb.start;
-        setGuides([ne]);
-        setBlocks(prev => cascadeBoundary(
-          prev.map(b => b.id === d.bid ? { ...b, end: ne } : b),
-          ne));
+        d.liveBoundary = ne; d.liveGuides = [ne];
         return;
       }
 
       if (d.type === "shared-edge") {
         const ns = cl(snapBounds(t), d.leftStart + SCHEMA_MIN_DUR, d.rightEnd - SCHEMA_MIN_DUR);
-        setGuides([ns]);
-        setBlocks(prev => cascadeBoundary(
-          prev.map(b =>
-            b.id === d.leftId  ? { ...b, end:   ns } :
-            b.id === d.rightId ? { ...b, start: ns } : b),
-          ns));
+        d.liveBoundary = ns; d.liveGuides = [ns];
       }
+    };
+
+    // Cascada vertical: aplica los bloques pre-identificados al inicio del
+    // drag (compartida entre onMove — ya no la usa para pintar, C4.3g — y
+    // onUp, que sí la necesita para el commit final a estado).
+    const cascadeBoundary = (arr: Block[], d: any, newT: number) => {
+      if (!d.cascadeIds?.length) return arr;
+      return arr.map((b: Block) => {
+        const ci = d.cascadeIds.find((c: any) => c.id === b.id);
+        if (!ci) return b;
+        return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
+      });
     };
 
     const onUp = (upEvt: any) => {
@@ -651,14 +720,40 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             setBlocks(prev => [...prev.filter(b => b.id !== d.pid),
               { id: d.pid, level: d.level, start: ns, end: ne, label, isPreview: false, repeatId: d.repeatId, pass: d.pass, ...overrideFlag }]);
           } else {
+            // C4.3g: b.start/b.end en blocksRef siguen siendo los del montaje
+            // inicial (ancho cero, en el mousedown) — durante el arrastre ya
+            // no se comprometen a estado en cada evento, así que aquí hay que
+            // escribir explícitamente la posición final (d.ps/d.pe), no basta
+            // con heredarla de `b` vía spread.
             setBlocks(prev => prev.map(b => b.id === d.pid
-              ? { ...b, label, isPreview: false, repeatId: d.repeatId, pass: d.pass, ...overrideFlag } : b));
+              ? { ...b, start: d.ps, end: d.pe, label, isPreview: false, repeatId: d.repeatId, pass: d.pass, ...overrideFlag } : b));
           }
           setSelected(d.pid);
         } else {
           setHistory(prev => prev.slice(0, -1));
           setBlocks(prev => prev.filter(b => b.id !== d.pid));
         }
+      }
+      // C4.3g: commit único a estado del valor calculado en el último onMove
+      // (d.live*) — si nunca hubo mousemove (clic sin arrastre sobre un
+      // bloque existente), d.live* sigue sin definir y no se toca nada,
+      // igual que antes.
+      if (d.type === "move" && d.liveStart != null) {
+        setBlocks(prev => prev.map(b => b.id === d.bid ? { ...b, start: d.liveStart, end: d.liveEnd } : b));
+      } else if (d.type === "resize-l" && d.liveBoundary != null) {
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, start: d.liveBoundary } : b),
+          d, d.liveBoundary));
+      } else if (d.type === "resize-r" && d.liveBoundary != null) {
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b => b.id === d.bid ? { ...b, end: d.liveBoundary } : b),
+          d, d.liveBoundary));
+      } else if (d.type === "shared-edge" && d.liveBoundary != null) {
+        setBlocks(prev => cascadeBoundary(
+          prev.map(b =>
+            b.id === d.leftId  ? { ...b, end:   d.liveBoundary } :
+            b.id === d.rightId ? { ...b, start: d.liveBoundary } : b),
+          d, d.liveBoundary));
       }
       // Si se movió/redimensionó un bloque de 2ª vez, marcarlo como overridden
       if ((d.type === "move" || d.type === "resize-l" || d.type === "resize-r" || d.type === "shared-edge") && d.pass === "second") {
@@ -676,7 +771,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           (d.pass === "first" || d.pass === null)) {
         setBlocks(prev => syncSecondPassBlocks(prev, localRepsRef.current));
       }
-      setGuides([]); dragRef.current = null;
+      hideGuideOverlay(); dragRef.current = null;
     };
 
     window.addEventListener("mousemove", onMove);  window.addEventListener("mouseup",      onUp);
@@ -686,6 +781,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup",     onUp);
       window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend",    onUp);
       window.removeEventListener("touchcancel", onUp);
+      if (dragRafRef.current != null) cancelAnimationFrame(dragRafRef.current);
     };
     // blocksRef/setBlocks/setHistory/setSelected vienen de useSchemaEditor (F7,
     // T7.1) y schemaMarksRef de useListenOnlyMarks (C4.3d), pero siguen siendo
@@ -714,13 +810,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                    : seg.type === "repeat-first"  ? "first"
                    : seg.type === "repeat-second" ? "second"
                    : null;
+    const pid = uid("sb");
     dragRef.current = {
-      type: "create", level: lvId, anchor: t, pid: uid("sb"),
+      type: "create", level: lvId, anchor: t, pid,
       ps: t, pe: t, downTime: Date.now(), downX: getClientX(e),
       segKey: sk, segMin: bounds.min, segMax: bounds.max,
       repeatId, pass: infPass,
     };
+    // C4.3g: se monta el bloque preview (ancho cero) UNA vez aquí, para tener
+    // ya un nodo DOM real al que aplicarle refs — el resto del arrastre lo
+    // pinta paintDrag (rAF) directamente sobre ese nodo, sin más setBlocks
+    // hasta soltar.
+    setBlocks(prev => [...prev, { id: pid, level: lvId, start: t, end: t, label: "…", isPreview: true, repeatId, pass: infPass }]);
     setSelected(null); e.preventDefault();
+    startDragPaint();
   };
 
   // ── Inicio de drag en bloque existente (mover / redimensionar) ───────────
@@ -778,6 +881,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       repeatId: block.repeatId, pass: block.pass, cascadeIds, ...extra,
     };
     e.preventDefault();
+    startDragPaint();
   };
 
   // ── Asa de borde compartido ──────────────────────────────────────────────
@@ -824,6 +928,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       cascadeIds: cascadeIds2,
     };
     e.preventDefault();
+    startDragPaint();
   };
 
   const exSchemaLevels = exercise.schemaLevels as number[] | undefined;
@@ -845,9 +950,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // Props comunes a las 3 invocaciones de <SegBlocks> (normal/repeat-first-second/repeat) —
   // solo cambian seg/pass/lvId en cada sitio de uso.
   const segBlocksCommon = {
-    blocks, duration, listenOnly, schemaMarks, guides, time, activeAt, selected, viewMode,
+    blocks, duration, listenOnly, schemaMarks, time, activeAt, selected, viewMode,
     schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
-    recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown,
+    recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs,
   };
 
   const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps, schemaPalette });
@@ -1242,6 +1347,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 );
               })}
             </div>
+          ))}
+
+          {/* ── Guías de snap del arrastre (C4.3g) — 2 líneas de altura completa
+               siempre montadas, pintadas por ref (posición + visibilidad) desde
+               paintDrag; ocultas fuera de un arrastre activo. Antes vivían dentro
+               de cada SegBlocks (una copia por nivel×segmento); ahora es una sola
+               línea continua sobre todo el contenedor de pistas. ── */}
+          {[0, 1].map(i => (
+            <div key={i} ref={el => { guideElRefs.current[i] = el; }}
+              style={{ position: "absolute", top: 0, bottom: 0, width: 1, background: "rgba(210,55,55,0.45)", pointerEvents: "none", zIndex: 8, display: "none" }} />
           ))}
 
           {/* ── Barras de repetición — solo niveles 1 y 2, condicionadas por tamaño ──
