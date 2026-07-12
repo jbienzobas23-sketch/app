@@ -15,6 +15,7 @@ export interface SchemaZoomState {
   handleSchemaPinchMove: (e: React.TouchEvent) => void;
   handleSchemaPinchEnd: () => void;
   handleScrollbarTrackDown: (e: React.MouseEvent | React.TouchEvent) => void;
+  zoomBy: (factor: number) => void;
 }
 
 export function useSchemaZoom(): SchemaZoomState {
@@ -64,6 +65,25 @@ export function useSchemaZoom(): SchemaZoomState {
   };
   const handleSchemaPinchEnd = () => { pinchRef.current = null; };
 
+  // ── Botones de zoom +/− (C4.3h, A5-08) ───────────────────────────────────
+  // Mismo cálculo que la rueda del ratón, pero centrado en el centro del
+  // viewport (curFrac=0.5) — un botón no tiene una posición de cursor de la
+  // que anclar el zoom.
+  const zoomBy = (factor: number) => {
+    setSchemaZoom(prevZoom => {
+      const nextZoom = Math.min(8, Math.max(1, prevZoom * factor));
+      if (nextZoom !== prevZoom) {
+        setSchemaScrollFrac(prevSf => {
+          if (nextZoom === 1) return 0;
+          const curFrac = 0.5;
+          const newSf = (((prevSf * (prevZoom - 1)) + curFrac) * (nextZoom / prevZoom) - curFrac) / (nextZoom - 1);
+          return Math.max(0, Math.min(1, newSf));
+        });
+      }
+      return nextZoom;
+    });
+  };
+
   // ── Drag de la barra de scroll personalizada ──────────────────────────────
   // El drag es RELATIVO: el desplazamiento es proporcional al movimiento del ratón/dedo,
   // sin saltar a la posición absoluta del clic.
@@ -94,6 +114,6 @@ export function useSchemaZoom(): SchemaZoomState {
   return {
     schemaZoom, schemaScrollFrac, schemaOuterRef,
     handleSchemaPinchStart, handleSchemaPinchMove, handleSchemaPinchEnd,
-    handleScrollbarTrackDown,
+    handleScrollbarTrackDown, zoomBy,
   };
 }

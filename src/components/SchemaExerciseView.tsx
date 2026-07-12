@@ -97,7 +97,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const {
     schemaZoom, schemaScrollFrac, schemaOuterRef,
     handleSchemaPinchStart, handleSchemaPinchMove, handleSchemaPinchEnd,
-    handleScrollbarTrackDown,
+    handleScrollbarTrackDown, zoomBy,
   } = useSchemaZoom();
 
   // ── Modo de vista: "completa" (edición secuencial, sin doble altura)
@@ -481,6 +481,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const { schemaMarks, schemaMarksRef, handleMarksContainerDown, handleMarkDown } =
     useListenOnlyMarks(rulerContainerRef, segmentsRef, getClientX);
 
+  // Cascada vertical: aplica los bloques pre-identificados (mismo repeatId+pass,
+  // borde alineado) al mover un borde. Compartida entre el commit final del
+  // arrastre por ratón/táctil (onUp, C4.3g) y el redimensionado por teclado
+  // (handleBlockKeyDown, C4.3h) — ambos calculan `cascadeIds` de la misma forma
+  // (ver handleBlockDown) y solo necesitan aplicar el nuevo valor de borde.
+  const cascadeBoundary = (arr: Block[], cascadeIds: { id: string; side: string }[] | undefined, newT: number) => {
+    if (!cascadeIds?.length) return arr;
+    return arr.map((b: Block) => {
+      const ci = cascadeIds.find((c) => c.id === b.id);
+      if (!ci) return b;
+      return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
+    });
+  };
+
   // ── Pintado del arrastre por refs + rAF (C4.3g, A7-01) ───────────────────
   // Durante mousemove/touchmove NO se llama a setBlocks/setGuides (eso
   // dispararía un render de toda la vista, incl. la memoización de C4.3f, en
@@ -679,18 +693,6 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       }
     };
 
-    // Cascada vertical: aplica los bloques pre-identificados al inicio del
-    // drag (compartida entre onMove — ya no la usa para pintar, C4.3g — y
-    // onUp, que sí la necesita para el commit final a estado).
-    const cascadeBoundary = (arr: Block[], d: any, newT: number) => {
-      if (!d.cascadeIds?.length) return arr;
-      return arr.map((b: Block) => {
-        const ci = d.cascadeIds.find((c: any) => c.id === b.id);
-        if (!ci) return b;
-        return ci.side === "start" ? { ...b, start: newT } : { ...b, end: newT };
-      });
-    };
-
     const onUp = (upEvt: any) => {
       const d = dragRef.current; if (!d) return;
       if (d.type === "create") {
@@ -743,17 +745,17 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       } else if (d.type === "resize-l" && d.liveBoundary != null) {
         setBlocks(prev => cascadeBoundary(
           prev.map(b => b.id === d.bid ? { ...b, start: d.liveBoundary } : b),
-          d, d.liveBoundary));
+          d.cascadeIds, d.liveBoundary));
       } else if (d.type === "resize-r" && d.liveBoundary != null) {
         setBlocks(prev => cascadeBoundary(
           prev.map(b => b.id === d.bid ? { ...b, end: d.liveBoundary } : b),
-          d, d.liveBoundary));
+          d.cascadeIds, d.liveBoundary));
       } else if (d.type === "shared-edge" && d.liveBoundary != null) {
         setBlocks(prev => cascadeBoundary(
           prev.map(b =>
             b.id === d.leftId  ? { ...b, end:   d.liveBoundary } :
             b.id === d.rightId ? { ...b, start: d.liveBoundary } : b),
-          d, d.liveBoundary));
+          d.cascadeIds, d.liveBoundary));
       }
       // Si se movió/redimensionó un bloque de 2ª vez, marcarlo como overridden
       if ((d.type === "move" || d.type === "resize-l" || d.type === "resize-r" || d.type === "shared-edge") && d.pass === "second") {
@@ -931,6 +933,106 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     startDragPaint();
   };
 
+  // ── Operabilidad por teclado del bloque enfocado (C4.3h) ─────────────────
+  // Con el bloque enfocado (ver tabIndex/role="button" en SegBlocks.tsx):
+  // ←→ mueven el bloque entero; Shift+←→ redimensionan el borde derecho;
+  // Alt+←→ el izquierdo. El paso es el punto de imantación más cercano POR
+  // DELANTE (límites de segmento, zonas de repetición, marcas, bordes de
+  // otros bloques) si cae a menos de SCHEMA_SNAP_THR del paso de 0,1s; si
+  // no, el paso fijo de 0,1s (ver stepSnap más abajo — solo mira "hacia
+  // delante" para poder alejarse de un punto en el que ya está apoyado).
+  // Reutiliza cascadeBoundary para la cascada nivel1→2/3 en redimensionado,
+  // igual que con el asa del ratón.
+  const KEY_STEP = 0.1;
+  const handleBlockKeyDown = (e: React.KeyboardEvent, block: Block) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const dir = e.key === "ArrowLeft" ? -1 : 1;
+    const mode: "move" | "resize-l" | "resize-r" = e.shiftKey ? "resize-r" : e.altKey ? "resize-l" : "move";
+
+    const seg = segmentsRef.current.find(sg => {
+      if (sg.type === "normal") return !block.repeatId && block.start >= sg.recStart - 0.01 && block.start < sg.recEnd + 0.01;
+      if (sg.type === "repeat-first")  return block.repeatId === sg.rep.id && block.pass === "first";
+      if (sg.type === "repeat-second") return block.repeatId === sg.rep.id && block.pass === "second";
+      return block.repeatId === sg.rep.id; // legacy "repeat" type
+    });
+    if (!seg) return;
+    const pass = block.pass || "normal";
+    const bounds = getSegBounds(seg, pass);
+
+    const ctxAll = blocksRef.current.filter(b =>
+      b.id !== block.id && b.repeatId === block.repeatId && b.pass === block.pass && !b.isPreview
+    );
+    const sameLevel = ctxAll.filter(b => b.level === block.level);
+    const repBounds = localRepsRef.current.flatMap(r => [r.first.start, r.first.end, r.second.start, r.second.end]);
+    const snapPts = [bounds.min, bounds.max,
+      ...repBounds.filter(p => p >= bounds.min - 0.1 && p <= bounds.max + 0.1),
+      ...schemaMarksRef.current.filter(m => m >= bounds.min - 0.1 && m <= bounds.max + 0.1),
+      ...ctxAll.flatMap(b => [b.start, b.end]),
+    ];
+    // Solo se imanta a puntos POR DELANTE de la posición actual en la
+    // dirección del paso — si se incluyeran los de detrás (p. ej. el propio
+    // punto en el que ya está apoyado tras un paso anterior, o uno que la
+    // cascada acaba de recolocar ahí mismo), cada pulsación de 0,1s volvería
+    // a imantarse al mismo sitio y el bloque quedaría bloqueado sin poder
+    // alejarse nunca (SCHEMA_SNAP_THR=2s es mucho mayor que el paso).
+    const stepSnap = (current: number) => {
+      const ahead = snapPts.filter(p => dir > 0 ? p > current + 0.001 : p < current - 0.001);
+      return snapToNearest(current + dir * KEY_STEP, ahead);
+    };
+
+    setHistory(prev => [...prev, blocksRef.current]);
+
+    if (mode === "move") {
+      const dur = block.end - block.start;
+      let ns = stepSnap(block.start);
+      for (const nb of sameLevel) {
+        const ne = ns + dur;
+        if (ns < nb.end - 0.01 && ne > nb.start + 0.01) ns = dir > 0 ? nb.start - dur : nb.end;
+      }
+      ns = Math.max(bounds.min, Math.min(bounds.max - dur, ns));
+      setBlocks(prev => prev.map(b => b.id === block.id ? { ...b, start: ns, end: ns + dur } : b));
+      return;
+    }
+
+    const cascadeLvs = block.level === 1 ? [2, 3] : block.level === 2 ? [3] : [];
+    const computeCascade = (boundaryT: number) => {
+      if (cascadeLvs.length === 0) return [];
+      const EPS = 0.05;
+      return blocksRef.current
+        .filter(b => cascadeLvs.includes(b.level ?? -1) && !b.isPreview &&
+          (b.repeatId ?? null) === (block.repeatId ?? null) &&
+          (b.pass    ?? null) === (block.pass    ?? null))
+        .flatMap(b => {
+          const hits: { id: string; side: string }[] = [];
+          if (Math.abs(b.start - boundaryT) < EPS) hits.push({ id: b.id, side: "start" });
+          if (Math.abs(b.end   - boundaryT) < EPS) hits.push({ id: b.id, side: "end" });
+          return hits;
+        });
+    };
+
+    if (mode === "resize-r") {
+      const rightNb = sameLevel.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
+      const maxNe = rightNb ? rightNb.start : bounds.max;
+      let ne = stepSnap(block.end);
+      ne = Math.max(block.start + SCHEMA_MIN_DUR, Math.min(maxNe, ne));
+      setBlocks(prev => cascadeBoundary(
+        prev.map(b => b.id === block.id ? { ...b, end: ne } : b),
+        computeCascade(block.end), ne));
+      return;
+    }
+
+    if (mode === "resize-l") {
+      const leftNb = sameLevel.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
+      const minNs = leftNb ? leftNb.end : bounds.min;
+      let ns = stepSnap(block.start);
+      ns = Math.max(minNs, Math.min(block.end - SCHEMA_MIN_DUR, ns));
+      setBlocks(prev => cascadeBoundary(
+        prev.map(b => b.id === block.id ? { ...b, start: ns } : b),
+        computeCascade(block.start), ns));
+    }
+  };
+
   const exSchemaLevels = exercise.schemaLevels as number[] | undefined;
   const activeLevels = SCHEMA_LEVELS.filter(lv =>
     !exSchemaLevels || exSchemaLevels.length === 0 || exSchemaLevels.includes(lv.id)
@@ -953,6 +1055,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     blocks, duration, listenOnly, schemaMarks, time, activeAt, selected, viewMode,
     schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
     recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs,
+    handleBlockKeyDown,
   };
 
   const handleSubmit = () => onSubmit({ type: "esquema", blocks: blocks.filter(b => !b.isPreview), mode, repetitions: localReps, schemaPalette });
@@ -1024,9 +1127,19 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
         {/* Selector de paleta — discreto y desplegable. Solo si hay nivel de
             Partes o Frases activo (afecta a esos niveles, no a Armonía/Texto). */}
-        {!listenOnly && activeLevels.some(lv => lv.id === 1 || lv.id === 2) && (
-          <SchemaPalettePicker schemaPalette={schemaPalette} onChange={setSchemaPalette} />
-        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          {!listenOnly && activeLevels.some(lv => lv.id === 1 || lv.id === 2) ? (
+            <SchemaPalettePicker schemaPalette={schemaPalette} onChange={setSchemaPalette} />
+          ) : <div />}
+          {/* Botones de zoom visibles (C4.3h, A5-08) — hasta ahora solo rueda
+              del ratón/pellizco táctil, sin equivalente operable por teclado
+              ni descubrible sin probar a arrastrar. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <CircleButton onClick={() => zoomBy(1 / 1.15)} disabled={schemaZoom <= 1} title="Alejar" size={28} fontSize={14}>−</CircleButton>
+            <span style={{ fontSize: 10.5, color: C.muted, fontFamily: FONT_SANS, fontWeight: 600, minWidth: 26, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>×{schemaZoom.toFixed(1)}</span>
+            <CircleButton onClick={() => zoomBy(1.15)} disabled={schemaZoom >= 8} title="Acercar" size={28} fontSize={14}>+</CircleButton>
+          </div>
+        </div>
 
         {/* Regla + pistas (layout flex-segmentado) */}
         <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: schemaZoom > 1 ? 4 : 12, position: "relative" }}

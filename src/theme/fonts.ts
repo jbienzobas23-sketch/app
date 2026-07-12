@@ -78,6 +78,12 @@ export function useInjectFonts(): void {
         // Foco de teclado para el AudioScrubber (div role=slider, A5-09): mismo
         // anillo que los inputs, con margen para no recortarse en el track.
         + "[role=\"slider\"]:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(85,85,85,.4);border-radius:8px}"
+        // Foco de teclado para los bloques del esquema (div role=button, C4.3h):
+        // `outline` en vez de `box-shadow` a propósito — el bloque ya fija su
+        // propio box-shadow/border inline según selección (isSel), que ganaría
+        // siempre a un box-shadow de hoja de estilos por especificidad; outline
+        // es una propiedad aparte que no lo pisa y no participa en el layout.
+        + "[data-block][role=\"button\"]:focus-visible{outline:2px solid rgba(85,85,85,.85);outline-offset:1px;z-index:20}"
         // Input de nota grande (corrección): sin las flechas del spinner numérico
         // (afean el número grande) y con el placeholder de la nota automática en
         // gris + peso normal, para que se distinga de una nota escrita a mano.

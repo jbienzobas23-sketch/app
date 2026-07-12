@@ -9,8 +9,13 @@
 // directamente, sin pasar por props/estado durante el propio arrastre. Las
 // guías de snap ya no se renderizan aquí (antes una copia por nivel×segmento)
 // — viven en un overlay propio en el padre, pintado por ref.
+// C4.3h: cada bloque es enfocable (tabIndex/role="button"/aria-label) y
+// operable con ←→ (mover), Shift+←→ (redimensionar borde derecho) y Alt+←→
+// (borde izquierdo) vía `handleBlockKeyDown`, cerrado en el padre sobre la
+// misma lógica de snap/cascada que el arrastre.
 import { useMemo, type ReactNode, type CSSProperties, type RefObject } from "react";
 import { C, FONT_SANS } from "../../theme/tokens.js";
+import { fmtClock } from "../../lib/time.js";
 import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
 import { harmonyBlockColors } from "../../lib/harmony.js";
@@ -40,12 +45,13 @@ interface SegBlocksProps {
   handleBlockDown: (e: any, block: Block, type?: string) => void;
   handleSharedHandleDown: (e: any, leftBlock: Block, rightBlock: Block) => void;
   blockElRefs: RefObject<Record<string, HTMLElement | null>>;
+  handleBlockKeyDown: (e: any, block: Block) => void;
 }
 
 export function SegBlocks({
   seg, pass, lvId, blocks, duration, listenOnly, schemaMarks, time, activeAt,
   selected, viewMode, schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
-  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs,
+  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs, handleBlockKeyDown,
 }: SegBlocksProps) {
   const lv = SCHEMA_LEVELS.find(l => l.id === lvId)!;
   const bounds = getSegBounds(seg, pass);
@@ -130,6 +136,15 @@ export function SegBlocks({
   // rectángulos); el lado interior lleva un radio menor.
   const _capRouter = lvId >= 3 ? Math.round(_blockH / 2) : 5;
   const _capRinner = lvId >= 3 ? 6 : 5;
+  // Operabilidad por teclado (C4.3h): bloques reales (no preview, no en vista
+  // resumida — ahí el arrastre también está deshabilitado) son enfocables y
+  // anuncian su posición vía aria-label, actualizado en cada render.
+  const blockA11y = (block: Block) => (block.isPreview || viewMode === "resumida") ? {} : {
+    tabIndex: 0,
+    role: "button" as const,
+    "aria-label": `Bloque ${block.label ?? ""}, de ${fmtClock(block.start)} a ${fmtClock(block.end)}`,
+    onKeyDown: (e: any) => handleBlockKeyDown(e, block),
+  };
   const capBase: CSSProperties = { position: "absolute", top: 6, height: _blockH, width: _capW, background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.16)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
   const _capChev   = "rgba(35,40,70,0.72)";
   const edgeChevron = (dir: "l" | "r" | "both") => (
@@ -189,7 +204,7 @@ export function SegBlocks({
       if (lvId === 3) {
         const pillBg = block.isPreview ? `${bBg}60` : bBg;
         return (
-          <div key={block.id} data-block="true" ref={el => { blockElRefs.current[block.id] = el; }} style={{
+          <div key={block.id} data-block="true" ref={el => { blockElRefs.current[block.id] = el; }} {...blockA11y(block)} style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
             background: "transparent",
             borderRadius: 999,
@@ -232,7 +247,7 @@ export function SegBlocks({
       if (lvId === 4) {
         const pillBg = block.isPreview ? `${bBg}60` : bBg;
         return (
-          <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} style={{
+          <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} {...blockA11y(block)} style={{
             position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`,
             display: "flex", alignItems: "stretch",
             overflow: "hidden",
@@ -274,7 +289,7 @@ export function SegBlocks({
       // imantado el bloque.
       const ins = 1;
       return (
-        <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} style={{
+        <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} {...blockA11y(block)} style={{
           position: "absolute", top: 6, bottom: 6, left: `calc(${lPct}% + ${ins}px)`, width: `calc(${wPct}% - ${ins * 2}px)`,
           background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
           // El borde depende SOLO de la selección (acción del usuario), nunca del
