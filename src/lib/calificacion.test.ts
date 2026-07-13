@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
   etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento,
-  matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre,
+  matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre, mediaDe,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -211,5 +211,23 @@ describe("coberturaLibre", () => {
   it("sin duración válida → null", () => {
     expect(coberturaLibre([{ start: 0, end: 5 }], 0)).toBeNull();
     expect(coberturaLibre([{ start: 0, end: 5 }], -1)).toBeNull();
+  });
+});
+
+describe("mediaDe", () => {
+  it("agrega por peso (equitativa ≡ aritmética) y cuenta pendientes/total", () => {
+    const hijos = [
+      { id: "e1", nota: 80, peso: 1, pendiente: false },
+      { id: "e2", nota: 60, peso: 1, pendiente: false },
+      { id: "e3", nota: null, peso: 1, pendiente: true },
+    ];
+    expect(mediaDe(hijos)).toEqual({ nota: 70, pendientes: 1, total: 3 });
+  });
+  it("respeta pesos personalizados", () => {
+    const hijos = [{ id: "u1", nota: 100, peso: 20 }, { id: "u2", nota: 50, peso: 80 }];
+    expect(mediaDe(hijos).nota).toBe(60);
+  });
+  it("sin hijos → nota null, 0 pendientes, 0 total", () => {
+    expect(mediaDe([])).toEqual({ nota: null, pendientes: 0, total: 0 });
   });
 });

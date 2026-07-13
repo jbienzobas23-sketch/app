@@ -245,3 +245,19 @@ export function coberturaLibre(
   if (curFin > curInicio) cubierto += curFin - curInicio;
   return Math.round((cubierto / duration) * 100);
 }
+
+// ─── N0.6: media de una unidad o de un curso ────────────────────────────────
+// El llamador resuelve qué nota está "vigente" para cada hijo (final si
+// corregido, preliminar si auto — la que ya muestra la app) y su peso
+// (pesosDeUnidad/pesosDeCurso); mediaDe solo agrega. La excepción "la
+// cobertura del libre no entra en medias" (no es logro) es responsabilidad del
+// llamador: no debe incluir esa entrada hasta que haya nota de fuente docente.
+export interface MediaEntry { id: string; nota: number | null; peso: number; pendiente?: boolean; }
+
+export function mediaDe(hijos: MediaEntry[]): { nota: number | null; pendientes: number; total: number } {
+  return {
+    nota: ponderar(hijos.map(({ nota, peso }) => ({ nota, peso }))),
+    pendientes: hijos.filter((h) => h.pendiente).length,
+    total: hijos.length,
+  };
+}
