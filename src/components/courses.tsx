@@ -605,6 +605,9 @@ export function MobileUnitsScreen({
   onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop, onAfterDeleteCourse, askConfirm = noop,
 }: MobileUnitsScreenProps) {
   const cu = courseUnitList(course, units, role);
+  // N1.4 (móvil): misma media que en escritorio, siempre de solo lectura aquí
+  // (la edición de pesos vive solo en escritorio — ver CourseExercisesPanel).
+  const avg = courseAverage(course, units, exercises, results, role);
   return (
     <div style={{ fontFamily: F.sans }}>
       {/* Cabecera del curso (móvil, 2026-07-05): el «volver» ya no es una barra
@@ -612,12 +615,13 @@ export function MobileUnitsScreen({
           título, en la misma fila que la insignia y el ⋯ (mismo patrón que el
           breadcrumb de la pantalla de ejercicios). Sin barra de progreso 4/6:
           cada unidad ya muestra su propio anillo debajo (como en escritorio). */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${C.line}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 14, marginBottom: 4, borderBottom: `1px solid ${C.line}` }}>
         <button onClick={onBack} aria-label="Volver a cursos" style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={13} /></button>
         <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ fontFamily: F.serif, fontSize: 24, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.06, letterSpacing: "-0.01em" }}>{course.name}</h3>
           {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
         </div>
+        <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />
         {role === "teacher" && (
           <KebabMenu title={`Acciones del curso "${course.name}"`} items={[
             { label: course.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateCourse({ ...course, hidden: !course.hidden }) },
@@ -626,12 +630,14 @@ export function MobileUnitsScreen({
           ]} />
         )}
       </div>
+      <ProvisionalNote pendientes={avg.pendientes} singular="unidad pendiente" plural="unidades pendientes" />
       <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 2px 10px" }}>Unidades</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 2px 8px" }}>Este curso no tiene unidades todavía.</p>
           : cu.map((u) => {
               const s = unitProgress(u, exercises, role, results);
+              const ua = unitAverage(u, exercises, results, role);
               return (
                 <button key={u.id} onClick={() => onOpenUnit(u.id)}
                   style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer" }}>
@@ -640,6 +646,7 @@ export function MobileUnitsScreen({
                     <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
                     {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
                   </span>
+                  <MediaScore nota={ua.nota} pendientes={ua.pendientes} total={ua.total} />
                   <ChevronRightIcon />
                 </button>
               );
@@ -660,6 +667,8 @@ interface MobileExercisesScreenProps {
 export function MobileExercisesScreen({ role, course, unit, units, exercises, results, onBack, onOpenUnit, panelProps, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop }: MobileExercisesScreenProps) {
   const cu = courseUnitList(course, units, role);
   const hs = unit ? unitProgress(unit, exercises, role, results) : null;
+  // N1.4 (móvil): misma media que en escritorio, de solo lectura.
+  const avg = unit ? unitAverage(unit, exercises, results, role) : null;
   return (
     <div style={{ fontFamily: F.sans }}>
       {/* Cabecera (Jon, 2026-07-12): mismo patrón overline+serif del resto de
@@ -682,6 +691,7 @@ export function MobileExercisesScreen({ role, course, unit, units, exercises, re
             )}
           </div>
         </div>
+        {unit && avg && <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />}
         {role === "student" && hs && <ProgressRing ready={hs.num} total={hs.total} size={40} stroke={4} />}
         {role === "teacher" && unit && (
           <KebabMenu size={28} title={`Acciones de la unidad "${unit.name}"`} items={[
@@ -691,6 +701,7 @@ export function MobileExercisesScreen({ role, course, unit, units, exercises, re
           ]} />
         )}
       </div>
+      {unit && avg && <ProvisionalNote pendientes={avg.pendientes} singular="ejercicio pendiente" plural="ejercicios pendientes" />}
       {/* Chips de unidades (scroll horizontal): cambia de unidad sin volver
           atrás. Solo el nombre — sin contadores «· n/m» (Jon, 2026-07-12);
           el alumno ve ✓ en las completas. */}
