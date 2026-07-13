@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
   etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento,
+  matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -120,5 +121,71 @@ describe("notaInstrumento", () => {
   it("sin instrumento o sin ítems → null", () => {
     expect(notaInstrumento(undefined, {})).toBeNull();
     expect(notaInstrumento({ tipo: "lista", niveles: [], items: [] }, {})).toBeNull();
+  });
+});
+
+describe("matchSchemaBlocks", () => {
+  const key = [
+    { id: "k1", level: 1, start: 0, end: 10, label: "A" },
+    { id: "k2", level: 1, start: 10, end: 20, label: "B" },
+  ];
+  it("empareja por nivel y cercanía dentro del margen, sin reutilizar un bloque dos veces", () => {
+    const student = [{ level: 1, start: 11, end: 21, label: "b" }, { level: 1, start: 1, end: 9, label: "a" }];
+    const { matches, sobrantes } = matchSchemaBlocks(key, student, 3);
+    expect(matches[0].student?.label).toBe("a");
+    expect(matches[1].student?.label).toBe("b");
+    expect(sobrantes).toEqual([]);
+  });
+  it("sin bloque del alumno dentro de margen: student null y el sobrante no se consume", () => {
+    const student = [{ level: 1, start: 50, end: 60, label: "x" }];
+    const { matches, sobrantes } = matchSchemaBlocks(key, student, 3);
+    expect(matches[0].student).toBeNull();
+    expect(matches[1].student).toBeNull();
+    expect(sobrantes).toEqual(student);
+  });
+});
+
+describe("etiquetaEquivalente", () => {
+  it("«B» ≡ «Desarrollo» ≡ «desarrollo» en el nivel de partes (ranura + tildes/mayúsculas)", () => {
+    expect(etiquetaEquivalente(1, "B", "Desarrollo")).toBe(true);
+    expect(etiquetaEquivalente(1, "Desarrollo", "desarrollo")).toBe(true);
+    expect(etiquetaEquivalente(1, "B", "desarrollo")).toBe(true);
+  });
+  it("etiquetas neutras sin ranura común necesitan un grupo de equivalencia explícito", () => {
+    expect(etiquetaEquivalente(1, "Puente", "Transición")).toBe(false);
+    expect(etiquetaEquivalente(1, "Puente", "Transición", [["Puente", "Transición"]])).toBe(true);
+  });
+  it("sin coincidencia de ranura ni grupo, no son equivalentes", () => {
+    expect(etiquetaEquivalente(1, "A", "C")).toBe(false);
+  });
+});
+
+describe("calcSchemaScore", () => {
+  const key = [
+    { id: "k1", level: 1, start: 0, end: 10, label: "A" },
+    { id: "k2", level: 1, start: 10, end: 20, label: "B" },
+  ];
+  it("etiquetaCuenta=false (defecto): solo cuenta la colocación, igual que calcSchemaPlacementScore", () => {
+    const student = [{ level: 1, start: 0, end: 10, label: "cualquier cosa" }, { level: 1, start: 10, end: 20, label: "otra" }];
+    expect(calcSchemaScore(key, student, 3)).toBe(100);
+  });
+  it("etiquetaCuenta=true: colocación correcta con etiqueta no equivalente no cuenta", () => {
+    const student = [{ level: 1, start: 0, end: 10, label: "Z" }, { level: 1, start: 10, end: 20, label: "Desarrollo" }];
+    // k1 "A" vs "Z": no equivalente; k2 "B" vs "Desarrollo": sí (ranura 1) → 1/2
+    expect(calcSchemaScore(key, student, 3, { etiquetaCuenta: true })).toBe(50);
+  });
+  it("etiquetaCuenta=true con equivalencias personalizadas", () => {
+    const keyPuente = [{ id: "k1", level: 1, start: 0, end: 10, label: "Puente" }];
+    const student = [{ level: 1, start: 0, end: 10, label: "Transición" }];
+    expect(calcSchemaScore(keyPuente, student, 3, { etiquetaCuenta: true })).toBe(0);
+    expect(calcSchemaScore(keyPuente, student, 3, { etiquetaCuenta: true, equivalencias: [["Puente", "Transición"]] })).toBe(100);
+  });
+  it("bloque fuera de margen no cuenta aunque la etiqueta sea idéntica", () => {
+    const student = [{ level: 1, start: 100, end: 110, label: "A" }];
+    expect(calcSchemaScore([key[0]], student, 3)).toBe(0);
+  });
+  it("sin bloques de clave → null", () => {
+    expect(calcSchemaScore([], [], 3)).toBeNull();
+    expect(calcSchemaScore(null, [], 3)).toBeNull();
   });
 });

@@ -1,8 +1,7 @@
 // ═══ SCORING E INTERVALOS ════════════════════════════════════════════════════
 // Funciones puras de puntuación (interactivo, cuestionario, esquema) y utilidades
 // de intervalos. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
-import { partSlotIndex, phraseSlotIndex } from "./palette.js";
-import { ponderar } from "./calificacion.js";
+import { ponderar, labelsMatchForLevel, matchSchemaBlocks } from "./calificacion.js";
 
 // `fig` (opcional): id de cifrado de bajo (inversión) en categorías con
 // hasFigures — ver lib/figures.ts. Los ejercicios sin cifrado no lo llevan.
@@ -251,24 +250,6 @@ export const interactiveFigureDiagnostics = (
   return { evaluable, correct, pct: evaluable > 0 ? Math.round((correct / evaluable) * 100) : null, fallos };
 };
 
-const normalizeLabel = (s?: string | null): string =>
-  (s ?? "").trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-
-// Etiqueta correcta si coincide su ranura semántica (A/B/C/D para Partes,
-// a/b/c/d para Frases — así "Desarrollo" y "B" cuentan como la misma etiqueta,
-// que es justo lo que ya hace el color automático de la paleta). Si la ranura
-// no aplica a ninguna de las dos (niveles 3/4, o etiquetas fuera de patrón),
-// cae a igualdad de texto normalizado.
-const labelsMatchForLevel = (level: number, keyLabel?: string | null, studentLabel?: string | null): boolean => {
-  const slotFn = level === 1 ? partSlotIndex : level === 2 ? phraseSlotIndex : null;
-  if (slotFn) {
-    const a = slotFn(keyLabel), b = slotFn(studentLabel);
-    if (a != null && b != null) return a === b;
-  }
-  const nk = normalizeLabel(keyLabel);
-  return nk !== "" && nk === normalizeLabel(studentLabel);
-};
-
 export interface SchemaBlockDiagnostic {
   id?: string;
   level: number;
@@ -291,30 +272,21 @@ const SCHEMA_EXACT_TOLERANCE = 0.15;
 // de verdad. Esto separa dos preguntas que la nota de colocación mezcla: ¿el
 // alumno puso el bloque en el sitio correcto? y, por separado, ¿lo llamó como
 // tocaba? — un esquema puede colocar perfecto y nombrar mal, o viceversa.
+// N0.4: el emparejador clave↔alumno vive en calificacion.ts (matchSchemaBlocks),
+// compartido con calcSchemaScore — mismo comportamiento, antes inline aquí.
 export const schemaDiagnostics = (
   keyBlocks: SchemaBlock[] | null | undefined,
   studentBlocks: SchemaBlock[] | null | undefined,
   schemaMargin = 3,
 ): SchemaDiagnostics | null => {
   if (!keyBlocks?.length) return null;
-  const pool = [...(studentBlocks ?? [])];
-  const bloques: SchemaBlockDiagnostic[] = keyBlocks.map((kb): SchemaBlockDiagnostic => {
-    let best: SchemaBlock | null = null;
-    let bestDist = Infinity;
-    let bestIdx = -1;
-    for (let i = 0; i < pool.length; i++) {
-      const sb = pool[i];
-      if (sb.level !== kb.level) continue;
-      const dist = Math.max(Math.abs(sb.start - kb.start), Math.abs(sb.end - kb.end));
-      if (dist <= schemaMargin && dist < bestDist) { best = sb; bestDist = dist; bestIdx = i; }
-    }
-    if (!best) return { id: kb.id, level: kb.level, label: kb.label, estado: "falta", etiquetaOk: false };
-    pool.splice(bestIdx, 1);
-    const delta = Math.round((best.start - kb.start) * 10) / 10;
+  const { matches, sobrantes } = matchSchemaBlocks(keyBlocks, studentBlocks, schemaMargin);
+  const bloques: SchemaBlockDiagnostic[] = matches.map(({ key: kb, student: best, delta }): SchemaBlockDiagnostic => {
+    if (!best || delta == null) return { id: kb.id, level: kb.level, label: kb.label, estado: "falta", etiquetaOk: false };
     const estado = Math.abs(delta) <= SCHEMA_EXACT_TOLERANCE ? "exacto" : "desplazado";
     return { id: kb.id, level: kb.level, label: kb.label, estado, delta, etiquetaOk: labelsMatchForLevel(kb.level, kb.label, best.label) };
   });
-  return { bloques, sobrantes: pool };
+  return { bloques, sobrantes };
 };
 
 // Nota agregada de un ejercicio multiparte (F4): media ponderada por

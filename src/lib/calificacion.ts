@@ -4,6 +4,12 @@
 // la única función de agregación; todo lo demás (aggregateParts en scoring.ts,
 // las medias de N1, notaInstrumento…) se construye sobre ella. Ver
 // docs/PLAN_CALIFICACION.md.
+//
+// Módulo hoja a propósito: no importa de scoring.ts (que sí importa de aquí,
+// ponderar/labelsMatchForLevel/matchSchemaBlocks) para no crear un ciclo de
+// imports — mismo patrón que ya usa scoring.ts con su propio `Question` local
+// en vez de importarlo de types.ts.
+import { partSlotIndex, phraseSlotIndex } from "./palette.js";
 
 // N0.1 — la media ponderada: los null no cuentan ni en el numerador ni en el
 // denominador (permite "no penalizar lo aún no corregido"); redondeo entero.
@@ -117,4 +123,98 @@ export function notaInstrumento(
       return { nota: valor != null ? valor * 100 : null, peso: item.peso };
     }),
   );
+}
+
+// ─── N0.4: esquema — emparejador clave↔alumno compartido, equivalencia de
+// etiquetas y nota de colocación+etiqueta ────────────────────────────────────
+// SchemaBlock duplica la forma del homónimo de scoring.ts (id?/level/start/
+// end/label?) a propósito — mismo patrón local que ya usa scoring.ts, y
+// estructuralmente compatible (TS es estructural, no hace falta convertir).
+export interface SchemaBlock { id?: string; level: number; start: number; end: number; label?: string; }
+
+export const normalizeLabel = (s?: string | null): string =>
+  (s ?? "").trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+// Etiqueta correcta si coincide su ranura semántica (A/B/C/D para Partes,
+// a/b/c/d para Frases — "Desarrollo" y "B" cuentan como la misma etiqueta). Si
+// la ranura no aplica a ninguna de las dos (niveles 3/4, o fuera de patrón),
+// cae a igualdad de texto normalizado. Movida desde scoring.ts (N0.4): sigue
+// siendo la que usa schemaDiagnostics para su etiquetaOk, ahora importada.
+export const labelsMatchForLevel = (level: number, keyLabel?: string | null, studentLabel?: string | null): boolean => {
+  const slotFn = level === 1 ? partSlotIndex : level === 2 ? phraseSlotIndex : null;
+  if (slotFn) {
+    const a = slotFn(keyLabel), b = slotFn(studentLabel);
+    if (a != null && b != null) return a === b;
+  }
+  const nk = normalizeLabel(keyLabel);
+  return nk !== "" && nk === normalizeLabel(studentLabel);
+};
+
+export interface SchemaBlockMatch { key: SchemaBlock; student: SchemaBlock | null; delta: number | null; }
+
+// Empareja cada bloque de la clave con, como mucho, un bloque del alumno del
+// mismo nivel y dentro del margen (el más cercano; cada bloque del alumno se
+// usa una sola vez) — extraído de schemaDiagnostics para compartirlo con
+// calcSchemaScore; el comportamiento no cambia (mismos tests de schemaDiagnostics).
+export function matchSchemaBlocks(
+  keyBlocks: SchemaBlock[],
+  studentBlocks: SchemaBlock[] | null | undefined,
+  margin: number,
+): { matches: SchemaBlockMatch[]; sobrantes: SchemaBlock[] } {
+  const pool = [...(studentBlocks ?? [])];
+  const matches: SchemaBlockMatch[] = keyBlocks.map((kb) => {
+    let best: SchemaBlock | null = null;
+    let bestDist = Infinity;
+    let bestIdx = -1;
+    for (let i = 0; i < pool.length; i++) {
+      const sb = pool[i];
+      if (sb.level !== kb.level) continue;
+      const dist = Math.max(Math.abs(sb.start - kb.start), Math.abs(sb.end - kb.end));
+      if (dist <= margin && dist < bestDist) { best = sb; bestDist = dist; bestIdx = i; }
+    }
+    if (!best) return { key: kb, student: null, delta: null };
+    pool.splice(bestIdx, 1);
+    const delta = Math.round((best.start - kb.start) * 10) / 10;
+    return { key: kb, student: best, delta };
+  });
+  return { matches, sobrantes: pool };
+}
+
+// Unión de labelsMatchForLevel (ranura semántica) y los grupos de sinónimos
+// que el profesor define en el ejercicio (p. ej. "Puente" = "Transición",
+// que no comparten ranura y por tanto labelsMatchForLevel por sí sola no
+// cubre). Normaliza tildes/mayúsculas antes de comparar contra cada grupo.
+export function etiquetaEquivalente(
+  level: number,
+  a: string | null | undefined,
+  b: string | null | undefined,
+  equivalencias: string[][] = [],
+): boolean {
+  if (labelsMatchForLevel(level, a, b)) return true;
+  const na = normalizeLabel(a), nb = normalizeLabel(b);
+  if (!na || !nb) return false;
+  return equivalencias.some((grupo) => {
+    const normGrupo = grupo.map(normalizeLabel);
+    return normGrupo.includes(na) && normGrupo.includes(nb);
+  });
+}
+
+// % de bloques de la clave con colocación dentro de margen y, si etiquetaCuenta,
+// con etiqueta equivalente. calcSchemaPlacementScore (scoring.ts) sigue siendo
+// el lector legado para ejercicios sin sobre `evaluacion` (regla de oro 1).
+export function calcSchemaScore(
+  keyBlocks: SchemaBlock[] | null | undefined,
+  studentBlocks: SchemaBlock[] | null | undefined,
+  margin: number,
+  opts: { etiquetaCuenta?: boolean; equivalencias?: string[][] } = {},
+): number | null {
+  if (!keyBlocks?.length) return null;
+  const { etiquetaCuenta = false, equivalencias = [] } = opts;
+  const { matches } = matchSchemaBlocks(keyBlocks, studentBlocks, margin);
+  const correct = matches.filter(({ key, student }) => {
+    if (!student) return false;
+    if (!etiquetaCuenta) return true;
+    return etiquetaEquivalente(key.level, key.label, student.label, equivalencias);
+  }).length;
+  return Math.round((correct / keyBlocks.length) * 100);
 }
