@@ -2,6 +2,7 @@
 // Funciones puras de puntuación (interactivo, cuestionario, esquema) y utilidades
 // de intervalos. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { partSlotIndex, phraseSlotIndex } from "./palette.js";
+import { ponderar } from "./calificacion.js";
 
 // `fig` (opcional): id de cifrado de bajo (inversión) en categorías con
 // hasFigures — ver lib/figures.ts. Los ejercicios sin cifrado no lo llevan.
@@ -321,16 +322,10 @@ export const schemaDiagnostics = (
 // automática (esquema/desarrollo sin corregir aún, null) no cuentan en el
 // promedio ni en el peso total, para no penalizar lo que el profesor
 // todavía no ha corregido. null si ninguna parte tiene nota.
-export const aggregateParts = (scores: Array<number | null | undefined>, points: number[] = []): number | null => {
-  let weightedSum = 0, totalWeight = 0;
-  scores.forEach((s, i) => {
-    if (s == null) return;
-    const w = points[i] ?? 1;
-    weightedSum += s * w;
-    totalWeight += w;
-  });
-  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
-};
+// N0.1: reimplementada sobre `ponderar` (calificacion.ts) — misma firma y
+// mismo comportamiento, ahora como caso particular de la única aritmética.
+export const aggregateParts = (scores: Array<number | null | undefined>, points: number[] = []): number | null =>
+  ponderar(scores.map((s, i) => ({ nota: s ?? null, peso: points[i] ?? 1 })));
 
 // Nota en escala académica 0–10 (Jon, 2026-07-05): las notas se ALMACENAN en
 // 0–100 (compatible con todos los resultados guardados y con scoreColor/
