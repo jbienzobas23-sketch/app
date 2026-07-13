@@ -6,11 +6,49 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
-import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
+import { courseUnitList, unitExList, keyReadyOf, unitAverage, courseAverage, mediaStatusOf, type MediaStatus } from "../lib/domain.js";
+import { pesosDeCurso } from "../lib/calificacion.js";
+import { nota10 } from "../lib/scoring.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { ProgressRing, CtaButton, Menu, Fab } from "./primitives.jsx";
+import { ProgressRing, CtaButton, Menu, Fab, PesoEditor, PesoChip } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 import { KebabMenu } from "./KebabMenu.jsx";
+
+// ── N1: pesos → reparto en % normalizado a 100 (PLAN_CALIFICACION.md) ───────
+// pesosDeCurso/pesosDeUnidad ya resuelven el peso tolerante por fila; aquí solo
+// se normaliza a porcentaje para el texto de reparto y el modo equitativa del
+// chip — no se fuerza que los pesos guardados sumen 100 (regla de oro 4).
+function reparto(pesos: { id: string; peso: number }[]): { id: string; pct: number }[] {
+  const total = pesos.reduce((s, p) => s + p.peso, 0);
+  return pesos.map((p) => ({ id: p.id, pct: total > 0 ? Math.round((p.peso / total) * 100) : 0 }));
+}
+
+const MEDIA_GLYPH: Record<MediaStatus, string> = { corregido: "●", provisional: "◐", pendiente: "○" };
+
+// Nota + glifo de una media agregada (curso o unidad) — mismo par que ya usa
+// ScoreBadge para una entrega suelta, pero sin ocultar la nota provisional
+// cuando queda algo pendiente (aquí SIEMPRE hay un número que mostrar, salvo
+// que nada tenga nota todavía).
+function MediaScore({ nota, pendientes, total, big }: { nota: number | null; pendientes: number; total: number; big?: boolean }) {
+  if (total === 0) return null;
+  const status = mediaStatusOf({ nota, pendientes });
+  return (
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+      <span style={{ fontFamily: F.sans, fontWeight: 600, fontSize: big ? 30 : 15, color: C.ink }}>{nota10(nota) ?? "—"}</span>
+      <span style={{ fontFamily: F.sans, fontSize: big ? 15 : 12, color: C.ink2 }}>{MEDIA_GLYPH[status]}</span>
+    </span>
+  );
+}
+
+// Línea "⏳ provisional · n pendientes" bajo una cabecera con media agregada.
+function ProvisionalNote({ pendientes, singular, plural }: { pendientes: number; singular: string; plural: string }) {
+  if (pendientes <= 0) return null;
+  return (
+    <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, margin: "2px 0 10px" }}>
+      ⏳ provisional · {pendientes} {pendientes === 1 ? singular : plural}
+    </div>
+  );
+}
 
 // ── Tipos auxiliares de callbacks compartidos por las vistas de cursos ────────
 type AskConfirm = (message: string, onConfirm: () => void) => void;
@@ -310,17 +348,31 @@ interface UnitsListProps {
   selUnitId: string | null; onSelectUnit: (unitId: string) => void; onCreateUnit?: (courseId: string) => void;
   onEditUnit?: (unit: Unit) => void; onUpdateUnit?: (unit: Unit) => void; onDeleteUnit?: (unitId: string, courseId: string) => void;
   onAfterDeleteUnit?: () => void; askConfirm?: AskConfirm;
+  onUpdateCourse?: (course: Course) => void;
 }
-export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit = noop, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop }: UnitsListProps) {
+export function UnitsList({ course, units, exercises, role, results, selUnitId, onSelectUnit, onCreateUnit = noop, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop, onUpdateCourse = noop }: UnitsListProps) {
   const cu = courseUnitList(course, units, role);
+  // N1.2: pesos de las unidades sobre la media del curso (fa_courses.data.evaluacion).
+  const pesos = pesosDeCurso(course, cu.map((u) => u.id));
+  const rep = reparto(pesos);
+  const modo = course.evaluacion?.modo === "personalizada" ? "personalizada" : "equitativa";
   return (
     <div>
       <div style={{ fontFamily: F.sans, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, padding: "2px 4px 10px" }}>Unidades</div>
+      {/* Con 0 ó 1 unidad, ponderar es un no-op (siempre 100%) — se omite el
+          conmutador para no mostrar un control sin efecto (Jon, N1: sin ruido). */}
+      {role === "teacher" && cu.length > 1 && (
+        <div style={{ padding: "0 4px 12px" }}>
+          <PesoEditor modo={modo} reparto={rep.map((r) => r.pct)}
+            onModoChange={(m) => onUpdateCourse({ ...course, evaluacion: { modo: m, pesos: course.evaluacion?.pesos ?? {} } })} />
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 4px 8px" }}>Este curso no tiene unidades todavía.</p>
-          : cu.map((u) => {
+          : cu.map((u, i) => {
               const s  = unitProgress(u, exercises, role, results);
+              const avg = unitAverage(u, exercises, results, role);
               const on = u.id === selUnitId;
               const select = () => onSelectUnit(u.id);
               return (
@@ -337,6 +389,14 @@ export function UnitsList({ course, units, exercises, role, results, selUnitId, 
                     <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: on ? C.ink : C.ink2, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
                     {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
                   </span>
+                  {cu.length > 1 && (
+                    <PesoChip
+                      value={modo === "personalizada" ? (pesos[i]?.peso ?? 1) : (rep[i]?.pct ?? 0)}
+                      editable={role === "teacher" && modo === "personalizada"}
+                      onChange={(n) => onUpdateCourse({ ...course, evaluacion: { modo: "personalizada", pesos: { ...(course.evaluacion?.pesos ?? {}), [u.id]: n } } })}
+                    />
+                  )}
+                  <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />
                   {role === "teacher" && on && (
                     <KebabMenu size={26} title={`Acciones de la unidad "${u.name}"`} items={[
                       { label: u.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateUnit({ ...u, hidden: !u.hidden }) },
@@ -379,6 +439,7 @@ export function CourseDetail({
   if (!course) return null;
   const cu   = courseUnitList(course, units, role);
   const unit = cu.find((u) => u.id === selUnitId) || cu[0] || null;
+  const avg  = courseAverage(course, units, exercises, results, role);
   return (
     <div style={{ fontFamily: F.sans }}>
       {/* Barra de título (Jon, 2026-07-06): botón de volver como flecha suelta
@@ -386,7 +447,7 @@ export function CourseDetail({
           derecha); el nombre ya no es un desplegable para cambiar de curso
           (se quita esa flecha — para eso ya está "volver a cursos" + elegir
           otro); "Público"/insignia de visibilidad pasa a la derecha, junto
-          al menú ⋯. */}
+          al menú ⋯. N1.2: media del curso entre el título y las acciones. */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: course.description ? 10 : 20 }}>
         <button onClick={onBack} aria-label="Volver a cursos" title="Volver a cursos" className="fa-pressable"
           style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, color: "#888", cursor: "pointer", flexShrink: 0 }}>
@@ -394,6 +455,7 @@ export function CourseDetail({
         </button>
         <h3 style={{ fontFamily: F.serif, fontSize: 30, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.05, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</h3>
         <span style={{ flex: 1 }} />
+        <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} big />
         {role === "teacher" && <CourseVisBadge course={course} groups={groups} />}
         {role === "teacher" && (
           <KebabMenu title={`Acciones del curso "${course.name}"`} items={[
@@ -403,19 +465,22 @@ export function CourseDetail({
           ]} />
         )}
       </div>
+      <ProvisionalNote pendientes={avg.pendientes} singular="unidad pendiente" plural="unidades pendientes" />
       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888", margin: "-4px 0 18px" }}>{course.description}</div>}
 
       {/* Dos columnas: barra lateral de unidades a 1/3 del ancho (antes 236px
           fijos, quedaba estrecha) + ejercicios a 2/3 (sin tarjeta), Jon 2026-07-06. */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(236px, 1fr) 2fr", gap: 18, alignItems: "start" }}>
         <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit}
-          onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm} />
+          onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm}
+          onUpdateCourse={onUpdateCourse} />
         <div style={{ minWidth: 0 }}>
           <CourseExercisesPanel
             unit={unit} course={course} exercises={exercises} role={role} results={results} isMobile={false}
             onExercise={onExercise} onViewCorrection={onViewCorrection}
             onPickFromBank={onPickFromBank} onCreateNewExInUnit={onCreateNewExInUnit} onRemoveExFromUnit={onRemoveExFromUnit} onSelectExercise={onSelectExercise}
             onToggleVisibility={onToggleVisibility} onPreview={onPreview} onDuplicate={onDuplicate} onDeleteExercise={onDeleteExercise}
+            onUpdateUnit={onUpdateUnit}
             askConfirm={askConfirm} />
         </div>
       </div>
