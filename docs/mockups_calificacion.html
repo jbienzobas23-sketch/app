@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Análisis Auditivo · calificación</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f8f8f6;--paper:#fff;--paper2:#f0f0ee;--ink:#1a1a1a;--ink2:#555;--muted:#8a8a82;--line:#e6e6e3;--noteBg:#fffaeb;--noteInk:#c07427;--quiz:#2F6FB8;--danger:#B84A3A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14.5px/1.45 Outfit,sans-serif}
+.app{max-width:760px;margin:0 auto;padding:22px 16px 72px}
+.brand{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;margin-bottom:4px}
+.tabs{display:flex;gap:16px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tab{background:none;border:none;padding:9px 2px;font:500 14px Outfit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+.panel{display:none}.panel.on{display:block}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;margin:0}
+h2{font-size:15px;font-weight:600;margin:0}
+.big{font-size:30px;font-weight:600}
+.sub{font-size:13px;color:var(--muted)}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.name{flex:1;min-width:0}
+.chip{background:var(--paper2);border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:12.5px;color:var(--ink2);white-space:nowrap}
+.nota{font-weight:600;min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
+.g{color:var(--ink2);font-weight:400}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:var(--paper);border:none;padding:5px 12px;font:500 13px Outfit;color:var(--muted);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--paper2);color:var(--ink)}
+.sect{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:16px 0 4px}
+.card .sect:first-child{margin-top:0}
+.rub{display:grid;grid-template-columns:1.15fr repeat(3,1fr);gap:6px;margin-top:8px}
+.rh{font-size:11.5px;color:var(--muted);text-align:center;align-self:end;padding-bottom:2px}
+.it{font-size:13px;display:flex;flex-direction:column;gap:3px;justify-content:center}
+.it .chip{align-self:flex-start}
+.cel{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:8px 6px;font:400 12px Outfit;color:var(--ink2);cursor:pointer;text-align:center}
+.cel.on{border-color:var(--ink);color:var(--ink);font-weight:600}
+.cel.on::before{content:"✓ "}
+.note{background:var(--noteBg);color:var(--noteInk);border-radius:8px;padding:9px 12px;font-size:13.5px;display:flex;gap:10px;margin-top:12px}
+.anchor{font-weight:600;white-space:nowrap}
+.ninput{width:64px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:600 14px Outfit;text-align:right;color:var(--ink)}
+.tb{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.tb th{font:500 11.5px Outfit;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);text-align:right;padding:4px 6px}
+.tb th:first-child,.tb td:first-child{text-align:left;padding-left:0}
+.tb td{border-top:1px solid var(--line);padding:8px 6px;text-align:right;white-space:nowrap}
+.danger{color:var(--danger);font-weight:600}
+.btn{background:var(--paper2);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font:500 13px Outfit;color:var(--ink);cursor:pointer}
+.qt{color:var(--quiz);font-weight:600}
+.fin{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="brand">Análisis Auditivo</div>
+<div class="tabs">
+  <button class="tab on" data-t="curso">Curso</button>
+  <button class="tab" data-t="ej">Ejercicio</button>
+  <button class="tab" data-t="corr">Corrección</button>
+  <button class="tab" data-t="cuad">Cuaderno</button>
+</div>
+
+<div class="panel on" id="t-curso">
+  <div class="card">
+    <div class="hd">
+      <div><h1>Armonía II</h1><div class="sub">◐ provisional · 1 unidad pendiente</div></div>
+      <div class="big" id="cursoNota">7,4</div>
+    </div>
+    <div style="margin:10px 0 4px">
+      <span class="seg" id="segPesos"><button data-m="eq">Equitativa</button><button data-m="pe" class="on">Personalizada</button></span>
+    </div>
+    <div class="row"><span class="name">1 · Tríadas y enlace</span><span class="chip p">20 %</span><span class="nota">8,1 <span class="g">●</span></span></div>
+    <div class="row"><span class="name">2 · Dominantes secundarias</span><span class="chip p">30 %</span><span class="nota">6,9 <span class="g">◐</span></span></div>
+    <div class="row"><span class="name">3 · Modulación diatónica</span><span class="chip p">50 %</span><span class="nota">— <span class="g">○</span></span></div>
+  </div>
+  <div class="card">
+    <div class="hd"><h2>2 · Dominantes secundarias</h2><span class="nota">6,9 <span class="g">◐</span></span></div>
+    <div class="row" style="margin-top:8px"><span class="name">Coral Bach BWV 253</span><span class="chip">40 %</span><span class="nota">7,7 <span class="g">●</span></span></div>
+    <div class="row"><span class="name">Dictado armónico 12</span><span class="chip">35 %</span><span class="nota">5,9 <span class="g">◐</span></span></div>
+    <div class="row"><span class="name">Esquema · forma binaria</span><span class="chip">25 %</span><span class="nota">— <span class="g">○</span></span></div>
+  </div>
+</div>
+
+<div class="panel" id="t-ej">
+  <div class="card">
+    <div class="hd"><h2>Coral Bach BWV 253</h2><span class="sub">Claves · Calificación</span></div>
+    <div class="sect" style="margin-top:12px">Niveles</div>
+    <div class="row"><span class="name">Grados</span><span class="chip">70 %</span></div>
+    <div class="row"><span class="name">Cifrado de inversiones</span><span class="chip">30 %</span></div>
+    <div class="sect">Etiqueta de bloques (esquema)</div>
+    <div class="row"><span class="name">Cuenta en la nota</span><span class="seg"><button class="on">Sí</button><button>No</button></span></div>
+    <div class="row"><span class="name sub">Equivalencias</span><span class="chip">A = Desarrollo</span><span class="chip">Puente = Transición</span><span class="chip">+</span></div>
+    <div class="sect">Partes</div>
+    <div class="row"><span class="name">Audio 1 · Exposición</span><span class="chip">60 %</span></div>
+    <div class="row"><span class="name">Audio 2 · Reexposición</span><span class="chip">40 %</span></div>
+  </div>
+</div>
+
+<div class="panel" id="t-corr">
+  <div class="card">
+    <div class="hd"><h2>Coral Bach BWV 253 · Maite Aguirre</h2><span class="sub">preliminar <span class="g">◐</span> 6,4</span></div>
+    <div class="row" style="margin-top:10px;border-top:0"><span class="name"><span class="qt">3</span> · Analiza la modulación hacia el compás 12</span><span class="chip">desarrollo · 4 pt</span></div>
+    <span class="seg" id="segFuente"><button data-f="inst" class="on">Rúbrica</button><button data-f="dir">Nota directa</button></span>
+    <div id="rub" class="rub">
+      <div></div><div class="rh">Insuficiente · 0</div><div class="rh">Adecuado · 0,5</div><div class="rh">Notable · 1</div>
+    </div>
+    <div id="directa" style="display:none;margin-top:12px"><label class="sub" style="margin-right:8px">Nota</label><input class="ninput" id="ndir" value="7,5"></div>
+    <div class="fin"><span class="sub">Final</span><span class="nota" style="font-size:20px"><span id="finalNota">8,0</span> <span class="g">●</span></span></div>
+    <div class="note"><span class="anchor">Bloque · c. 12–16</span><span>El acorde pivote es vi de La mayor, no ii.</span></div>
+  </div>
+</div>
+
+<div class="panel" id="t-cuad">
+  <div class="card">
+    <div class="hd"><h2>Armonía II · Calificaciones</h2><button class="btn">Exportar CSV</button></div>
+    <table class="tb" style="margin-top:10px">
+      <tr><th>Alumno</th><th>UD 1 · 20 %</th><th>UD 2 · 30 %</th><th>UD 3 · 50 %</th><th>Media</th></tr>
+      <tr><td>Aguirre, Maite</td><td>8,1 <span class="g">●</span></td><td>6,9 <span class="g">◐</span></td><td>— <span class="g">○</span></td><td><b>7,4</b> <span class="g">◐</span></td></tr>
+      <tr><td>Etxebarria, Unai</td><td>6,2 <span class="g">●</span></td><td>5,1 <span class="g">◐</span></td><td>— <span class="g">○</span></td><td><b>5,5</b> <span class="g">◐</span></td></tr>
+      <tr><td>Ibarra, Nora</td><td><span class="danger">4,6 ▾</span> <span class="g">●</span></td><td>5,9 <span class="g">◐</span></td><td>— <span class="g">○</span></td><td><b>5,4</b> <span class="g">◐</span></td></tr>
+      <tr><td>Ortiz, Danel</td><td>9,0 <span class="g">●</span></td><td>8,4 <span class="g">●</span></td><td>— <span class="g">○</span></td><td><b>8,6</b> <span class="g">◐</span></td></tr>
+    </table>
+    <div class="sub" style="margin-top:10px">● corregida · ◐ automática · ○ pendiente · ▾ inferior a 5</div>
+  </div>
+</div>
+</div>
+
+<script>
+var F=function(n){return n.toFixed(1).replace('.',',')};
+
+document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){
+  document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+  document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on')});
+  b.classList.add('on');document.getElementById('t-'+b.dataset.t).classList.add('on');
+}});
+
+var uds=[{n:8.1,w:20},{n:6.9,w:30},{n:null,w:50}];
+document.getElementById('segPesos').querySelectorAll('button').forEach(function(b){b.onclick=function(){
+  b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');
+  var eq=b.dataset.m==='eq',chips=document.querySelectorAll('#t-curso .chip.p'),num=0,den=0;
+  uds.forEach(function(u,i){var w=eq?1:u.w;chips[i].textContent=(eq?33:u.w)+' %';
+    if(u.n!==null){num+=u.n*w;den+=w}});
+  document.getElementById('cursoNota').textContent=F(num/den);
+}});
+
+var items=[{t:'Identifica tonalidades',w:40,d:['No las sitúa','Sitúa la principal','Ambas y el pivote']},
+           {t:'Justifica el pivote',w:40,d:['Ausente','Parcial','Completa']},
+           {t:'Nomenclatura',w:20,d:['Confusa','Irregular','Consistente']}];
+var vals=[0,0.5,1],sel=[2,1,2],fuente='inst',rub=document.getElementById('rub');
+items.forEach(function(it,i){
+  var c=document.createElement('div');c.className='it';
+  c.innerHTML='<span>'+it.t+'</span><span class="chip">'+it.w+' %</span>';rub.appendChild(c);
+  it.d.forEach(function(d,l){
+    var b=document.createElement('button');b.className='cel';b.textContent=d;
+    b.onclick=function(){sel[i]=l;paintRub()};b.dataset.i=i;b.dataset.l=l;rub.appendChild(b);
+  });
+});
+function rubNota(){var num=0,den=0;items.forEach(function(it,i){num+=vals[sel[i]]*10*it.w;den+=it.w});return num/den}
+function paintFinal(){
+  var v=fuente==='inst'?F(rubNota()):document.getElementById('ndir').value;
+  document.getElementById('finalNota').textContent=v;
+}
+function paintRub(){
+  rub.querySelectorAll('.cel').forEach(function(b){b.classList.toggle('on',sel[b.dataset.i]==b.dataset.l)});
+  paintFinal();
+}
+document.getElementById('segFuente').querySelectorAll('button').forEach(function(b){b.onclick=function(){
+  b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');
+  fuente=b.dataset.f;document.getElementById('directa').style.display=fuente==='dir'?'block':'none';paintFinal();
+}});
+document.getElementById('ndir').oninput=paintFinal;
+paintRub();
+</script>
+</body>
+</html>
