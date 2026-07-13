@@ -3,6 +3,7 @@
 // índice abierto) para una migración gradual: el objeto exercise tiene muchos
 // campos usados por toda la app; aquí se tipan los que consumen los módulos ya
 // migrados, sin romper el acceso a los demás. Se irán afinando.
+import type { EvaluacionExercise, Instrumento, PesoConfig } from "./calificacion.js";
 
 export interface Button {
   id: string;
@@ -50,6 +51,9 @@ export interface Question {
   // grafías válidas; se comparan con gradeShort (scoring.ts), que normaliza
   // mayúsculas/tildes/espacios antes de comparar.
   accepted?: string[];
+  // Instrumento de corrección (N0/N3, calificacion.ts) para preguntas de
+  // desarrollo — copia inline al adjuntar, no una referencia a la plantilla.
+  evaluacion?: { instrumento?: Instrumento };
   [k: string]: unknown;
 }
 
@@ -110,6 +114,11 @@ export interface Exercise {
   // de arriba — todo ejercicio existente es, automáticamente, un multiparte
   // de una parte (sin migración).
   parts?: Part[];
+  // Sobre de calificación (N0, calificacion.ts): niveles del interactivo,
+  // etiqueta del esquema, pesos por modelo de un híbrido, instrumento propio.
+  // Ausente ⇒ comportamiento actual (nivelesDe/etiquetaCuentaDe... tienen su
+  // propio valor por defecto tolerante).
+  evaluacion?: EvaluacionExercise;
   [k: string]: unknown;
 }
 
@@ -139,6 +148,9 @@ export interface Unit {
   description?: string;
   exerciseIds?: string[];
   hidden?: boolean;
+  // Pesos de los ejercicios en la media de la unidad (N0/N1). Ausente ⇒
+  // equitativa (pesosDeUnidad devuelve peso 1 para todos).
+  evaluacion?: PesoConfig;
   [k: string]: unknown;
 }
 
@@ -151,6 +163,8 @@ export interface Course {
   ownerId?: string;
   visibility?: string;
   visibilityGroupId?: string | null;
+  // Pesos de las unidades en la media del curso (N0/N1). Ausente ⇒ equitativa.
+  evaluacion?: PesoConfig;
   [k: string]: unknown;
 }
 
