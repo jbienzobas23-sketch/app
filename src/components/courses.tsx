@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/types.js";
 import { C, F, S } from "../theme/tokens.js";
 import { courseUnitList, unitExList, keyReadyOf, unitAverage, courseAverage, mediaStatusOf, type MediaStatus } from "../lib/domain.js";
-import { pesosDeCurso } from "../lib/calificacion.js";
+import { pesosDeCurso, pesosDeUnidad } from "../lib/calificacion.js";
 import { nota10 } from "../lib/scoring.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { ProgressRing, CtaButton, Menu, Fab, PesoEditor, PesoChip } from "./primitives.jsx";
@@ -259,12 +259,21 @@ export function CourseExercisesPanel({
   onExercise, onViewCorrection,
   onPickFromBank = noop, onCreateNewExInUnit = noop, onRemoveExFromUnit = noop, onSelectExercise = noop,
   onToggleVisibility, onPreview, onDuplicate, onDeleteExercise,
+  onUpdateUnit = noop,
   askConfirm = noop,
 }: CourseExercisesPanelProps) {
   if (!unit) {
     return <div style={{ padding: "56px 20px", textAlign: "center", fontFamily: F.serif, fontSize: 19, color: C.ink2 }}>Selecciona una unidad</div>;
   }
   const exs = unitExList(unit, exercises, role);
+  // N1.3: media de la unidad + pesos de sus ejercicios (fa_units.data.evaluacion).
+  // Edición de pesos solo en escritorio (el móvil solo lee — evita anidar un
+  // input dentro de la fila táctil, ver PesoChip/mockup); la media sí se ve
+  // en ambos (aquí en escritorio, en la cabecera de MobileExercisesScreen).
+  const avg = unitAverage(unit, exercises, results, role);
+  const pesos = pesosDeUnidad(unit, exs.map((e) => String(e.id)));
+  const rep = reparto(pesos);
+  const modo = unit.evaluacion?.modo === "personalizada" ? "personalizada" : "equitativa";
 
   if (role === "teacher") {
     // Sin cabecera de unidad (el nombre ya está en la barra lateral): solo la
@@ -273,18 +282,42 @@ export function CourseExercisesPanel({
     // el título de la unidad y su marca «oculta».
     return (
       <div>
-        {!isMobile && <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>}
+        {!isMobile && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>
+            <span style={{ flex: 1 }} />
+            <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />
+          </div>
+        )}
+        {!isMobile && <ProvisionalNote pendientes={avg.pendientes} singular="ejercicio pendiente" plural="ejercicios pendientes" />}
+        {!isMobile && exs.length > 1 && (
+          <div style={{ padding: "0 0 12px" }}>
+            <PesoEditor modo={modo} reparto={rep.map((r) => r.pct)}
+              onModoChange={(m) => onUpdateUnit({ ...unit, evaluacion: { modo: m, pesos: unit.evaluacion?.pesos ?? {} } })} />
+          </div>
+        )}
         {exs.length
           ? <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
-              {exs.map((ex) => (
-                <ExerciseItem key={ex.id} ex={ex} role="teacher" variant="row" compact={isMobile}
-                  onEdit={(e) => onSelectExercise(String(e.id))}
-                  onPreview={onPreview}
-                  onToggleVisibility={onToggleVisibility}
-                  onDuplicate={onDuplicate}
-                  onDelete={onDeleteExercise}
-                  onRemoveFromUnit={() => onRemoveExFromUnit(unit.id, String(ex.id))}
-                  askConfirm={askConfirm} />
+              {exs.map((ex, i) => (
+                <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <ExerciseItem ex={ex} role="teacher" variant="row" compact={isMobile}
+                      onEdit={(e) => onSelectExercise(String(e.id))}
+                      onPreview={onPreview}
+                      onToggleVisibility={onToggleVisibility}
+                      onDuplicate={onDuplicate}
+                      onDelete={onDeleteExercise}
+                      onRemoveFromUnit={() => onRemoveExFromUnit(unit.id, String(ex.id))}
+                      askConfirm={askConfirm} />
+                  </div>
+                  {!isMobile && exs.length > 1 && (
+                    <PesoChip
+                      value={modo === "personalizada" ? (pesos[i]?.peso ?? 1) : (rep[i]?.pct ?? 0)}
+                      editable={modo === "personalizada"}
+                      onChange={(n) => onUpdateUnit({ ...unit, evaluacion: { modo: "personalizada", pesos: { ...(unit.evaluacion?.pesos ?? {}), [String(ex.id)]: n } } })}
+                    />
+                  )}
+                </div>
               ))}
             </div>
           : <div style={{ marginBottom: 10 }}><EmptyExercises role={role} /></div>}
@@ -323,16 +356,31 @@ export function CourseExercisesPanel({
   }
 
   // alumno — en móvil sin eyebrow de conteo (Jon, 2026-07-12): el anillo de
-  // progreso de la cabecera de la pantalla ya dice n/m.
+  // progreso de la cabecera de la pantalla ya dice n/m. N1.4: misma media en
+  // lectura (nunca edición) que ve el profesor.
   const s = unitProgress(unit, exercises, role, results);
   return (
     <div>
-      {!isMobile && <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>}
+      {!isMobile && (
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>
+          <span style={{ flex: 1 }} />
+          <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />
+        </div>
+      )}
+      {!isMobile && <ProvisionalNote pendientes={avg.pendientes} singular="ejercicio pendiente" plural="ejercicios pendientes" />}
       {exs.length
         ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
-            {exs.map((ex) => (
-              <ExerciseItem key={String(ex.id)} ex={ex} role="student" variant="row" compact={isMobile}
-                result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />
+            {exs.map((ex, i) => (
+              <div key={String(ex.id)} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <ExerciseItem ex={ex} role="student" variant="row" compact={isMobile}
+                    result={results[String(ex.id)]} onOpen={onExercise!} onViewCorrection={onViewCorrection} />
+                </div>
+                {!isMobile && exs.length > 1 && (
+                  <PesoChip value={modo === "personalizada" ? (pesos[i]?.peso ?? 1) : (rep[i]?.pct ?? 0)} editable={false} />
+                )}
+              </div>
             ))}
           </div>
         : <EmptyExercises role={role} />}
