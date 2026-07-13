@@ -19,13 +19,14 @@ import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
-import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC } from "../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC, SCHEMA_CAP_W } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
 import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
 import { useListenOnlyMarks } from "../hooks/useListenOnlyMarks.js";
+import { useIsMobile } from "../hooks/useIsMobile.js";
 import { CircleButton, AudioLoadingOverlay, SessionHeader, SessionHint, StickyActionBar, BarSubmitButton, BarIconButton } from "./primitives.jsx";
 import { WaveformDisplay } from "./session.js";
 import { RepeatManagerModal } from "./ExerciseView.js";
@@ -77,6 +78,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   const timeRef = useRef(0);
   timeRef.current = time;
+  const isMobile = useIsMobile();
 
   const [selectedRepId, setSelectedRepId] = useState<string | null>(null); // rep seleccionada en la banda
   // Las guías de snap durante el arrastre ya NO son estado — se pintan por
@@ -157,7 +159,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // C4.3g: refs para pintar el arrastre de bloques directamente sobre el DOM
   // (rAF), sin pasar por setBlocks/setGuides en cada evento — ver el efecto
   // principal de arrastre más abajo para el porqué.
-  const blockElRefs = useRef<Record<string, HTMLElement | null>>({});
+  const blockElRefs  = useRef<Record<string, HTMLElement | null>>({});
+  // Asas de borde (hl-<id>/hr-<id>/sh-<leftId>-<rightId>), pintadas junto al
+  // bloque en el mismo bucle rAF — si no, quedan ancladas a la posición
+  // pre-arrastre hasta soltar (ver paintDrag).
+  const handleElRefs = useRef<Record<string, HTMLElement | null>>({});
   const guideElRefs = useRef<(HTMLDivElement | null)[]>([null, null]); // máx. 2 guías simultáneas
   const dragRafRef  = useRef<number | null>(null);
 
@@ -519,6 +525,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     el.style.left  = isPill ? `${lPct}%` : `calc(${lPct}% + 1px)`;
     el.style.width = isPill ? `${wPct}%` : `calc(${wPct}% - 2px)`;
   };
+  // % del mismo segmento (segMin/segMax) donde vive el bloque arrastrado —
+  // idéntica fórmula que usa SegBlocks para lPct/rPct/pct al renderizar.
+  const pctOfSeg = (t: number, segMin: number, segMax: number) =>
+    Math.max(0, ((t - segMin) / ((segMax - segMin) || 1)) * 100);
+  const paintHandlePos = (key: string, leftExpr: string) => {
+    const el = handleElRefs.current[key]; if (!el) return;
+    el.style.left = leftExpr;
+  };
   const paintCascade = (d: any) => {
     if (!d.cascadeIds?.length) return;
     for (const ci of d.cascadeIds) {
@@ -538,11 +552,21 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     if (d.type === "create") {
       paintBlockPos(d.pid, d.level, d.ps, d.pe, d.segMin, d.segMax);
     } else if (d.type === "move") {
-      if (d.liveStart != null) paintBlockPos(d.bid, d.level, d.liveStart, d.liveEnd, d.segMin, d.segMax);
+      if (d.liveStart != null) {
+        paintBlockPos(d.bid, d.level, d.liveStart, d.liveEnd, d.segMin, d.segMax);
+        paintHandlePos(`hl-${d.bid}`, `${pctOfSeg(d.liveStart, d.segMin, d.segMax)}%`);
+        paintHandlePos(`hr-${d.bid}`, `calc(${pctOfSeg(d.liveEnd, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W}px)`);
+      }
     } else if (d.type === "resize-l") {
-      if (d.liveBoundary != null) { paintBlockPos(d.bid, d.level, d.liveBoundary, d.oe, d.segMin, d.segMax); paintCascade(d); }
+      if (d.liveBoundary != null) {
+        paintBlockPos(d.bid, d.level, d.liveBoundary, d.oe, d.segMin, d.segMax); paintCascade(d);
+        paintHandlePos(`hl-${d.bid}`, `${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}%`);
+      }
     } else if (d.type === "resize-r") {
-      if (d.liveBoundary != null) { paintBlockPos(d.bid, d.level, d.os, d.liveBoundary, d.segMin, d.segMax); paintCascade(d); }
+      if (d.liveBoundary != null) {
+        paintBlockPos(d.bid, d.level, d.os, d.liveBoundary, d.segMin, d.segMax); paintCascade(d);
+        paintHandlePos(`hr-${d.bid}`, `calc(${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W}px)`);
+      }
     } else if (d.type === "shared-edge") {
       if (d.liveBoundary != null) {
         const leftB  = blocksRef.current.find((b: Block) => b.id === d.leftId);
@@ -550,6 +574,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         if (leftB)  paintBlockPos(d.leftId,  d.level, leftB.start, d.liveBoundary, d.segMin, d.segMax);
         if (rightB) paintBlockPos(d.rightId, d.level, d.liveBoundary, rightB.end,  d.segMin, d.segMax);
         paintCascade(d);
+        paintHandlePos(`sh-${d.leftId}-${d.rightId}`, `calc(${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W / 2}px)`);
       }
     }
     const gs = d.liveGuides ?? [];
@@ -1054,7 +1079,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const segBlocksCommon = {
     blocks, duration, listenOnly, schemaMarks, time, activeAt, selected, viewMode,
     schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
-    recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs,
+    recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs, handleElRefs,
     handleBlockKeyDown,
   };
 
@@ -1109,9 +1134,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
-              {/* Columna izq: switch (si hay repeticiones) + ⏮ a la derecha */}
+              {/* Columna izq: switch (si hay repeticiones) + ⏮ a la derecha.
+                  En móvil el switch va en modo compacto (desplegable de una
+                  píldora): las dos píldoras + etiqueta no caben junto a ⏮ y
+                  cualquier fila extra cambiaría la altura de la sección
+                  respecto a un ejercicio sin repeticiones (Jon, 2026-07-12). */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                {hasRepeats ? <ViewModeToggle viewMode={viewMode} onChange={setViewMode} /> : <div />}
+                {hasRepeats ? <ViewModeToggle viewMode={viewMode} onChange={setViewMode} compact={isMobile} /> : <div />}
                 <CircleButton onClick={() => seekTo(0)} title="Volver al inicio">⏮</CircleButton>
               </div>
               {/* Columna central: ▶ centrado */}

@@ -1,4 +1,4 @@
-# INFORME FINAL — Análisis integral de Funciones Armónicas (A0–A9)
+# INFORME FINAL — Análisis integral de Análisis Auditivo (A0–A9)
 
 **Fecha:** 2026-07-10 · **Rama:** `beta` · **Commit analizado:** `f263089` (idéntico en las 9 fases; los commits `70de916…10ef04f` sobre él son solo `analisis/`)
 **Fases:** A0–A8 completas (entregables en `analisis/A*.md`) + este cruce/síntesis (A9).

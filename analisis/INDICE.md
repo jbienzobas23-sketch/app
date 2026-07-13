@@ -1,4 +1,4 @@
-# INDICE — Análisis integral de Funciones Armónicas (rama beta)
+# INDICE — Análisis integral de Análisis Auditivo (rama beta)
 
 **ANÁLISIS CERRADO (2026-07-10).** Las 10 fases completas sobre el mismo commit `f263089`. Síntesis ejecutiva, matriz impacto×esfuerzo y secuencia recomendada en **`INFORME_ANALISIS.md`** — ese documento basta para decidir el próximo mes de trabajo. Ver `PLAN_ANALISIS.md` (en Downloads, fuente del plan) para el detalle de cada fase.
 

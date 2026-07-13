@@ -12,7 +12,7 @@ import { SCHEMA_PALETTES, SCHEMA_PALETTE_DEFAULT, effectivePaletteId, applyPalet
 import { modelsOf, audioComposers, audioTags, resultStatusOf, composersOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { rowButtonProps } from "../lib/a11y.js";
-import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon, MobileHeaderMenu } from "./primitives.jsx";
+import { ConfirmModal, TabBar, ScoreBadge, Chevron, FilterDropdown, TeacherFilterBar, Overline, GhostButton, CtaButton, GearIcon, MobileHeaderMenu, Fab } from "./primitives.jsx";
 import { CorrectionView } from "./CorrectionView.jsx";
 import { CategoryEditorModal, GroupEditorModal, CourseFormModal, UnitFormModal, ExercisePickerModal, AddUserModal, ResetCredentialModal, AudioLibraryFormModal, BookFormModal, type AudioItem } from "./modals.js";
 import { CoursesTab } from "./courses.js";
@@ -139,11 +139,13 @@ export function ExercisesTab({ exercises, audioLibrary = [], results = {}, onNew
                     </button>
                   )}
                 </div>
-                <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>
+                {/* En móvil el "+ Nuevo" vive en el Fab (Jon, 2026-07-12). */}
+                {!isMobile && <CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton>}
               </>
             }
           />
-        : <div style={{ marginBottom: 14, display: "flex", justifyContent: "flex-end" }}><CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton></div>}
+        : !isMobile && <div style={{ marginBottom: 14, display: "flex", justifyContent: "flex-end" }}><CtaButton onClick={onNew}>+ Nuevo ejercicio</CtaButton></div>}
+      {isMobile && <Fab actions={[{ label: "Nuevo ejercicio", onClick: onNew }]} />}
       {exercises.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "3rem 1rem" }}>Aún no hay ejercicios.</p>
         : filtered.length === 0
@@ -200,8 +202,12 @@ interface StudentsTabProps {
   onViewAnswer: (student: User, exercise: Exercise, result: ExerciseResult) => void;
   onEditGroup: (g: Group | null) => void;
   onDeleteGroup: (id: string) => void;
+  // Bandeja de correcciones pendientes (TeacherDash), o null si no hay ninguna
+  // — en escritorio comparte fila con «+Nuevo grupo»/«+Crear alumno» (Jon,
+  // 2026-07-12); en móvil va en su propia fila encima (ver más abajo).
+  inboxBar?: ReactNode;
 }
-export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup }: StudentsTabProps) {
+export function StudentsTab({ students, exercises, results, groups, onAddStudent, onResetCred, onRemove, askConfirm, onViewAnswer, onEditGroup, onDeleteGroup, inboxBar = null }: StudentsTabProps) {
   const isMobile = useIsMobile();
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
   const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(() => new Set(groups.map((g) => g.id)));
@@ -222,8 +228,9 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
   };
 
   const renderStudentCard = (s: User) => {
-    const isOpen  = expandedStudents.has(s.id);
-    const allExs  = studentEntries(s);
+    const isOpen   = expandedStudents.has(s.id);
+    const allExs   = studentEntries(s);
+    const hasPending = allExs.some(({ ex, r }) => resultStatusOf(r, ex) === "pendiente");
     return (
       <div
         key={s.id}
@@ -231,18 +238,18 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
         {...(exercises.length > 0 ? { ...rowButtonProps(() => toggleExpand(s.id)), "aria-expanded": isOpen } : {})}
         style={{ ...S.card, borderRadius: 14, padding: "13px 16px", marginBottom: 0, cursor: exercises.length > 0 ? "pointer" : "default", userSelect: "none" }}>
         {/* Cabecera: nombre en serif (misma voz que los títulos de ejercicio,
-            Jon 2026-07-05) + nº de entregas en texto sutil. Borrar/resetear se
-            pliegan al ⋯ (Jon, 2026-07-04: una ✕ roja permanente por fila era
-            ruido y un peligro al alcance de un clic). */}
+            Jon 2026-07-05). Borrar/resetear se pliegan al ⋯ (Jon, 2026-07-04:
+            una ✕ roja permanente por fila era ruido y un peligro al alcance
+            de un clic). Sin nº de entregas (Jon, 2026-07-12: ruido — un punto
+            rojo, mismo aviso que la pestaña «Alumnos», basta para señalar que
+            hay algo pendiente de corregir). */}
         <div style={{ ...S.row, justifyContent: "space-between", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontFamily: F.serif, fontSize: 17, fontWeight: 600, color: C.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {s.displayName}
           </div>
           <div style={{ ...S.row, gap: 8, flexShrink: 0 }}>
-            {allExs.length > 0 && (
-              <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.muted, whiteSpace: "nowrap" }}>
-                {allExs.length} {allExs.length === 1 ? "entrega" : "entregas"}
-              </span>
+            {hasPending && (
+              <span aria-hidden="true" title="Hay entregas por corregir" style={{ width: 6, height: 6, borderRadius: "50%", background: C.danger, flexShrink: 0 }} />
             )}
             <span onClick={(e) => e.stopPropagation()}>
               <KebabMenu title={`Acciones de ${s.displayName}`} items={[
@@ -305,24 +312,33 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
 
   return (
     <>
-      {/* Cabecera de la pestaña (Jon, 2026-07-05): mismo patrón que Cursos —
-          línea de conteo apagada a la izquierda + acciones a la derecha, en vez
-          de una fila de botones flotando sola contra el borde derecho. */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, color: C.muted }}>
-          {students.length} {students.length === 1 ? "alumno" : "alumnos"}
-          {groups.length > 0 && ` · ${groups.length} ${groups.length === 1 ? "grupo" : "grupos"}`}
-        </span>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <GhostButton onClick={() => onEditGroup(null)}>+ Nuevo grupo</GhostButton>
-          <CtaButton onClick={onAddStudent}>+ Crear alumno</CtaButton>
-        </div>
+      {/* Cabecera de la pestaña. Sin línea de conteo (Jon, 2026-07-12: ruido —
+          fuera también de los encabezados de grupo/"Sin grupo" más abajo). En
+          escritorio, la bandeja de correcciones (si hay) comparte esta misma
+          fila con los botones — antes quedaba en una fila propia justo
+          encima, a distinta altura (Jon, 2026-07-12). En móvil sigue en su
+          propia fila arriba del todo (aquí los botones ya no existen, viven
+          en el Fab). */}
+      {inboxBar && isMobile && <div style={{ marginBottom: 18 }}>{inboxBar}</div>}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: (inboxBar && !isMobile) ? "space-between" : "flex-end", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        {inboxBar && !isMobile && <div style={{ flex: 1, minWidth: 280 }}>{inboxBar}</div>}
+        {/* En móvil, crear alumno/grupo vive en el Fab (Jon, 2026-07-12). */}
+        {!isMobile && (
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <GhostButton onClick={() => onEditGroup(null)}>+ Nuevo grupo</GhostButton>
+            <CtaButton onClick={onAddStudent}>+ Crear alumno</CtaButton>
+          </div>
+        )}
       </div>
+      {isMobile && <Fab actions={[
+        { label: "Crear alumno", onClick: onAddStudent },
+        { label: "Nuevo grupo", onClick: () => onEditGroup(null) },
+      ]} />}
 
       {students.length === 0 && groups.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2rem 1rem", lineHeight: 1.8 }}>
           <div>Aún no hay alumnos.</div>
-          <div style={{ fontSize: 13 }}>Crea el primero con el botón de arriba.</div>
+          <div style={{ fontSize: 13 }}>{isMobile ? "Crea el primero con el botón +." : "Crea el primero con el botón de arriba."}</div>
         </div>
       )}
 
@@ -337,7 +353,6 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
               onClick={() => toggleGroup(group.id)} {...rowButtonProps(() => toggleGroup(group.id))} aria-expanded={isGroupOpen}
               style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isGroupOpen ? 12 : 0, paddingBottom: 9, borderBottom: `1px solid ${C.line}`, flexWrap: "wrap", cursor: "pointer", userSelect: "none" }}>
               <span style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em", color: C.ink, flex: 1, minWidth: 120 }}>{group.name}</span>
-              <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{groupStudents.length} {groupStudents.length === 1 ? "alumno" : "alumnos"}</span>
               {/* Acciones del grupo plegadas al ⋯ (mismo criterio que las filas
                   de alumno: sin ✕ roja permanente a un clic). */}
               <span onClick={(e) => e.stopPropagation()}>
@@ -362,7 +377,6 @@ export function StudentsTab({ students, exercises, results, groups, onAddStudent
           {groups.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9, marginBottom: 12, borderBottom: `1px solid ${C.line}` }}>
               <span style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em", color: C.muted, flex: 1 }}>Sin grupo</span>
-              <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{ungrouped.length} {ungrouped.length === 1 ? "alumno" : "alumnos"}</span>
             </div>
           )}
           <div style={studentsGrid}>{ungrouped.map(renderStudentCard)}</div>
@@ -483,41 +497,54 @@ interface AudioCardProps {
   onEdit: (a: AudioItem) => void;
   onDelete: (id: string) => void;
   askConfirm: AskConfirm;
-  // Dentro de un libro (Jon, 2026-07-06): oculta el compositor (implícito por el
-  // libro) y suaviza el marco para que la pieza se lea como parte del conjunto.
+  // Dentro de un libro (Jon, 2026-07-06): suaviza el marco y compacta la
+  // tarjeta para que la pieza se lea como parte del conjunto.
   nested?: boolean;
 }
 function AudioCard({ audio, isAdmin, isOpen, onToggleOpen, onEdit, onDelete, askConfirm, nested = false }: AudioCardProps) {
+  // Animaciones (Jon, 2026-07-12), calcadas de ExerciseItem: hover con borde+
+  // sombra (solo tarjetas de nivel superior — dentro de un libro sería ruido)
+  // y despliegue animado fa-expand en vez del montaje seco {isOpen && …}.
+  const [hover, setHover] = useState(false);
   return (
-    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper, border: `1px solid ${C.line}`, borderRadius: nested ? 10 : 14, overflow: "hidden" }}>
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: C.paper,
+        border: `1px solid ${hover && !nested ? C.rail : C.line}`, borderRadius: nested ? 10 : 14, overflow: "hidden",
+        boxShadow: hover && !nested ? "0 6px 20px rgba(26,25,21,0.09)" : "none",
+        transition: "box-shadow .18s, border-color .18s" }}>
       <div onClick={onToggleOpen} {...rowButtonProps(onToggleOpen)} aria-expanded={isOpen}
         style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: nested ? "12px 14px" : "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Sin compositor en la tarjeta (Jon, 2026-07-12): en el almacén los
+              audios van SIEMPRE bajo su apartado de compositor — repetirlo
+              dentro era redundante (y anidado ya lo cubría el libro). */}
           <div style={{ fontFamily: F.serif, fontSize: nested ? 17 : 19, fontWeight: 600, color: C.ink, lineHeight: 1.18, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{audio.title}</div>
-          {audio.composer && !nested && (
-            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.composer}</div>
-          )}
         </div>
         <div style={{ flexShrink: 0, marginTop: 2 }}><Chevron open={isOpen} /></div>
       </div>
-      {isOpen && (
-        <div style={{ borderTop: `1px solid ${C.line}`, padding: nested ? "10px 14px 13px" : "12px 16px 15px", background: C.bg }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-            <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
-            {(audio.tags || []).map((tag) => (
-              <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
-            ))}
-          </div>
-          <audio src={audio.url} controls style={{ width: "100%", height: 36, display: "block", marginBottom: isAdmin ? 12 : 0 }} />
-          {isAdmin && (
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-              <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
-                style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+      <div className={`fa-expand${isOpen ? " fa-open" : ""}`}>
+        <div className="fa-expand-inner">
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: nested ? "10px 14px 13px" : "12px 16px 15px", background: C.bg }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>
+              {(audio.tags || []).map((tag) => (
+                <span key={tag} style={{ ...S.badge, background: "rgba(154,79,184,0.10)", color: C.fnI, fontSize: 10 }}>{tag}</span>
+              ))}
             </div>
-          )}
+            {/* preload="none": con fa-expand el <audio> queda SIEMPRE montado
+                (antes solo al abrir) — sin esto, cada tarjeta descargaría los
+                metadatos de su audio nada más pintar la pestaña. */}
+            <audio src={audio.url} controls preload="none" style={{ width: "100%", height: 36, display: "block", marginBottom: isAdmin ? 12 : 0 }} />
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => onEdit(audio)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                <button onClick={() => askConfirm(`¿Eliminar "${audio.title}" del almacén?\n\nLos ejercicios que ya lo usan conservarán su enlace.`, () => onDelete(audio.id))}
+                  style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar</button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -544,45 +571,53 @@ interface BookCardProps {
 function BookCard({ book, children, isAdmin, isOpen, onToggleOpen, openAudioId, onToggleAudio, onAddAudio, onEditBook, onDeleteBook, onEditAudio, onDeleteAudio, askConfirm }: BookCardProps) {
   const n = children.length;
   const BLUE = C.quiz;
+  // Animaciones (Jon, 2026-07-12): mismo hover + fa-expand que AudioCard,
+  // con el realce en la gama azul propia del libro.
+  const [hover, setHover] = useState(false);
   return (
-    <div style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: "rgba(47,111,184,0.035)", border: `1px solid rgba(47,111,184,0.30)`, borderRadius: 14, overflow: "hidden" }}>
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", flexDirection: "column", boxSizing: "border-box", background: "rgba(47,111,184,0.035)",
+        border: `1px solid rgba(47,111,184,${hover ? 0.5 : 0.30})`, borderRadius: 14, overflow: "hidden",
+        boxShadow: hover ? "0 6px 20px rgba(26,25,21,0.09)" : "none",
+        transition: "box-shadow .18s, border-color .18s" }}>
       <div onClick={onToggleOpen} {...rowButtonProps(onToggleOpen)} aria-expanded={isOpen}
         style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "16px 16px 15px", cursor: "pointer", userSelect: "none" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Sin eyebrow "LIBRO · N piezas" ni emoji (Jon, 2026-07-06: como
               siempre, sin metadatos ni emoticonos) — el azul de la tarjeta YA
               distingue un libro de un audio suelto, no hace falta rotularlo. */}
+          {/* Sin compositor (Jon, 2026-07-12): redundante con el apartado de
+              compositor bajo el que va la tarjeta — ver AudioCard. */}
           <div style={{ fontFamily: F.serif, fontSize: 19, fontWeight: 600, color: C.ink, lineHeight: 1.18, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{book.title}</div>
-          {book.composer && (
-            <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 13.5, color: C.ink2, marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{book.composer}</div>
-          )}
         </div>
         <div style={{ flexShrink: 0, marginTop: 2 }}><Chevron open={isOpen} /></div>
       </div>
-      {isOpen && (
-        <div style={{ borderTop: `1px solid rgba(47,111,184,0.22)`, padding: "12px 16px 15px", background: "rgba(47,111,184,0.02)" }}>
-          {n === 0 ? (
-            <p style={{ margin: "2px 0 12px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Este libro aún no tiene audios.</p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: isAdmin ? 12 : 0 }}>
-              {children.map((audio) => (
-                <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin} nested
-                  isOpen={openAudioId === audio.id}
-                  onToggleOpen={() => onToggleAudio(audio.id)}
-                  onEdit={onEditAudio} onDelete={onDeleteAudio} askConfirm={askConfirm} />
-              ))}
-            </div>
-          )}
-          {isAdmin && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              <button onClick={() => onAddAudio(book.id)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12, color: BLUE, borderColor: `${BLUE}55` }}>+ Añadir audio</button>
-              <button onClick={() => onEditBook(book)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar libro</button>
-              <button onClick={() => askConfirm(`¿Eliminar el libro "${book.title}"?\n\nSus ${n} ${n === 1 ? "audio" : "audios"} NO se borran: pasan a ser audios sueltos.`, () => onDeleteBook(book))}
-                style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar libro</button>
-            </div>
-          )}
+      <div className={`fa-expand${isOpen ? " fa-open" : ""}`}>
+        <div className="fa-expand-inner">
+          <div style={{ borderTop: `1px solid rgba(47,111,184,0.22)`, padding: "12px 16px 15px", background: "rgba(47,111,184,0.02)" }}>
+            {n === 0 ? (
+              <p style={{ margin: "2px 0 12px", fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Este libro aún no tiene audios.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: isAdmin ? 12 : 0 }}>
+                {children.map((audio) => (
+                  <AudioCard key={audio.id} audio={audio} isAdmin={isAdmin} nested
+                    isOpen={openAudioId === audio.id}
+                    onToggleOpen={() => onToggleAudio(audio.id)}
+                    onEdit={onEditAudio} onDelete={onDeleteAudio} askConfirm={askConfirm} />
+                ))}
+              </div>
+            )}
+            {isAdmin && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button onClick={() => onAddAudio(book.id)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12, color: BLUE, borderColor: `${BLUE}55` }}>+ Añadir audio</button>
+                <button onClick={() => onEditBook(book)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Editar libro</button>
+                <button onClick={() => askConfirm(`¿Eliminar el libro "${book.title}"?\n\nSus ${n} ${n === 1 ? "audio" : "audios"} NO se borran: pasan a ser audios sueltos.`, () => onDeleteBook(book))}
+                  style={{ ...S.btnDanger, padding: "5px 10px", fontSize: 12 }}>Eliminar libro</button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -688,7 +723,8 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
               style={{ padding: "5px 11px", borderRadius: 20, border: "1.5px solid rgba(184,74,58,0.35)", background: "transparent", color: C.danger, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12 }}
             >✕ Limpiar</button>
           )}
-          {isAdmin && (
+          {/* En móvil, añadir audio/libro vive en el Fab (Jon, 2026-07-12). */}
+          {isAdmin && !isMobile && (
             <>
               <span style={{ flex: 1 }} />
               <button onClick={onAddBook} style={{ ...S.btn, color: C.quiz, borderColor: `${C.quiz}55` }}>+ Añadir libro</button>
@@ -697,17 +733,21 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
           )}
         </div>
       )}
-      {audioLibrary.length === 0 && isAdmin && (
+      {audioLibrary.length === 0 && isAdmin && !isMobile && (
         <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={onAddBook} style={{ ...S.btn, color: C.quiz, borderColor: `${C.quiz}55` }}>+ Añadir libro</button>
           <button onClick={onAdd} style={{ ...S.btnPrimary }}>+ Añadir audio</button>
         </div>
       )}
+      {isAdmin && isMobile && <Fab actions={[
+        { label: "Añadir audio", onClick: onAdd },
+        { label: "Añadir libro", onClick: onAddBook },
+      ]} />}
 
       {audioLibrary.length === 0 && (
         <div style={{ ...S.card, textAlign: "center", color: C.muted, padding: "2.5rem 1rem", lineHeight: 1.8 }}>
           <div>El almacén está vacío.</div>
-          {isAdmin && <div style={{ fontSize: 13 }}>Añade el primer audio o libro con los botones de arriba.</div>}
+          {isAdmin && <div style={{ fontSize: 13 }}>{isMobile ? "Añade el primer audio o libro con el botón +." : "Añade el primer audio o libro con los botones de arriba."}</div>}
         </div>
       )}
 
@@ -719,15 +759,15 @@ export function AudiosTab({ audioLibrary, isAdmin, onAdd, onEdit, onDelete, askC
 
       {/* Apartados por compositor (Jon, 2026-07-04): un grupo alfabético por
           compositor, «Sin compositor» al final. El nombre destaca — serif
-          grande en tinta, con el conteo al lado — porque aquí SÍ es la
-          jerarquía principal de la página (a diferencia de «Cursos»/«Todos
-          los ejercicios», que llevan versalitas por competir con el nombre
-          del encabezado; Audios no tiene ese título propio). */}
+          grande en tinta — porque aquí SÍ es la jerarquía principal de la
+          página (a diferencia de «Cursos»/«Todos los ejercicios», que llevan
+          versalitas por competir con el nombre del encabezado; Audios no
+          tiene ese título propio). Sin conteo al lado (Jon, 2026-07-12): ruido
+          — el compositor ya organiza, no hace falta anunciar cuántos hay. */}
       {groupedByComposer.map(({ composer, items }) => (
         <div key={composer} style={{ marginBottom: 30 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14, paddingBottom: 9, borderBottom: `1px solid ${C.line}` }}>
             <h3 style={{ fontFamily: F.serif, fontSize: 21, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", margin: 0 }}>{composer}</h3>
-            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.muted, flexShrink: 0 }}>{items.length} {items.length === 1 ? "elemento" : "elementos"}</span>
           </div>
           {/* Misma tarjeta en escritorio y móvil (Jon, 2026-07-06) — solo
               cambia el contenedor: rejilla de dos columnas vs. lista de una. */}
@@ -1011,6 +1051,26 @@ export function TeacherDash({
     try { sessionStorage.setItem("fa-inbox-dismissed", "1"); } catch { /* sin storage: solo estado */ }
   };
   const showInbox = pendingQueue.length > 0 && (tab === "students" || !inboxDismissed);
+  // JSX de la bandeja, extraído para poder colocarla en dos sitios distintos
+  // según la pestaña (ver el bloque de render más abajo): sola en el resto de
+  // pestañas, o compartiendo fila con los botones de Alumnos en escritorio.
+  const inboxBar = showInbox ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(212,120,0,0.07)", border: "1px solid rgba(212,120,0,0.25)", borderRadius: 12, padding: "12px 16px" }}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d47800", flexShrink: 0 }} aria-hidden="true" />
+      <span style={{ fontFamily: F.sans, fontSize: 13.5, color: C.ink, flex: 1, minWidth: 0 }}>
+        <b>{pendingQueue.length}</b> {pendingQueue.length === 1 ? "entrega por corregir" : "entregas por corregir"}
+      </span>
+      <button onClick={() => goToQueueIdx(0)} className="fa-pressable" style={{ ...S.btnPrimary, padding: "8px 16px", fontSize: 12.5, flexShrink: 0 }}>
+        Corregir →
+      </button>
+      {tab !== "students" && (
+        <button onClick={dismissInbox} title="Ocultar este aviso durante la sesión" aria-label="Cerrar aviso"
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14, lineHeight: 1, padding: "4px 2px", flexShrink: 0 }}>
+          ✕
+        </button>
+      )}
+    </div>
+  ) : null;
 
   // Modal state
   const [editingCategory, setEditingCategory] = useState<Category | "new" | null>(null);
@@ -1135,7 +1195,9 @@ export function TeacherDash({
 
   return (
     <div style={S.app}>
-      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 40px" : S.page.padding }}>
+      {/* El padding inferior móvil (96px) reserva sitio para el Fab (+) fijo:
+          sin él, el botón taparía las acciones de la última fila de la lista. */}
+      <div style={{ ...S.page, padding: isMobile ? "calc(18px + env(safe-area-inset-top,0px)) 14px 96px" : S.page.padding }}>
         {/* Barra superior única (Jon, 2026-07-04): pestañas arriba del todo,
             centradas; identidad a la izquierda; engranaje (Ajustes) + Salir a
             la derecha. Sin la línea negra gruesa — un filete fino basta. */}
@@ -1204,23 +1266,12 @@ export function TeacherDash({
         {/* Bandeja única de correcciones (Jon, 2026-07-04): el único lugar donde
             se anuncia lo pendiente — las tarjetas y las filas quedan limpias.
             «Corregir» abre la cola global y se recorre con Siguiente. Se puede
-            cerrar durante la sesión salvo en Alumnos (ahí sale siempre). */}
-        {showInbox && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(212,120,0,0.07)", border: "1px solid rgba(212,120,0,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d47800", flexShrink: 0 }} aria-hidden="true" />
-            <span style={{ fontFamily: F.sans, fontSize: 13.5, color: C.ink, flex: 1, minWidth: 0 }}>
-              <b>{pendingQueue.length}</b> {pendingQueue.length === 1 ? "entrega por corregir" : "entregas por corregir"}
-            </span>
-            <button onClick={() => goToQueueIdx(0)} className="fa-pressable" style={{ ...S.btnPrimary, padding: "8px 16px", fontSize: 12.5, flexShrink: 0 }}>
-              Corregir →
-            </button>
-            {tab !== "students" && (
-              <button onClick={dismissInbox} title="Ocultar este aviso durante la sesión" aria-label="Cerrar aviso"
-                style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14, lineHeight: 1, padding: "4px 2px", flexShrink: 0 }}>
-                ✕
-              </button>
-            )}
-          </div>
+            cerrar durante la sesión salvo en Alumnos (ahí sale siempre). En
+            escritorio, en Alumnos comparte fila con «+Nuevo grupo»/«+Crear
+            alumno» (Jon, 2026-07-12) — StudentsTab la coloca; aquí solo se
+            renderiza sola para el resto de pestañas. */}
+        {showInbox && tab !== "students" && (
+          <div style={{ marginBottom: 20 }}>{inboxBar}</div>
         )}
 
         {tab === "exercises" && (
@@ -1272,6 +1323,7 @@ export function TeacherDash({
             onViewAnswer={(student, exercise) => onViewStudentAnswer?.(student.id, exercise.id)}
             onEditGroup={(g) => setEditingGroup(g === null ? null : g)}
             onDeleteGroup={onDeleteGroup}
+            inboxBar={inboxBar}
           />
         )}
 

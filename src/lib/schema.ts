@@ -27,3 +27,7 @@ export const SCHEMA_CLICK_MOVE_THR = 6;
 export const SCHEMA_CLICK_DUR_FRAC = 0.12;
 export const SCHEMA_HND_VISUAL_W   = 6;     // ancho visual del asa (px)
 export const SCHEMA_HND_HIT_W      = 40;    // hitbox táctil real del asa (px, A5-16) — zona invisible más ancha que el dibujo
+// Ancho de la "cápsula" de asa de borde de bloque en el editor de esquema
+// (SegBlocks). Compartida con SchemaExerciseView para pintar su posición en
+// vivo durante el arrastre (A7-01 rAF) sin duplicar el número mágico.
+export const SCHEMA_CAP_W          = 16;

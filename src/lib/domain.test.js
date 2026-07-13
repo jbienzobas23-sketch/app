@@ -4,7 +4,7 @@ import {
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
   questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals, btnOf,
-  flattenSinglePart,
+  flattenSinglePart, audioDisplayTitle,
 } from "./domain.js";
 import { interactiveFigureDiagnostics } from "./scoring.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -366,6 +366,28 @@ describe("audioComposers / audioTags", () => {
   it("toleran entrada vacía o nula", () => {
     expect(audioComposers(null)).toEqual([]);
     expect(audioTags(undefined)).toEqual([]);
+  });
+});
+
+describe("audioDisplayTitle", () => {
+  const lib = [
+    { id: "bk-1", kind: "book", title: "Preludios op. 28" },
+    { id: "au-1", title: "n.º 4 en Mi menor", bookId: "bk-1", url: "u1" },
+    { id: "au-2", title: "Tocata y fuga", url: "u2" },
+    { id: "au-3", title: "Huérfano", bookId: "bk-borrado", url: "u3" },
+  ];
+  it("compone «pieza ~ libro» cuando el audio pertenece a un libro", () => {
+    expect(audioDisplayTitle(lib[1], lib)).toBe("n.º 4 en Mi menor ~ Preludios op. 28");
+  });
+  it("sin libro, devuelve el título tal cual", () => {
+    expect(audioDisplayTitle(lib[2], lib)).toBe("Tocata y fuga");
+  });
+  it("con bookId que no resuelve, devuelve solo el título", () => {
+    expect(audioDisplayTitle(lib[3], lib)).toBe("Huérfano");
+  });
+  it("tolera audio nulo o sin título", () => {
+    expect(audioDisplayTitle(null, lib)).toBe("");
+    expect(audioDisplayTitle({ bookId: "bk-1" }, lib)).toBe("Preludios op. 28");
   });
 });
 

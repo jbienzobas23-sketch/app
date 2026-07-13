@@ -4,7 +4,7 @@ import { supabase } from "./supabase.js";
 import type { Exercise, ExerciseResult, UserProfile } from "./lib/types.js";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   FUNCIONES ARMÓNICAS · APP ROOT
+   ANÁLISIS AUDITIVO · APP ROOT
    ───────────────────────────────────────────────────────────────────────────
    Funciones puras, constantes de dominio, tokens y datos semilla viven en
    módulos bajo src/lib, src/theme y src/seed.js (Fase 0); la capa de datos

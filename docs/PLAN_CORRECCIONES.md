@@ -1,4 +1,4 @@
-# PLAN_CORRECCIONES — Funciones Armónicas
+# PLAN_CORRECCIONES — Análisis Auditivo
 
 **Derivado de:** análisis integral A0–A9 (`analisis/`, INFORME_ANALISIS.md), commit base `f263089a1ef0e70f2fb2902839e891cca6afe52a`, rama `beta`.
 **Ejecutor previsto:** Claude Code (Sonnet) en `C:\Users\bienz\app`.

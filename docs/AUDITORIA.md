@@ -1,4 +1,4 @@
-# AUDITORÍA — Funciones Armónicas (base: rama `beta`, commit `7fe9541`)
+# AUDITORÍA — Análisis Auditivo (base: rama `beta`, commit `7fe9541`)
 
 ## 0 · Estado de partida (verificado sobre `7fe9541`)
 

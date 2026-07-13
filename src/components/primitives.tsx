@@ -1104,6 +1104,59 @@ export function CtaButton({ children, onClick, disabled, full, lg }: ButtonProps
   );
 }
 
+// ─── Fab — botón flotante de "añadir" (móvil, Jon 2026-07-12) ─────────────────
+// En móvil, TODA acción de crear/añadir del profesor (ejercicio, curso, unidad,
+// alumno, audio…) vive en este (+) fijo en la esquina inferior derecha — no se
+// mueve con el scroll (createPortal + position:fixed, para escapar de cualquier
+// overflow/transform de los contenedores). Con UNA acción, el (+) la dispara
+// directamente; con varias, despliega las opciones como píldoras etiquetadas
+// encima (speed-dial) con velo de fondo. zIndex 120/121: por encima de la
+// cabecera sticky (55) y de los desplegables (41), por debajo de los modales
+// (200+). Quien lo monta decide cuándo (típicamente `isMobile && role`).
+interface FabAction { label: string; onClick: () => void; }
+interface FabProps { actions: FabAction[]; ariaLabel?: string; }
+export function Fab({ actions, ariaLabel = "Añadir" }: FabProps) {
+  const [open, setOpen] = useState(false);
+  const mainRef = useRef<HTMLButtonElement | null>(null);
+  const single = actions.length === 1;
+
+  // Escape cierra y devuelve el foco al (+), como los desplegables (Menu).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); setOpen(false); mainRef.current?.focus(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open]);
+
+  if (actions.length === 0) return null;
+  const run = (a: FabAction) => { setOpen(false); a.onClick(); };
+  return createPortal(
+    <>
+      {open && <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(26,25,21,0.28)" }} />}
+      <div style={{ position: "fixed", right: 16, bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", zIndex: 121, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
+        {open && actions.map((a) => (
+          <button key={a.label} onClick={() => run(a)} role="menuitem" className="fa-pressable"
+            style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 999, padding: "11px 18px", fontFamily: F.sans, fontSize: 13.5, fontWeight: 600, color: C.ink, cursor: "pointer", boxShadow: "0 6px 18px rgba(26,25,21,0.18)", whiteSpace: "nowrap" }}>
+            {a.label}
+          </button>
+        ))}
+        <button ref={mainRef} onClick={() => (single ? run(actions[0]) : setOpen((o) => !o))}
+          aria-label={single ? actions[0].label : ariaLabel}
+          {...(single ? {} : { "aria-haspopup": "menu" as const, "aria-expanded": open })}
+          style={{ width: 56, height: 56, borderRadius: "50%", background: C.ink, color: C.paper, border: "none", cursor: "pointer", boxShadow: "0 8px 22px rgba(26,25,21,0.32)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none"
+            style={{ transform: open ? "rotate(45deg)" : "none", transition: "transform .15s" }}>
+            <path d="M11 4v14M4 11h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 export function FieldLabel({ children, htmlFor }: FieldLabelProps) {
   return <label htmlFor={htmlFor} style={{ display: "block", fontFamily: F.sans, fontSize: 11, fontWeight: 500, color: "#767670", marginBottom: 6 }}>{children}</label>;
 }

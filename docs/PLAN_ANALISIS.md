@@ -1,4 +1,4 @@
-# PLAN_ANALISIS — Análisis integral de Funciones Armónicas (rama beta)
+# PLAN_ANALISIS — Análisis integral de Análisis Auditivo (rama beta)
 
 Plan de análisis multipasos (A0–A9). Solo lectura: ninguna fase modifica código fuente; toda la salida se escribe en `analisis/`. Diseñado para ejecutarse en Claude Code, una fase por sesión, con los `.md` de salida como memoria persistente entre sesiones.
 

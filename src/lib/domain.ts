@@ -310,3 +310,18 @@ export const audioComposers = (audioLibrary?: Array<{ composer?: string }> | nul
   [...new Set((audioLibrary || []).map((a) => a.composer).filter((c): c is string => Boolean(c)))].sort();
 export const audioTags      = (audioLibrary?: Array<{ tags?: string[] }> | null): string[] =>
   [...new Set((audioLibrary || []).flatMap((a) => a.tags || []).filter((t): t is string => Boolean(t)))].sort();
+
+// Título "dinámico" de un audio cuando aparece SOLO, fuera de la vista de su
+// libro (Jon, 2026-07-12): si pertenece a un libro del almacén, el título de
+// la colección complementa al de la pieza — «n.º 4 en Mi menor ~ Preludios
+// op. 28». Dentro del libro (vista anidada) NO se usa este helper: ahí el
+// título del libro ya está a la vista y la pieza va sola.
+type AudioLike = { id?: string; title?: string; bookId?: string; kind?: string };
+export const audioDisplayTitle = (audio?: AudioLike | null, audioLibrary?: AudioLike[] | null): string => {
+  if (!audio) return "";
+  const title = audio.title || "";
+  if (!audio.bookId) return title;
+  const book = (audioLibrary || []).find((a) => a.kind === "book" && a.id === audio.bookId);
+  if (!book?.title) return title;
+  return title ? `${title} ~ ${book.title}` : book.title;
+};

@@ -8,7 +8,11 @@
 // el padre) para que el bucle rAF del arrastre pueda pintar su posición ahí
 // directamente, sin pasar por props/estado durante el propio arrastre. Las
 // guías de snap ya no se renderizan aquí (antes una copia por nivel×segmento)
-// — viven en un overlay propio en el padre, pintado por ref.
+// — viven en un overlay propio en el padre, pintado por ref. Sus asas de
+// borde (libre/compartida) se exponen igual en `handleElRefs` — si no, se
+// quedaban ancladas a la posición pre-arrastre hasta soltar (bug reportado
+// tras A7-01: el bloque se movía por ref pero el asa seguía leyendo
+// block.start/end del estado, congelado durante el drag).
 // C4.3h: cada bloque es enfocable (tabIndex/role="button"/aria-label) y
 // operable con ←→ (mover), Shift+←→ (redimensionar borde derecho) y Alt+←→
 // (borde izquierdo) vía `handleBlockKeyDown`, cerrado en el padre sobre la
@@ -20,7 +24,7 @@ import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
 import { harmonyBlockColors } from "../../lib/harmony.js";
 import { partColorFromPalette, phraseColorFromPalette } from "../../lib/palette.js";
-import { SCHEMA_LEVELS } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_CAP_W } from "../../lib/schema.js";
 
 interface SegBlocksProps {
   seg: any;
@@ -45,13 +49,14 @@ interface SegBlocksProps {
   handleBlockDown: (e: any, block: Block, type?: string) => void;
   handleSharedHandleDown: (e: any, leftBlock: Block, rightBlock: Block) => void;
   blockElRefs: RefObject<Record<string, HTMLElement | null>>;
+  handleElRefs: RefObject<Record<string, HTMLElement | null>>;
   handleBlockKeyDown: (e: any, block: Block) => void;
 }
 
 export function SegBlocks({
   seg, pass, lvId, blocks, duration, listenOnly, schemaMarks, time, activeAt,
   selected, viewMode, schemaPalette, editId, editVal, setEditId, setEditVal, commitEdit,
-  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs, handleBlockKeyDown,
+  recToVisX, recToVisXResumed, handleBlockDown, handleSharedHandleDown, blockElRefs, handleElRefs, handleBlockKeyDown,
 }: SegBlocksProps) {
   const lv = SCHEMA_LEVELS.find(l => l.id === lvId)!;
   const bounds = getSegBounds(seg, pass);
@@ -130,7 +135,7 @@ export function SegBlocks({
   // Asas como "cápsulas" integradas DENTRO del borde del bloque (no objetos
   // aparte): un recuadro redondeado en cada extremo, con un chevron que indica
   // el sentido de arrastre.
-  const _capW      = 16;
+  const _capW      = SCHEMA_CAP_W;
   // Mismo alto y radio que el bloque → las curvaturas del asa coinciden con su borde.
   // El extremo exterior copia el radio del bloque (semicírculo en píldoras, 5px en
   // rectángulos); el lado interior lleva un radio menor.
@@ -329,7 +334,7 @@ export function SegBlocks({
       const out: ReactNode[] = [];
       // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
       if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
-        <div key={`hl-${block.id}`} data-block="true"
+        <div key={`hl-${block.id}`} data-block="true" ref={el => { handleElRefs.current[`hl-${block.id}`] = el; }}
           style={{ ...capBase, borderRadius: `${_capRouter}px ${_capRinner}px ${_capRinner}px ${_capRouter}px`, cursor: "ew-resize", left: `${lPct}%` }}
           onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
           onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
@@ -338,7 +343,7 @@ export function SegBlocks({
       );
       // Ocultar el asa derecha si el bloque está bloqueado al borde de zona
       if (!adjRIds.has(block.id) && !block._lockedEnd) out.push(
-        <div key={`hr-${block.id}`} data-block="true"
+        <div key={`hr-${block.id}`} data-block="true" ref={el => { handleElRefs.current[`hr-${block.id}`] = el; }}
           style={{ ...capBase, borderRadius: `${_capRinner}px ${_capRouter}px ${_capRouter}px ${_capRinner}px`, cursor: "ew-resize", left: `calc(${rPct}% - ${_capW}px)` }}
           onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
           onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
@@ -353,7 +358,7 @@ export function SegBlocks({
     {viewMode !== "resumida" && adjPairs.filter(({ left, right }) => selected === left.id || selected === right.id).map(({ left, right }) => {
       const pct = ((left.end - bounds.min) / segDur) * 100;
       return (
-        <div key={`sh-${left.id}-${right.id}`} data-block="true"
+        <div key={`sh-${left.id}-${right.id}`} data-block="true" ref={el => { handleElRefs.current[`sh-${left.id}-${right.id}`] = el; }}
           style={{ ...capBase, borderRadius: _capRouter, cursor: "col-resize", zIndex: 11, left: `calc(${pct}% - ${_capW / 2}px)` }}
           onMouseDown={e => handleSharedHandleDown(e, left, right)}
           onTouchStart={e => handleSharedHandleDown(e, left, right)}>

@@ -1,4 +1,4 @@
-# PLAN_MAESTRO_2 — Funciones Armónicas (base: rama `beta`, commit `2885575`)
+# PLAN_MAESTRO_2 — Análisis Auditivo (base: rama `beta`, commit `2885575`)
 
 Segundo plan maestro para **Claude Code**. Integra, con dependencias resueltas y sin duplicaciones, todo lo diseñado tras el `PLAN_MAESTRO` original: el plan de simplificación (S0–S4, íntegramente pendiente), el rediseño del editor por pantallas (demo v3), el contenido de las tarjetas, las placas combinadas de híbridos, las preguntas de obra completa y la corrección del pestañeo al alternar de modelo. Colócalo en la raíz como `PLAN_MAESTRO_2.md`; copia también `demo_editor_ejercicio_v3.html` a `docs/especificacion_editor.html` — es la **especificación de referencia** de la fase M5 (comportamiento e interacción; los estilos ya son los del sistema).
 

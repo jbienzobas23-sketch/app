@@ -7,7 +7,7 @@ import { C, S, FONT_SANS, disabledStyle } from "../theme/tokens.js";
 import { uid, toggleInSet } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
 import { fetchAudioBuffer } from "../lib/audio.js";
-import { modelsOf, questionScopeOf } from "../lib/domain.js";
+import { modelsOf, questionScopeOf, audioDisplayTitle } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput } from "./primitives.jsx";
@@ -485,7 +485,9 @@ export function AudioLibraryPickerModal({ library, onPick, onClose }: { library:
               <div key={audio.id} style={{ padding: "8px 10px", borderRadius: 6, marginBottom: 4, background: isPrev ? "rgba(26,25,21,0.04)" : "transparent", transition: "background .1s" }}>
                 <div style={{ ...S.row, gap: 10, justifyContent: "space-between" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.title}</div>
+                    {/* Título compuesto «pieza ~ libro» (Jon, 2026-07-12): en esta
+                        lista plana el audio aparece solo, sin su libro a la vista. */}
+                    <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: audio.composer ? 1 : (audio.description ? 2 : 4), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audioDisplayTitle(audio, library)}</div>
                     {audio.composer && <div style={{ fontSize: 11, color: C.fnS, fontWeight: 500, marginBottom: audio.description ? 2 : 4 }}>{audio.composer}</div>}
                     {audio.description && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{audio.description}</div>}
                     <span style={{ ...S.badge, background: C.line, color: C.muted, fontFamily: FONT_SANS, fontVariantNumeric: "tabular-nums" }}>{fmtClock(audio.duration ?? 0)}</span>

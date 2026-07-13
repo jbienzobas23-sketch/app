@@ -10,6 +10,7 @@ import { useState } from "react";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { fmtClock } from "../../lib/time.js";
 import { seedFromId } from "../../lib/audio.js";
+import { audioDisplayTitle } from "../../lib/domain.js";
 import { AudioWaveIcon } from "../primitives.jsx";
 import { Menu } from "../primitives.jsx";
 import { FragmentRangeSelector } from "../session.js";
@@ -35,6 +36,12 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
 
   const handleAddPart = () => { const id = addEmptyPart(); if (id) setSelectedPartId(id); };
   const handleDuplicate = (partId: string) => { const id = duplicatePart(partId); if (id) setSelectedPartId(id); };
+
+  // Título dinámico «pieza ~ libro» (Jon, 2026-07-12): aquí el audio elegido
+  // aparece solo, sin su libro a la vista — se compone en el render buscando
+  // el audio por URL en el almacén (no se toca el audioName guardado).
+  const displayName = (name: string | null, url: string | null) =>
+    audioDisplayTitle(audioLibrary.find((a) => !!url && a.url === url) ?? { title: name ?? undefined }, audioLibrary);
 
   // Pestañas de parte (1 · 2 · 3 · +): comparten la fila de la cabecera (como el
   // `.shrow` de la demo) para no dejar un hueco vacío en su propia fila.
@@ -73,7 +80,7 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
             <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 4 }}>
               <AudioWaveIcon size={15} color={C.ink2} />
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {audioName}
+                {displayName(audioName, audioUrl)}
               </span>
               <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                 {fmtClock(effDuration)}
@@ -202,7 +209,7 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
                 {partHasAudio ? (
                   <div style={{ ...S.row, gap: 8, padding: "8px 10px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8 }}>
                     <AudioWaveIcon size={14} color={C.ink2} />
-                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selPart.audioName}</span>
+                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName(selPart.audioName ?? null, selPart.audioUrl ?? null)}</span>
                     <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_SANS, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmtClock(partTotalDur)}</span>
                     {audioLibrary.length > 0 && (
                       <button type="button" onClick={() => setLibraryPickerForPart(selPart.id)} style={{ ...S.btn, padding: "2px 8px", fontSize: 11, flexShrink: 0 }}>Cambiar audio…</button>

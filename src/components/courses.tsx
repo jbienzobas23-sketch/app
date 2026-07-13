@@ -8,7 +8,7 @@ import type { Course, Unit, Exercise, Group, ResultsMap, Role } from "../lib/typ
 import { C, F, S } from "../theme/tokens.js";
 import { courseUnitList, unitExList, keyReadyOf } from "../lib/domain.js";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { ProgressRing, CtaButton, Menu } from "./primitives.jsx";
+import { ProgressRing, CtaButton, Menu, Fab } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 import { KebabMenu } from "./KebabMenu.jsx";
 
@@ -145,9 +145,6 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
         transform: hover ? "translateY(-2px)" : "none", transition: "box-shadow .18s, border-color .18s, transform .18s" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 7 }}>
-            {cs.units} {cs.units === 1 ? "unidad" : "unidades"}
-          </div>
           <h3 style={{ fontFamily: F.serif, fontSize: 32, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1.08, letterSpacing: "-0.015em", wordBreak: "break-word" }}>{course.name}</h3>
           {course.description && (
             <div style={{ fontFamily: F.serif, fontStyle: "italic", fontSize: 14.5, color: C.ink2, marginTop: 6, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
@@ -233,10 +230,12 @@ export function CourseExercisesPanel({
 
   if (role === "teacher") {
     // Sin cabecera de unidad (el nombre ya está en la barra lateral): solo la
-    // eyebrow de conteo, la pila de filas y los "añadir" al final.
+    // eyebrow de conteo, la pila de filas y los "añadir" al final. En móvil
+    // el eyebrow sobra (Jon, 2026-07-12): la cabecera de la pantalla ya lleva
+    // el título de la unidad y su marca «oculta».
     return (
       <div>
-        <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>
+        {!isMobile && <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"}{unit.hidden ? " · unidad oculta" : ""}</div>}
         {exs.length
           ? <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
               {exs.map((ex) => (
@@ -252,37 +251,45 @@ export function CourseExercisesPanel({
             </div>
           : <div style={{ marginBottom: 10 }}><EmptyExercises role={role} /></div>}
         {/* Un único "añadir" (Jon, 2026-07-04): al pulsarlo pregunta si crear
-            un ejercicio nuevo o traer uno del banco. Menú en portal para no
-            quedar recortado por contenedores con overflow. */}
-        <Menu portal align="left" ariaLabel="Añadir ejercicio a la unidad" panelStyle={{ minWidth: 224 }}
-          trigger={({ open, toggle, triggerRef }) => (
-            <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
-              style={{ width: "100%", boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: open ? C.field : "transparent", border: `1.5px dashed ${C.rail}`, color: "#555", borderRadius: 10, padding: "12px", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              + Añadir ejercicio
-            </button>
-          )}>
-          {({ close }) => (
-            <>
-              <button role="menuitem" onClick={() => { close(); onCreateNewExInUnit(unit.id); }}
-                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
-                Crear ejercicio nuevo
-              </button>
-              <button role="menuitem" onClick={() => { close(); onPickFromBank(unit.id); }}
-                style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
-                Añadir del banco…
-              </button>
-            </>
-          )}
-        </Menu>
+            un ejercicio nuevo o traer uno del banco. En escritorio, botón
+            discontinuo al pie con menú en portal (para no quedar recortado por
+            overflow); en móvil, el Fab (+) fijo con las mismas dos opciones
+            (Jon, 2026-07-12). */}
+        {isMobile
+          ? <Fab actions={[
+              { label: "Crear ejercicio nuevo", onClick: () => onCreateNewExInUnit(unit.id) },
+              { label: "Añadir del banco…", onClick: () => onPickFromBank(unit.id) },
+            ]} />
+          : <Menu portal align="left" ariaLabel="Añadir ejercicio a la unidad" panelStyle={{ minWidth: 224 }}
+              trigger={({ open, toggle, triggerRef }) => (
+                <button ref={triggerRef} onClick={toggle} aria-haspopup="menu" aria-expanded={open}
+                  style={{ width: "100%", boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: open ? C.field : "transparent", border: `1.5px dashed ${C.rail}`, color: "#555", borderRadius: 10, padding: "12px", fontFamily: F.sans, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  + Añadir ejercicio
+                </button>
+              )}>
+              {({ close }) => (
+                <>
+                  <button role="menuitem" onClick={() => { close(); onCreateNewExInUnit(unit.id); }}
+                    style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
+                    Crear ejercicio nuevo
+                  </button>
+                  <button role="menuitem" onClick={() => { close(); onPickFromBank(unit.id); }}
+                    style={{ width: "100%", boxSizing: "border-box", textAlign: "left", display: "block", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: C.ink2 }}>
+                    Añadir del banco…
+                  </button>
+                </>
+              )}
+            </Menu>}
       </div>
     );
   }
 
-  // alumno
+  // alumno — en móvil sin eyebrow de conteo (Jon, 2026-07-12): el anillo de
+  // progreso de la cabecera de la pantalla ya dice n/m.
   const s = unitProgress(unit, exercises, role, results);
   return (
     <div>
-      <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>
+      {!isMobile && <div style={exEyebrow}>{exs.length} {exs.length === 1 ? "ejercicio" : "ejercicios"} · {s.num} {s.num === 1 ? "completado" : "completados"}</div>}
       {exs.length
         ? <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 9 : 10 }}>
             {exs.map((ex) => (
@@ -429,13 +436,8 @@ export function MobileTopBar({ title, onBack }: { title: string; onBack?: () => 
 export function MobileCoursesScreen({ role, courses, units, exercises, results, groups, onOpenCourse, onCreateCourse }: CoursesData & { onOpenCourse: (courseId: string) => void; onCreateCourse?: () => void }) {
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Sin segundo encabezado "Cursos" ni línea de conteo para el alumno
-          (ruido, Jon 2026-07-04); el profesor conserva su conteo. */}
-      {role === "teacher" && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
-          <span style={{ fontFamily: F.sans, fontSize: 12.5, color: C.muted }}>{courses.length} {courses.length === 1 ? "curso" : "cursos"}</span>
-        </div>
-      )}
+      {/* Sin segundo encabezado "Cursos" ni línea de conteo (Jon, 2026-07-12:
+          ruido también para el profesor — antes se conservaba solo aquí). */}
       {courses.length === 0
         ? <p style={{ color: C.muted, fontFamily: F.sans, textAlign: "center", padding: "2.5rem 1rem" }}>{role === "student" ? "El profesor aún no ha creado ningún curso." : "Aún no hay cursos. Crea el primero."}</p>
         : <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
@@ -460,8 +462,10 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
                 </button>
               );
             })}
-            {role === "teacher" && <DashedAddButton onClick={onCreateCourse}>+ Nuevo curso</DashedAddButton>}
           </div>}
+      {/* Crear curso vive en el Fab (+) fijo, no en un botón al final de la
+          lista (Jon, 2026-07-12). */}
+      {role === "teacher" && <Fab actions={[{ label: "Nuevo curso", onClick: () => onCreateCourse?.() }]} />}
     </div>
   );
 }
@@ -513,23 +517,23 @@ export function MobileUnitsScreen({
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {cu.length === 0
           ? <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: "2px 2px 8px" }}>Este curso no tiene unidades todavía.</p>
-          : cu.map((u, i) => {
+          : cu.map((u) => {
               const s = unitProgress(u, exercises, role, results);
               return (
                 <button key={u.id} onClick={() => onOpenUnit(u.id)}
                   style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer" }}>
                   <ProgressRing ready={s.num} total={s.total} size={40} stroke={4} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 11, fontWeight: 700, color: C.muted }}>UNIDAD {i + 1}{u.hidden ? " · oculta" : ""}</span>
-                    <span style={{ display: "block", fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
-                    <span style={{ display: "block", fontFamily: F.sans, fontSize: 11.5, color: C.muted, marginTop: 2 }}>{s.total} {s.total === 1 ? "ejercicio" : "ejercicios"}</span>
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 600, color: C.ink, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
+                    {u.hidden && <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>}
                   </span>
                   <ChevronRightIcon />
                 </button>
               );
             })}
-        {role === "teacher" && <DashedAddButton onClick={() => onCreateUnit(course.id)}>+ Nueva unidad</DashedAddButton>}
       </div>
+      {/* Crear unidad vive en el Fab (Jon, 2026-07-12). */}
+      {role === "teacher" && <Fab actions={[{ label: "Nueva unidad", onClick: () => onCreateUnit(course.id) }]} />}
     </div>
   );
 }
@@ -542,14 +546,30 @@ interface MobileExercisesScreenProps {
 }
 export function MobileExercisesScreen({ role, course, unit, units, exercises, results, onBack, onOpenUnit, panelProps, onEditUnit = noop, onUpdateUnit = noop, onDeleteUnit = noop, onAfterDeleteUnit, askConfirm = noop }: MobileExercisesScreenProps) {
   const cu = courseUnitList(course, units, role);
+  const hs = unit ? unitProgress(unit, exercises, role, results) : null;
   return (
     <div style={{ fontFamily: F.sans }}>
-      {/* Breadcrumb Curso ⟩ Unidad + (profesor) acciones de la unidad en ⋯ */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, marginBottom: 6, borderBottom: `1px solid ${C.line}` }}>
-        <button onClick={onBack} aria-label="Volver" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={12} /></button>
-        <span style={{ flex: 1, minWidth: 0, fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {course.name}{unit ? <> <span style={{ color: "#d8d8d2" }}>⟩</span> {unit.name}</> : null}
-        </span>
+      {/* Cabecera (Jon, 2026-07-12): mismo patrón overline+serif del resto de
+          la app (como «ALUMNO / Lucía Arrieta») — curso en versalitas apagadas
+          y la unidad como título serif grande. Sustituye al breadcrumb sans
+          diminuto «Curso ⟩ Unidad», que además repetía la unidad ya marcada en
+          los chips. El alumno ve su anillo de progreso a la derecha (el mismo
+          de las tarjetas de unidad, en vez del eyebrow «N EJERCICIOS · M
+          COMPLETADO»); el profesor, la marca «oculta» y el ⋯ de acciones. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, marginBottom: cu.length > 1 ? 10 : 16, borderBottom: `1px solid ${C.line}` }}>
+        <button onClick={onBack} aria-label="Volver" style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.ink }}><ChevronLeftIcon size={13} /></button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {unit && (
+            <div style={{ fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: C.chevron, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <h3 style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 600, color: C.ink, margin: 0, lineHeight: 1.08, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unit ? unit.name : course.name}</h3>
+            {role === "teacher" && unit?.hidden && (
+              <span style={{ fontFamily: F.sans, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, flexShrink: 0 }}>oculta</span>
+            )}
+          </div>
+        </div>
+        {role === "student" && hs && <ProgressRing ready={hs.num} total={hs.total} size={40} stroke={4} />}
         {role === "teacher" && unit && (
           <KebabMenu size={28} title={`Acciones de la unidad "${unit.name}"`} items={[
             { label: unit.hidden ? "Mostrar a alumnos" : "Ocultar para alumnos", onClick: () => onUpdateUnit({ ...unit, hidden: !unit.hidden }) },
@@ -558,18 +578,19 @@ export function MobileExercisesScreen({ role, course, unit, units, exercises, re
           ]} />
         )}
       </div>
-      {/* Chips de unidades (scroll horizontal): cambia de unidad sin volver atrás */}
+      {/* Chips de unidades (scroll horizontal): cambia de unidad sin volver
+          atrás. Solo el nombre — sin contadores «· n/m» (Jon, 2026-07-12);
+          el alumno ve ✓ en las completas. */}
       {cu.length > 1 && (
-        <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "12px 0 14px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+        <div className="fa-noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "0 0 14px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
           {cu.map((u) => {
             const s = unitProgress(u, exercises, role, results);
             const on = !!unit && u.id === unit.id;
-            const done = s.total > 0 && s.num === s.total;
-            const label = (role === "student" && done && !on) ? `✓ ${u.name}` : `${u.name} · ${s.num}/${s.total}`;
+            const done = role === "student" && s.total > 0 && s.num === s.total;
             return (
               <button key={u.id} onClick={() => onOpenUnit(u.id)}
                 style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 20, background: on ? C.ink : C.paper2, color: on ? "#fff" : "#555", border: "none", fontFamily: F.sans, fontSize: 11.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", cursor: "pointer" }}>
-                {label}
+                {done ? `✓ ${u.name}` : u.name}
               </button>
             );
           })}
