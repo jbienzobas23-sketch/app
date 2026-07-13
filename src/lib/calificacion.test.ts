@@ -158,6 +158,14 @@ describe("etiquetaEquivalente", () => {
   it("sin coincidencia de ranura ni grupo, no son equivalentes", () => {
     expect(etiquetaEquivalente(1, "A", "C")).toBe(false);
   });
+  it("tildes: «Transición» ≡ «transicion» por texto normalizado (nivel sin ranura)", () => {
+    expect(etiquetaEquivalente(3, "Transición", "transicion")).toBe(true);
+  });
+  it("tildes dentro de un grupo: el alumno sin tilde casa con el grupo escrito con tilde", () => {
+    // Ejercita normalizeLabel de forma asimétrica: si la regex de diacríticos
+    // se corrompiera, "transición" del grupo no casaría con "transicion".
+    expect(etiquetaEquivalente(1, "Puente", "transicion", [["Puente", "Transición"]])).toBe(true);
+  });
 });
 
 describe("calcSchemaScore", () => {
