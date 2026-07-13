@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
   etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento,
-  matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore,
+  matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -187,5 +187,29 @@ describe("calcSchemaScore", () => {
   it("sin bloques de clave → null", () => {
     expect(calcSchemaScore([], [], 3)).toBeNull();
     expect(calcSchemaScore(null, [], 3)).toBeNull();
+  });
+});
+
+describe("coberturaLibre", () => {
+  it("cobertura simple sin solapes", () => {
+    expect(coberturaLibre([{ start: 0, end: 5 }, { start: 5, end: 10 }], 20)).toBe(50);
+  });
+  it("fusiona intervalos solapados sin contar dos veces el instante común", () => {
+    // [0,10] ∪ [5,15] = [0,15] → 15/20 = 75 %, no (10+10)/20=100 %
+    expect(coberturaLibre([{ start: 0, end: 10 }, { start: 5, end: 15 }], 20)).toBe(75);
+  });
+  it("intervalos adyacentes se fusionan igual que los solapados", () => {
+    expect(coberturaLibre([{ start: 0, end: 10 }, { start: 10, end: 20 }], 20)).toBe(100);
+  });
+  it("recorta marcas que se salen de los límites de la duración", () => {
+    expect(coberturaLibre([{ start: -5, end: 25 }], 20)).toBe(100);
+  });
+  it("sin marcas → 0 % (duración válida, simplemente no se ha marcado nada)", () => {
+    expect(coberturaLibre([], 20)).toBe(0);
+    expect(coberturaLibre(null, 20)).toBe(0);
+  });
+  it("sin duración válida → null", () => {
+    expect(coberturaLibre([{ start: 0, end: 5 }], 0)).toBeNull();
+    expect(coberturaLibre([{ start: 0, end: 5 }], -1)).toBeNull();
   });
 });

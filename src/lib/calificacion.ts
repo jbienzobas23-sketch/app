@@ -218,3 +218,30 @@ export function calcSchemaScore(
   }).length;
   return Math.round((correct / keyBlocks.length) * 100);
 }
+
+// ─── N0.5: cobertura del libre (mide compleción, no acierto) ────────────────
+// % de la duración cubierto por las marcas del alumno, fusionando solapes
+// para no contar dos veces el mismo instante. Es la preliminar de "interactivo
+// (libre)" (ejercicio sin clave, keyReadyOf false) — se etiqueta como
+// "cobertura" en la UI (N4.3), nunca como acierto.
+export function coberturaLibre(
+  intervals: { start: number; end: number }[] | null | undefined,
+  duration: number,
+): number | null {
+  if (!duration || duration <= 0) return null;
+  const marcas = (intervals ?? [])
+    .filter((iv) => iv.end > iv.start)
+    .map((iv): [number, number] => [Math.max(0, iv.start), Math.min(duration, iv.end)])
+    .sort((a, b) => a[0] - b[0]);
+  let cubierto = 0, curInicio = 0, curFin = -Infinity;
+  for (const [s, e] of marcas) {
+    if (s > curFin) {
+      if (curFin > curInicio) cubierto += curFin - curInicio;
+      curInicio = s; curFin = e;
+    } else if (e > curFin) {
+      curFin = e;
+    }
+  }
+  if (curFin > curInicio) cubierto += curFin - curInicio;
+  return Math.round((cubierto / duration) * 100);
+}
