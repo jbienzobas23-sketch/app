@@ -3,7 +3,8 @@
 // y heredado `mode`/`answer`), modelos y combos, y listas del almacén de audios.
 // Extraídos de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
 import { DEFAULT_CATEGORY } from "../seed.js";
-import type { Exercise, Category, Button, Question, Course, Unit, Role, ExerciseResult, Part } from "./types.js";
+import type { Exercise, Category, Button, Question, Course, Unit, Role, ExerciseResult, Part, ResultsMap } from "./types.js";
+import { pesosDeCurso, pesosDeUnidad, mediaDe } from "./calificacion.js";
 
 export const DEFAULT_MODEL_ID = "interactivo";
 
@@ -115,6 +116,48 @@ export const resultStatusOf = (result: ExerciseResult | null | undefined, exerci
   if (models.includes("cuestionario") && questionsSnapshotOf(result, exercise).some((q) => q.type === "desarrollo")) return "pendiente";
   return "auto";
 };
+
+// ── Medias de unidad y curso (N1, PLAN_CALIFICACION.md) ──────────────────────
+// `result.score` YA es la nota vigente de un ejercicio (preliminar si auto,
+// final si el profesor la sustituyó al corregir — ver saveCorrection); mediaDe
+// (calificacion.ts) solo agrega. Un ejercicio sin entrega, o con entrega sin
+// corregir, cuenta como pendiente (nota null o a la espera, no penaliza).
+export function unitAverage(unit: Unit, exercises: Exercise[], results: ResultsMap, role: Role): { nota: number | null; pendientes: number; total: number } {
+  const exs = unitExList(unit, exercises, role);
+  const pesos = pesosDeUnidad(unit, exs.map((e) => String(e.id)));
+  const hijos = exs.map((ex, i) => {
+    const result = results?.[String(ex.id)];
+    return {
+      id: String(ex.id),
+      nota: result?.score ?? null,
+      peso: pesos[i]?.peso ?? 1,
+      pendiente: !result || resultStatusOf(result, ex) === "pendiente",
+    };
+  });
+  return mediaDe(hijos);
+}
+
+// Una unidad cuenta como pendiente para la media del curso si le queda algún
+// ejercicio sin corregir (mismo criterio, una altura más arriba).
+export function courseAverage(course: Course, units: Unit[], exercises: Exercise[], results: ResultsMap, role: Role): { nota: number | null; pendientes: number; total: number } {
+  const cu = courseUnitList(course, units, role);
+  const pesos = pesosDeCurso(course, cu.map((u) => u.id));
+  const hijos = cu.map((u, i) => {
+    const { nota, pendientes } = unitAverage(u, exercises, results, role);
+    return { id: u.id, nota, peso: pesos[i]?.peso ?? 1, pendiente: pendientes > 0 };
+  });
+  return mediaDe(hijos);
+}
+
+// Estado visual de una media agregada (curso o unidad): "corregido" (● nada
+// pendiente), "provisional" (◐ hay nota pero queda algo sin corregir),
+// "pendiente" (○ sin nota todavía). Mismos glifos que usará el cuaderno (N5).
+export type MediaStatus = "corregido" | "provisional" | "pendiente";
+export function mediaStatusOf({ nota, pendientes }: { nota: number | null; pendientes: number }): MediaStatus {
+  if (nota == null) return "pendiente";
+  if (pendientes > 0) return "provisional";
+  return "corregido";
+}
 
 // ── Ejercicios multiparte (F4) ────────────────────────────────────────────────
 // Partes embebidas, no ejercicios enlazados: un solo documento, una entrega,

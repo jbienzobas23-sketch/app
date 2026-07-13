@@ -172,6 +172,61 @@ export function ScoreBadge({ score, emptyLabel = "—", status = null }: ScoreBa
   );
 }
 
+// ── PesoEditor: conmutador Equitativa/Personalizada + reparto en texto ──────
+// Primitivo único reutilizado en todas las alturas de PLAN_CALIFICACION N1-N5
+// (curso→unidades, unidad→ejercicios…). No conoce el dominio: recibe el modo
+// y el reparto ya resueltos (pesosDeCurso/pesosDeUnidad, normalizados a 100 %)
+// y solo pinta + notifica el cambio de modo. La edición de cada peso vive en
+// PesoChip, aparte, porque cada llamador la incrusta en su propia fila.
+export interface PesoEditorProps {
+  modo: "equitativa" | "personalizada";
+  reparto: number[]; // % normalizado a 100, en el orden de las filas — nunca solo una barra
+  onModoChange: (modo: "equitativa" | "personalizada") => void;
+}
+export function PesoEditor({ modo, reparto, onModoChange }: PesoEditorProps) {
+  return (
+    <div>
+      <div style={{ display: "inline-flex", border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", marginBottom: 8 }}>
+        {(["equitativa", "personalizada"] as const).map((m, i) => (
+          <button key={m} type="button" aria-pressed={modo === m} onClick={() => onModoChange(m)}
+            style={{
+              background: modo === m ? C.paper2 : C.paper, border: "none",
+              borderLeft: i > 0 ? `1px solid ${C.line}` : "none",
+              padding: "5px 12px", fontFamily: F.sans, fontSize: 13, fontWeight: 500,
+              color: modo === m ? C.ink : C.muted, cursor: "pointer",
+            }}>
+            {m === "equitativa" ? "Equitativa" : "Personalizada"}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+        {reparto.map((pct) => `${pct} %`).join(" · ")}
+      </div>
+    </div>
+  );
+}
+
+// Chip de peso de una fila (peso siempre visible como cifra). `editable`
+// falso (modo equitativa, o rol alumno) renderiza texto plano, no un input
+// deshabilitado — para no parecer un control roto.
+export interface PesoChipProps { value: number; editable: boolean; onChange?: (n: number) => void; }
+export function PesoChip({ value, editable, onChange }: PesoChipProps) {
+  const chipStyle: CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0,
+    background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 8px",
+    fontFamily: F.sans, fontSize: 12.5, color: C.ink2, fontVariantNumeric: "tabular-nums",
+  };
+  if (!editable) return <span style={chipStyle}>{value} %</span>;
+  return (
+    <span style={chipStyle} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <input type="text" inputMode="numeric" aria-label="Peso" value={String(value)}
+        onChange={(e) => { const d = e.target.value.replace(/\D/g, ""); onChange?.(d === "" ? 0 : Number(d)); }}
+        style={{ width: 24, textAlign: "right", background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit" }} />
+      %
+    </span>
+  );
+}
+
 // Input de credencial (PIN numérico o contraseña)
 export function CredentialInput({ kind, value, onChange, placeholder, autoFocus, onSubmit, marginBottom = 14, style, id }: CredentialInputProps) {
   const isPin = kind === "pin";

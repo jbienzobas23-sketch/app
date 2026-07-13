@@ -4,7 +4,7 @@ import {
   audioComposers, audioTags, courseUnitList, unitExList, resultStatusOf,
   partsOf, partToExercise, durationOf, keyReadyOf, resultPartsOf, questionsCountOf, updatePart, composersOf,
   questionsSnapshotOf, attemptsOf, addAttempt, normalizeExercise, questionScopeOf, serializeIntervals, btnOf,
-  flattenSinglePart, audioDisplayTitle,
+  flattenSinglePart, audioDisplayTitle, unitAverage, courseAverage, mediaStatusOf,
 } from "./domain.js";
 import { interactiveFigureDiagnostics } from "./scoring.js";
 import { DEFAULT_CATEGORY } from "../seed.js";
@@ -130,6 +130,65 @@ describe("resultStatusOf", () => {
   it("sin instantánea (entregas de antes de T5.5), cae a las preguntas vigentes", () => {
     const exercise = { model: "cuestionario", questions: [{ id: "q1", type: "test" }, { id: "q2", type: "desarrollo" }] };
     expect(resultStatusOf({}, exercise)).toBe("pendiente");
+  });
+});
+
+describe("unitAverage (N1, PLAN_CALIFICACION.md)", () => {
+  const exercises = [
+    { id: "e1", model: "interactivo" },
+    { id: "e2", model: "interactivo" },
+    { id: "e3", model: "esquema" }, // siempre "pendiente" sin corrección manual (resultStatusOf)
+  ];
+  it("sin sobre evaluacion, equitativa ≡ aritmética simple", () => {
+    const unit = { id: "u1", exerciseIds: ["e1", "e2"] };
+    const results = { e1: { score: 80 }, e2: { score: 60 } };
+    expect(unitAverage(unit, exercises, results, "teacher")).toEqual({ nota: 70, pendientes: 0, total: 2 });
+  });
+  it("un ejercicio sin entrega cuenta como pendiente y no penaliza la nota", () => {
+    const unit = { id: "u2", exerciseIds: ["e1", "e2"] };
+    const results = { e1: { score: 80 } };
+    expect(unitAverage(unit, exercises, results, "teacher")).toEqual({ nota: 80, pendientes: 1, total: 2 });
+  });
+  it("un esquema con nota preliminar pero sin corrección manual cuenta pendiente", () => {
+    const unit = { id: "u3", exerciseIds: ["e1", "e3"] };
+    const results = { e1: { score: 80 }, e3: { score: 50 } };
+    expect(unitAverage(unit, exercises, results, "teacher")).toEqual({ nota: 65, pendientes: 1, total: 2 });
+  });
+  it("pesos personalizados se respetan", () => {
+    const unit = { id: "u4", exerciseIds: ["e1", "e2"], evaluacion: { modo: "personalizada", pesos: { e1: 3, e2: 1 } } };
+    const results = { e1: { score: 80 }, e2: { score: 60 } };
+    expect(unitAverage(unit, exercises, results, "teacher").nota).toBe(75); // (80*3+60*1)/4
+  });
+  it("sin ejercicios → nota null, 0 pendientes, 0 total", () => {
+    expect(unitAverage({ id: "u5", exerciseIds: [] }, exercises, {}, "teacher")).toEqual({ nota: null, pendientes: 0, total: 0 });
+  });
+});
+
+describe("courseAverage (N1, PLAN_CALIFICACION.md)", () => {
+  const exercises = [{ id: "e1", model: "interactivo" }, { id: "e2", model: "esquema" }];
+  const units = [{ id: "u1", exerciseIds: ["e1"] }, { id: "u2", exerciseIds: ["e2"] }];
+  it("sin sobre evaluacion, equitativa ≡ aritmética simple entre unidades", () => {
+    const course = { id: "c1", unitIds: ["u1", "u2"] };
+    const results = { e1: { score: 80 }, e2: { score: 60 } };
+    // u2 (esquema, sin corrección) queda pendiente → 1 unidad pendiente
+    expect(courseAverage(course, units, exercises, results, "teacher")).toEqual({ nota: 70, pendientes: 1, total: 2 });
+  });
+  it("pesos personalizados sobre las unidades se respetan", () => {
+    const course = { id: "c2", unitIds: ["u1", "u2"], evaluacion: { modo: "personalizada", pesos: { u1: 3, u2: 1 } } };
+    const results = { e1: { score: 80 }, e2: { score: 60 } };
+    expect(courseAverage(course, units, exercises, results, "teacher").nota).toBe(75); // (80*3+60*1)/4
+  });
+});
+
+describe("mediaStatusOf", () => {
+  it("sin nota → pendiente (○)", () => {
+    expect(mediaStatusOf({ nota: null, pendientes: 0 })).toBe("pendiente");
+  });
+  it("con nota y algo pendiente → provisional (◐)", () => {
+    expect(mediaStatusOf({ nota: 70, pendientes: 1 })).toBe("provisional");
+  });
+  it("con nota y nada pendiente → corregido (●)", () => {
+    expect(mediaStatusOf({ nota: 70, pendientes: 0 })).toBe("corregido");
   });
 });
 
