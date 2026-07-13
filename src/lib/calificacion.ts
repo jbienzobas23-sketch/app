@@ -97,3 +97,24 @@ export function equivalenciasDe(exercise: { evaluacion?: EvaluacionExercise } | 
 export function instrumentoDe(target: { evaluacion?: { instrumento?: Instrumento } } | null | undefined): Instrumento | undefined {
   return target?.evaluacion?.instrumento;
 }
+
+// ─── N0.3: nota de un instrumento (lista/escala/rúbrica) a partir de las
+// respuestas del profesor (una elección de nivel por ítem) ──────────────────
+// Ítems sin responder no penalizan (quedan fuera de ponderar, igual que una
+// parte sin corregir) — el panel de corrección (N4) exige completarlos todos
+// antes de poder marcar la unidad como "corregido".
+export function notaInstrumento(
+  instrumento: Instrumento | null | undefined,
+  respuestas: Record<string, string> | null | undefined,
+): number | null {
+  if (!instrumento?.items?.length) return null;
+  const valorPorNivel = new Map(instrumento.niveles.map((n) => [n.id, n.valor]));
+  const elegido = respuestas ?? {};
+  return ponderar(
+    instrumento.items.map((item) => {
+      const nivelId = elegido[item.id];
+      const valor = nivelId != null ? valorPorNivel.get(nivelId) : undefined;
+      return { nota: valor != null ? valor * 100 : null, peso: item.peso };
+    }),
+  );
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
-  etiquetaCuentaDe, equivalenciasDe, instrumentoDe,
+  etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -67,5 +67,58 @@ describe("modelosDe / etiquetaCuentaDe / equivalenciasDe / instrumentoDe — def
   it("instrumentoDe funciona igual para un ejercicio y para una pregunta", () => {
     const instr = { tipo: "lista" as const, niveles: [], items: [] };
     expect(instrumentoDe({ evaluacion: { instrumento: instr } })).toBe(instr);
+  });
+});
+
+describe("notaInstrumento", () => {
+  it("lista de control (Sí=1/No=0), pesos distintos", () => {
+    const lista = {
+      tipo: "lista" as const,
+      niveles: [{ id: "si", etiqueta: "Sí", valor: 1 }, { id: "no", etiqueta: "No", valor: 0 }],
+      items: [
+        { id: "i1", texto: "Afina bien", peso: 1 },
+        { id: "i2", texto: "Marca el pulso", peso: 1 },
+        { id: "i3", texto: "Lee la clave", peso: 2 },
+      ],
+    };
+    // (100*1 + 0*1 + 100*2) / 4 = 75
+    expect(notaInstrumento(lista, { i1: "si", i2: "no", i3: "si" })).toBe(75);
+  });
+
+  it("escala estimativa de 3 niveles (reproduce el ejemplo del mockup)", () => {
+    const escala = {
+      tipo: "escala" as const,
+      niveles: [{ id: "insuf", etiqueta: "Insuficiente", valor: 0 }, { id: "adec", etiqueta: "Adecuado", valor: 0.5 }, { id: "not", etiqueta: "Notable", valor: 1 }],
+      items: [
+        { id: "tonalidades", texto: "Identifica tonalidades", peso: 40 },
+        { id: "pivote", texto: "Justifica el pivote", peso: 40 },
+        { id: "nomenclatura", texto: "Nomenclatura", peso: 20 },
+      ],
+    };
+    // sel = [Notable, Adecuado, Notable] → (100*40 + 50*40 + 100*20) / 100 = 80
+    expect(notaInstrumento(escala, { tonalidades: "not", pivote: "adec", nomenclatura: "not" })).toBe(80);
+  });
+
+  it("rúbrica: los descriptores por celda son solo texto, no afectan al cálculo", () => {
+    const rubrica = {
+      tipo: "rubrica" as const,
+      niveles: [{ id: "l0", etiqueta: "Insuficiente", valor: 0 }, { id: "l1", etiqueta: "Notable", valor: 1 }],
+      items: [{ id: "i1", texto: "Justificación", peso: 1, descriptores: { l0: "Ausente", l1: "Completa" } }],
+    };
+    expect(notaInstrumento(rubrica, { i1: "l1" })).toBe(100);
+  });
+
+  it("un ítem sin responder no penaliza: queda fuera de la ponderación", () => {
+    const instr = {
+      tipo: "lista" as const,
+      niveles: [{ id: "a", etiqueta: "Sí", valor: 1 }, { id: "b", etiqueta: "No", valor: 0 }],
+      items: [{ id: "i1", texto: "x", peso: 1 }, { id: "i2", texto: "y", peso: 1 }],
+    };
+    expect(notaInstrumento(instr, { i1: "a" })).toBe(100);
+  });
+
+  it("sin instrumento o sin ítems → null", () => {
+    expect(notaInstrumento(undefined, {})).toBeNull();
+    expect(notaInstrumento({ tipo: "lista", niveles: [], items: [] }, {})).toBeNull();
   });
 });
