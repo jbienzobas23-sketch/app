@@ -10,7 +10,9 @@ import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { answerFor, partKeyReadyOf } from "../../lib/domain.js";
 import { MODEL_META } from "../../lib/modelMeta.js";
 import type { Exercise, Part } from "../../lib/types.js";
+import type { EvaluacionExercise } from "../../lib/calificacion.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
+import { PesoChip } from "../primitives.jsx";
 import type { EditorApi } from "./useExerciseEditor.js";
 import { StepHead } from "./editorUi.js";
 
@@ -37,6 +39,62 @@ function ClaveCell({ exercise, part, model, onRecordPart, onQuestionsPart }: {
         style={{ ...S.btn, padding: "3px 9px", fontSize: 11.5 }}>
         {ready ? (isQuiz ? "Gestionar" : "Regrabar") : (isQuiz ? "Añadir" : "Grabar")}
       </button>
+    </div>
+  );
+}
+
+// ── N2: sección «Calificación» — todo lo que pondera la nota del ejercicio ──
+// Niveles del interactivo (grados/cifrado, N2.2). Escribe el sobre `evaluacion`
+// directamente sobre el ejercicio guardado (mismo patrón que el interruptor de
+// guía showHint): editar la calificación no pasa por el borrador del asistente.
+const calRow = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: `1px solid ${C.line}` } as const;
+function CalificacionCard({ exercise, onUpdate }: { exercise: Exercise; onUpdate: (patch: Partial<Exercise>) => void }) {
+  const sobre = (exercise.evaluacion ?? {}) as EvaluacionExercise;
+  // Grados/Cifrado solo tienen sentido si alguna categoría del ejercicio lleva
+  // cifrado de bajo (hasFigures) — sin eso, no hay segundo nivel que ponderar.
+  const hasFigures = (exercise.categories ?? []).some((c) => c.hasFigures);
+  const cifradoActivo = sobre.niveles?.cifrado != null;
+  const pesoGrados  = sobre.niveles?.grados ?? 70;
+  const pesoCifrado = sobre.niveles?.cifrado ?? 30;
+  const totalNiv = pesoGrados + pesoCifrado;
+
+  if (!hasFigures) return null;
+  const setNiveles = (niveles?: { grados?: number; cifrado?: number }) => {
+    const next: EvaluacionExercise = { ...sobre };
+    if (niveles) next.niveles = niveles; else delete next.niveles;
+    onUpdate({ evaluacion: next });
+  };
+  return (
+    <div style={{ ...S.card }}>
+      <p style={{ ...S.label, margin: "0 0 14px" }}>Calificación</p>
+      <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+          {/* Al activar se sugiere 70/30 (editable); al desactivar, el lector
+              vuelve al defecto {grados: 1} = comportamiento de siempre. */}
+          <input type="checkbox" checked={cifradoActivo}
+            onChange={(e) => setNiveles(e.target.checked ? { grados: 70, cifrado: 30 } : undefined)}
+            style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>El cifrado cuenta en la nota</div>
+            <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>La inversión se evalúa solo sobre los grados acertados.</div>
+          </div>
+        </label>
+        {cifradoActivo && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ ...calRow }}>
+              <span style={{ fontSize: 13, color: C.ink2 }}>Grados</span>
+              <PesoChip value={pesoGrados} editable onChange={(n) => setNiveles({ grados: n, cifrado: pesoCifrado })} />
+            </div>
+            <div style={{ ...calRow }}>
+              <span style={{ fontSize: 13, color: C.ink2 }}>Cifrado de inversiones</span>
+              <PesoChip value={pesoCifrado} editable onChange={(n) => setNiveles({ grados: pesoGrados, cifrado: n })} />
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, paddingTop: 8 }}>
+              {totalNiv > 0 ? `${Math.round((pesoGrados / totalNiv) * 100)} % · ${Math.round((pesoCifrado / totalNiv) * 100)} %` : "—"}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -116,7 +174,13 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
             ))}
           </div>
         )
-      ) : (
+      ) : null}
+      {/* Calificación también en multiparte (los pesos viven a nivel de
+          ejercicio, compartidos por todas las partes). */}
+      {!isCreating && isMultiPart && hasInteractivo && (
+        <div style={{ marginTop: 14 }}><CalificacionCard exercise={exercise} onUpdate={ed.onUpdate} /></div>
+      )}
+      {isCreating || isMultiPart ? null : (
         <>
           {/* ── Clave de corrección (interactivo) ── */}
           {hasInteractivo && (
@@ -153,6 +217,9 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
               </button>
             </div>
           )}
+
+          {/* ── Calificación (N2.2): pesos de los niveles del interactivo ── */}
+          {hasInteractivo && <CalificacionCard exercise={exercise} onUpdate={ed.onUpdate} />}
 
           {/* ── Esquema formal ── */}
           {hasEsquema && (
