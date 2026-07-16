@@ -41,7 +41,11 @@ function effectiveModelResult(
 ): { score: number | null; status: "auto" | "pendiente" | "corregido" } {
   if (corr?.corrected) {
     let score = raw?.score ?? (raw as { placementScore?: number | null } | undefined)?.placementScore ?? null;
-    if (corr.totalScore != null) {
+    // N4.1: el sobre trae la nota 0-100 EXACTA — sin la heurística ≤10 del
+    // totalScore legado, que malinterpretaría una nota baja de instrumento.
+    if (corr.calificacion?.nota != null) {
+      score = Number(corr.calificacion.nota);
+    } else if (corr.totalScore != null) {
       const n = Number(corr.totalScore);
       if (!Number.isNaN(n)) score = n <= 10 ? n * 10 : n;
     }

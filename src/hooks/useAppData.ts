@@ -271,13 +271,23 @@ export function useAppData({ localMode, currentUser, onCurrentUserSync }: UseApp
     // esta parte concreta ya se haya guardado. El resto de llamadas (una sola
     // parte) nunca traen `status`, así que su comportamiento no cambia.
     const updated: ExerciseResult = { ...existing, teacherCorrection: { ...correction, corrected: true }, status: correction?.status || "corregido" };
-    // Nota normalizada a escala 0-100 (la que consume ScoreBadge). totalScore
-    // puede llegar en 0-10 (correcciones anteriores a T1.2, o inputs aún sin
-    // migrar) — el mismo umbral tolerante que usa CorrectionView al mostrarla.
+    // N4.1: el sobre de calificación de la corrección (fuente, nota exacta,
+    // instrumento relleno, porPregunta) se FUSIONA sobre el del intento — la
+    // preliminar y los niveles congelados en la entrega quedan intactos
+    // (regla de oro 3: la preliminar nunca se pierde).
+    if (correction?.calificacion) {
+      updated.calificacion = { ...(existing.calificacion ?? {}), ...correction.calificacion };
+    }
+    // Nota vigente. Si la corrección trae el sobre con `nota`, es 0-100 EXACTA
+    // (sin heurística — una nota de instrumento de 5 significa 0,5/10, no 5).
+    // Si no (correcciones legadas), totalScore con el umbral tolerante de
+    // siempre: puede llegar en 0-10 (anteriores a T1.2, o inputs sin migrar).
     // CorrectionView siempre envía number|null (nunca "") — TeacherCorrection
     // lo tipa así (F7, T7.2); el `!== ""` que había aquí era una comprobación
     // muerta sobre ese contrato ya garantizado por el tipo.
-    if (correction?.totalScore != null) {
+    if (correction?.calificacion?.nota != null) {
+      updated.score = Number(correction.calificacion.nota);
+    } else if (correction?.totalScore != null) {
       const raw = Number(correction.totalScore);
       if (!Number.isNaN(raw)) updated.score = raw <= 10 ? raw * 10 : raw;
     }

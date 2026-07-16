@@ -11,11 +11,12 @@
 // confirma al pulsar «Guardar» — escribir en Supabase por cada tecla fue el
 // bug B de la revisión de N1 (PesoChip) y aquí hay muchos más inputs de texto.
 import { useState } from "react";
-import { C, S, F, FONT_SANS } from "../theme/tokens.js";
+import { C, S, F } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { nota10 } from "../lib/scoring.js";
 import { cambiaTipoInstrumento, clonaInstrumento, notaInstrumento, nuevoInstrumento, TIPO_INSTRUMENTO_LABEL, type Instrumento } from "../lib/calificacion.js";
 import { ModalShell, ModalFooter, PesoChip } from "./primitives.jsx";
+import { InstrumentoRespuestas } from "./InstrumentoRespuestas.jsx";
 
 const TIPOS = (["lista", "escala", "rubrica"] as const).map((id) => ({ id, label: TIPO_INSTRUMENTO_LABEL[id] }));
 
@@ -144,51 +145,9 @@ export function InstrumentoEditor({ value, onChange }: InstrumentoEditorProps) {
             {nota10(notaPreview) ?? "—"}
           </span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: `1.15fr repeat(${value.niveles.length}, 1fr)`, gap: 6, alignItems: "stretch" }}>
-          {/* Cabecera solo en rúbrica: ahí la celda lleva el descriptor y la
-              etiqueta·valor tiene que vivir arriba; en lista/escala la propia
-              celda ya dice el nivel. */}
-          {esRubrica && (
-            <>
-              <div />
-              {value.niveles.map((n) => (
-                <div key={n.id} style={{ fontSize: 11.5, color: C.muted, textAlign: "center", alignSelf: "end", paddingBottom: 2, fontFamily: FONT_SANS }}>
-                  {n.etiqueta} · {fmtValor(n.valor)}
-                </div>
-              ))}
-            </>
-          )}
-          {value.items.map((it) => {
-            const elegido = respuestas[it.id];
-            return [
-              <div key={`${it.id}-t`} style={{ fontSize: 13, display: "flex", flexDirection: "column", gap: 3, justifyContent: "center" }}>
-                <span style={{ color: C.ink }}>{it.texto || "—"}</span>
-                <span style={{ ...S.badge, background: C.paper2, border: `1px solid ${C.line}`, color: C.ink2, alignSelf: "flex-start", fontWeight: 500 }}>
-                  {totalPeso > 0 ? `${Math.round((it.peso / totalPeso) * 100)} %` : "—"}
-                </span>
-              </div>,
-              ...value.niveles.map((n) => {
-                const on = elegido === n.id;
-                return (
-                  <button key={`${it.id}-${n.id}`} type="button" aria-pressed={on}
-                    aria-label={`${it.texto || "ítem"}: ${n.etiqueta}`}
-                    onClick={() => setRespuestas((prev) => {
-                      const next = { ...prev };
-                      if (on) delete next[it.id]; else next[it.id] = n.id;
-                      return next;
-                    })}
-                    style={{
-                      border: `1px solid ${on ? C.ink : C.line}`, background: C.paper, borderRadius: 8,
-                      padding: "8px 6px", fontFamily: FONT_SANS, fontSize: 12, textAlign: "center",
-                      color: on ? C.ink : C.ink2, fontWeight: on ? 600 : 400, cursor: "pointer",
-                    }}>
-                    {on ? "✓ " : ""}{esRubrica ? (it.descriptores?.[n.id] || n.etiqueta) : `${n.etiqueta} · ${fmtValor(n.valor)}`}
-                  </button>
-                );
-              }),
-            ];
-          })}
-        </div>
+        {/* La rejilla es InstrumentoRespuestas (N4.1) — la misma pieza con la
+            que el profesor rellenará el instrumento al corregir. */}
+        <InstrumentoRespuestas instrumento={value} respuestas={respuestas} onChange={setRespuestas} />
       </div>
     </div>
   );

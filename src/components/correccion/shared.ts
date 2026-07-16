@@ -4,6 +4,7 @@
 // CorrectionView. La cabecera de intentos vive en AttemptBanner.tsx (componente).
 import type React from "react";
 import type { Exercise } from "../../lib/types.js";
+import type { CalificacionCorreccion } from "../../lib/calificacion.js";
 
 // ── Tipos locales de corrección ──────────────────────────────────────────────
 // TeacherCorrection se re-exporta desde CorrectionView.tsx para que App.tsx
@@ -19,6 +20,10 @@ export interface TeacherCorrection {
   questionComments?: Record<string, string>;
   globalComment?: string;
   totalScore?: number | null;
+  // N4.1: fuente de la nota + nota 0-100 exacta + instrumento relleno (+
+  // porPregunta en cuestionario, N4.2). saveCorrection lo fusiona en
+  // ExerciseResult.calificacion sin tocar la preliminar (regla de oro 3).
+  calificacion?: CalificacionCorreccion;
   [k: string]: unknown;
 }
 export interface SchemaBlock { id: string; level: number; start: number; end: number; label?: string; bodyText?: string; [k: string]: unknown; }

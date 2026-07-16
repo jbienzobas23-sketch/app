@@ -3,7 +3,7 @@
 // índice abierto) para una migración gradual: el objeto exercise tiene muchos
 // campos usados por toda la app; aquí se tipan los que consumen los módulos ya
 // migrados, sin romper el acceso a los demás. Se irán afinando.
-import type { EvaluacionExercise, Instrumento, PesoConfig } from "./calificacion.js";
+import type { EvaluacionExercise, Instrumento, InstrumentoRelleno, PesoConfig } from "./calificacion.js";
 
 export interface Button {
   id: string;
@@ -140,14 +140,20 @@ export interface ExerciseResult {
   // este campo (entregas de antes de T6.3), el propio result ES el único
   // intento — ver attemptsOf en domain.ts.
   attempts?: ExerciseResult[];
-  // Sobre de calificación del intento (N2, calificacion.ts): fuente de la
+  // Sobre de calificación del intento (N2/N4, calificacion.ts): fuente de la
   // nota, preliminar congelada en la entrega (regla de oro 3: nunca se
-  // pierde) y desglose por nivel (grados/cifrado). Crece en N3/N4 con
-  // instrumento, porPregunta y comentarios.
+  // pierde), desglose por nivel (grados/cifrado), instrumento relleno y notas
+  // por pregunta de la corrección (N4.1/N4.2), y cobertura del libre (N4.3 —
+  // campo PROPIO, no `preliminar`: mide compleción, no acierto, y no debe
+  // agregarse jamás como nota).
   calificacion?: {
     fuente?: "auto" | "instrumento" | "directa";
     preliminar?: number | null;
     niveles?: Record<string, number | null>;
+    nota?: number | null;
+    instrumento?: InstrumentoRelleno;
+    porPregunta?: Record<string, { fuente: "instrumento" | "directa"; nota: number | null; instrumento?: InstrumentoRelleno }>;
+    cobertura?: number | null;
     [k: string]: unknown;
   };
   [k: string]: unknown;

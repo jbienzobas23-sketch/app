@@ -11,19 +11,22 @@ import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { textOn, scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
 import { answerFor, btnOf } from "../../lib/domain.js";
+import { useState } from "react";
 import { interactiveDiagnostics, interactiveFigureDiagnostics, nota10 } from "../../lib/scoring.js";
-import { nivelesDe } from "../../lib/calificacion.js";
+import { instrumentoDe, nivelesDe } from "../../lib/calificacion.js";
 import { figureOf } from "../../lib/figures.js";
 import { DEFAULT_MARGIN } from "../../lib/sessionConstants.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "../primitives.jsx";
 import { FigureLabel } from "../session.js";
-import { useAutoHideScroll } from "./notaShared.js";
-import { type CorrectionViewProps, type CorrectionIv } from "./shared.js";
+import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
+import { FuenteNotaPanel } from "./FuenteNota.js";
+import { fuenteInicial, notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
+import { normalizeScore100, type CorrectionViewProps, type CorrectionIv } from "./shared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
 
-export function InteractiveCorrection({ exercise, result, onBack, backLabel = "← Volver", student = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
+export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode = false, backLabel = "← Volver", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const isMobile = useIsMobile();
   const handleAutoHideScroll = useAutoHideScroll();
@@ -37,13 +40,51 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
   const sc               = result.score;
   const col              = scoreColor(sc);
   const effMargin        = (exercise.margin as number | undefined) ?? DEFAULT_MARGIN;
+
+  // ── N4.1: fuente de la nota (el interactivo deja de ser solo lectura) ──────
+  // La preliminar congelada en la entrega (calificacion.preliminar) es la
+  // referencia; en una entrega ya corregida en una sola parte, result.score es
+  // la nota FINAL (saveCorrection la sustituyó) — por eso no vale como
+  // preliminar. Entregas antiguas sin sobre y sin corregir: sc ES la preliminar.
+  const tc        = result.teacherCorrection;
+  const sobre     = result.calificacion;
+  const corrected = tc?.corrected === true;
+  const preliminar = (sobre?.preliminar ?? (corrected ? null : sc)) ?? null;
+  const instrumento = instrumentoDe(exercise);
+  const puedeCorregir = isTeacherMode && !!onSaveCorrection;
+  const [fuente, setFuente] = useState<FuenteNotaState>(
+    () => fuenteInicial(tc?.calificacion as Parameters<typeof fuenteInicial>[0], normalizeScore100((tc?.totalScore as number | null | undefined) ?? null)),
+  );
+  const notaFinalPanel = notaDeFuente(fuente, preliminar, instrumento);
+  // Guardar exige una nota: certificar la automática (existente), el
+  // instrumento relleno o una directa. Un libre con fuente «automática» no
+  // tiene nada que certificar — la fuente docente es la que cierra (N4.3).
+  const handleSaveInteractive = () => {
+    if (notaFinalPanel == null) return;
+    onSaveCorrection?.(student?.id, exercise.id, {
+      totalScore: fuente.fuente === "auto" ? null : notaFinalPanel,
+      calificacion: {
+        fuente: fuente.fuente,
+        nota: notaFinalPanel,
+        ...(fuente.fuente === "instrumento" ? { instrumento: { respuestas: fuente.respuestas, nota: notaFinalPanel } } : {}),
+      },
+    });
+  };
+  // Nota que ve quien NO edita (alumno, o profesor de paso): la final de la
+  // corrección si existe; si no, la automática de siempre.
+  const notaCorregida = corrected
+    ? ((tc?.calificacion as { nota?: number | null } | undefined)?.nota ?? normalizeScore100((tc?.totalScore as number | null | undefined) ?? null) ?? sc ?? null)
+    : null;
   // Diagnóstico (T2.4): CÓMO falló el alumno — la nota sigue siendo `sc`.
-  const diagnostics = sc != null ? interactiveDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
+  // N4.1: gated por CLAVE, no por nota — un libre corregido a mano tiene nota
+  // final (sc != null) pero sigue sin clave con la que comparar nada.
+  const tieneClave = teacherAns.length > 0;
+  const diagnostics = tieneClave ? interactiveDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
   // Diagnóstico de CIFRADO (Jon, 2026-07-06): en categorías con hasFigures cada
   // intervalo lleva grado (fn) Y cifrado/inversión (fig) — son dos preguntas
   // distintas y hasta ahora la corrección solo evaluaba el grado. `figDiag` es
   // null si la clave no usa cifrado (categoría normal, sin hasFigures).
-  const figDiag = sc != null ? interactiveFigureDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
+  const figDiag = tieneClave ? interactiveFigureDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
   // N2.1: desglose por NIVEL congelado en la entrega (calificacion.niveles) —
   // solo cuando el ejercicio pondera el cifrado. La nota grande ya ES la
   // ponderada (la escribió submitAnswer); aquí se enseña de qué se compone.
@@ -129,7 +170,7 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
         </div>
         <h1 style={{ ...S.h1, marginBottom: 4 }}>{exercise.title}</h1>
         <p style={{ fontSize: 13, color: C.muted, margin: "0 0 20px" }}>
-          <strong style={{ color: C.ink2, fontSize: 14 }}>{alumnoNombre}</strong> · corrección automática
+          <strong style={{ color: C.ink2, fontSize: 14 }}>{alumnoNombre}</strong> · {puedeCorregir ? "corrección de la entrega" : "corrección automática"}
         </p>
         {extraHeaderContent}
         <AttemptBanner result={result} />
@@ -140,10 +181,32 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
 
           {/* ── Panel lateral (fijo) ── */}
           <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
-            {/* Nota (solo lectura: es automática, no editable como en cuestionario/esquema) */}
+            {/* Nota. Profesor con guardado (N4.1): fuente elegible + Guardar —
+                el interactivo deja de ser solo lectura (imprescindible para el
+                LIBRE, que no tiene automática que valga). Lectura (alumno):
+                final de la corrección si existe; si no, la automática. */}
             <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={eyebrow}>Nota</div>
-              {sc == null ? (
+              {puedeCorregir ? (
+                <>
+                  <FuenteNotaPanel state={fuente} onChange={setFuente} preliminar={preliminar}
+                    preliminarLabel={preliminar != null ? `margen ±${effMargin} s` : undefined}
+                    instrumento={instrumento} rejillaEnPanel={false} />
+                  {preliminar == null && fuente.fuente === "auto" && (
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Sin nota automática que certificar.</div>
+                  )}
+                </>
+              ) : corrected && notaCorregida != null ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                    <span style={{ fontSize: 42, fontWeight: 800, color: scoreColor(notaCorregida), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(notaCorregida)}</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+                    Corregido por el profesor{preliminar != null && ` · automática: ${nota10(preliminar)}`}
+                  </div>
+                </>
+              ) : sc == null ? (
                 <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Sin clave de corrección todavía.</div>
               ) : (
                 <>
@@ -152,24 +215,31 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                   </div>
                   <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Automática · margen ±{effMargin} s</div>
-                  {/* N2.1: fila por nivel con su peso (cifra + «×0,30») —
-                      el alumno y el profesor ven el mismo desglose. */}
-                  {desgloseNiveles && (
-                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {([["grados", "Grados"], ["cifrado", "Cifrado"]] as const).map(([nivel, label]) => (
-                        <div key={nivel} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12.5 }}>
-                          <span style={{ color: C.muted }}>{label}</span>
-                          <span>
-                            <strong style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{desgloseNiveles[nivel] != null ? `${desgloseNiveles[nivel]}%` : "—"}</strong>
-                            <span style={{ color: C.muted, fontSize: 11, marginLeft: 5, fontVariantNumeric: "tabular-nums" }}>{factorDe(pesosNiveles[nivel])}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </>
               )}
+              {/* N2.1: fila por nivel con su peso (cifra + «×0,30») —
+                  el alumno y el profesor ven el mismo desglose. */}
+              {desgloseNiveles && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {([["grados", "Grados"], ["cifrado", "Cifrado"]] as const).map(([nivel, label]) => (
+                    <div key={nivel} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12.5 }}>
+                      <span style={{ color: C.muted }}>{label}</span>
+                      <span>
+                        <strong style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{desgloseNiveles[nivel] != null ? `${desgloseNiveles[nivel]}%` : "—"}</strong>
+                        <span style={{ color: C.muted, fontSize: 11, marginLeft: 5, fontVariantNumeric: "tabular-nums" }}>{factorDe(pesosNiveles[nivel])}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {puedeCorregir && (
+              <button onClick={handleSaveInteractive} disabled={notaFinalPanel == null}
+                style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 14, opacity: notaFinalPanel == null ? 0.5 : 1, cursor: notaFinalPanel == null ? "default" : "pointer" }}>
+                {corrected ? "Actualizar corrección" : "Guardar corrección"}
+              </button>
+            )}
 
             {/* Resumen del diagnóstico. Con cifrado (figDiag), se separan
                 explícitamente dos preguntas distintas: "¿acertó el GRADO?" y,
@@ -224,7 +294,17 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
               </div>
             )}
 
-            {sc == null ? (
+            {/* N4.1: rejilla del instrumento (misma pieza que la vista previa
+                del editor), en la columna ancha; su nota vive en el panel. */}
+            {puedeCorregir && fuente.fuente === "instrumento" && instrumento && (
+              <div style={{ ...S.card, borderRadius: 12, marginBottom: 16 }}>
+                <div style={{ ...eyebrow, marginBottom: 10 }}>{instrumento.titulo?.trim() || "Instrumento de corrección"}</div>
+                <InstrumentoRespuestas instrumento={instrumento} respuestas={fuente.respuestas}
+                  onChange={(respuestas) => setFuente({ ...fuente, respuestas })} />
+              </div>
+            )}
+
+            {!tieneClave ? (
               <div style={{ ...S.card, borderRadius: 12, color: C.muted, textAlign: "center", padding: "2rem 1rem" }}>
                 Este ejercicio no tiene clave de corrección aún, así que no hay comparación que mostrar.
               </div>

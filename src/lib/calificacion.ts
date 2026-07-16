@@ -167,6 +167,22 @@ export function instrumentoDe(target: { evaluacion?: { instrumento?: Instrumento
   return target?.evaluacion?.instrumento;
 }
 
+// ─── N4.1: sobre de calificación que produce una corrección ──────────────────
+// Viaja dentro de TeacherCorrection y saveCorrection lo fusiona en
+// ExerciseResult.calificacion (la preliminar congelada en la entrega no se
+// toca — regla de oro 3). `nota` va SIEMPRE en 0–100 exacta: existe para
+// esquivar la heurística legada de saveCorrection («totalScore ≤ 10 ⇒ escala
+// 0–10»), que malinterpretaría una nota baja real — un instrumento con casi
+// todo a "No" puede valer 5 (0,5/10) y la heurística lo convertiría en 50.
+export interface InstrumentoRelleno { respuestas: Record<string, string>; nota: number | null; }
+export interface CalificacionCorreccion {
+  fuente: "auto" | "instrumento" | "directa";
+  nota?: number | null;
+  instrumento?: InstrumentoRelleno;
+  // Cuestionario (N4.2): fuente y nota por pregunta de desarrollo.
+  porPregunta?: Record<string, { fuente: "instrumento" | "directa"; nota: number | null; instrumento?: InstrumentoRelleno }>;
+}
+
 // ─── N0.3: nota de un instrumento (lista/escala/rúbrica) a partir de las
 // respuestas del profesor (una elección de nivel por ítem) ──────────────────
 // Ítems sin responder no penalizan (quedan fuera de ponderar, igual que una

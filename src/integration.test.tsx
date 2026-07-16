@@ -146,13 +146,16 @@ describe("Flujo de estado de una entrega de esquema", () => {
         onSaveCorrection={(studentId, exerciseId, correction) => { saved = { studentId, exerciseId, correction: correction as { totalScore: number | null } }; }}
       />
     );
-    // La nota manual se introduce en 0–10 (NotaInput, admite coma) y se
-    // ALMACENA en 0–100 (×10).
+    // N4.1: la nota manual es ahora una FUENTE — se elige «Nota directa» y se
+    // introduce en 0–10 (NotaInput, admite coma); se ALMACENA en 0–100 (×10),
+    // con el sobre calificacion llevando la nota exacta.
+    fireEvent.click(screen.getByRole("button", { name: "Nota directa" }));
     fireEvent.change(screen.getByLabelText("Nota final (0–10)"), { target: { value: "8,5" } });
     fireEvent.click(screen.getByText("Guardar corrección"));
 
     expect(saved).not.toBeNull();
     expect(saved!.correction.totalScore).toBe(85);
+    expect((saved!.correction as { calificacion?: { fuente?: string; nota?: number } }).calificacion).toMatchObject({ fuente: "directa", nota: 85 });
 
     // Mismo merge que saveCorrection en App.tsx (no exportado): la corrección
     // se añade — el reloj pasa a ✓ pero la LISTA sigue sin mostrar la nota

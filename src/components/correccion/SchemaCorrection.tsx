@@ -11,13 +11,14 @@ import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { rowButtonProps } from "../../lib/a11y.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { schemaDiagnostics, nota10 } from "../../lib/scoring.js";
-import { equivalenciasDe } from "../../lib/calificacion.js";
+import { equivalenciasDe, instrumentoDe } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { SchemaPlayhead, CorrectionAudioBar } from "../primitives.jsx";
+import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
 import { normalizeScore100, type CorrectionViewProps, type SchemaBlock } from "./shared.js";
-import { NotaInput } from "./NotaInput.js";
-import { parseNota10, useAutoHideScroll } from "./notaShared.js";
+import { FuenteNotaPanel } from "./FuenteNota.js";
+import { fuenteInicial, notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
 
 export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
@@ -26,13 +27,16 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
   const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => tc?.levelComments || {});
   const [blkComments,  setBlkComments]  = useState<Record<string, string>>(() => tc?.blockComments || {});
   const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
-  // La nota manual se edita en 0–10 como TEXTO (Jon, 2026-07-06) y se ALMACENA
-  // en 0–100 (totalScore, compatible). Saneado/parseo/input en NotaInput.tsx,
-  // compartidos con la corrección de cuestionario.
-  const [schemaScore,  setSchemaScore]  = useState<string>(() => {
-    const n = normalizeScore100(tc?.totalScore);
-    return n == null ? "" : nota10(n)!;
-  });
+  // N4.1: la nota manual pasa a ser una FUENTE elegible (Automática /
+  // Instrumento si está adjunto / Nota directa). El estado repone una
+  // corrección guardada desde el sobre `calificacion`; sin sobre, una nota
+  // legada tecleada se trata como directa (que es lo que era).
+  // El sobre de una corrección guardada viaja en tc.calificacion (también por
+  // modelo en multiparte); result.calificacion es el del intento (preliminar).
+  const [fuente, setFuente] = useState<FuenteNotaState>(
+    () => fuenteInicial(tc?.calificacion as Parameters<typeof fuenteInicial>[0], normalizeScore100(tc?.totalScore)),
+  );
+  const instrumento = instrumentoDe(exercise);
   const { time, timeRef: audioTimeRef, playing, audioReady, hasAudio, togglePlay, seekTo } = useAudioPlayer(exercise);
   const isMobile = useIsMobile();
   const handleAutoHideScroll = useAutoHideScroll();
@@ -221,13 +225,25 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
 
   // ── Vista del profesor ────────────────────────────────────────────────────
   if (isTeacherMode) {
-    const handleSave = () => onSaveCorrection?.(student?.id, exercise.id, {
-      levelComments: lvComments,
-      blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
-      globalComment: schemaGlobal.trim(),
-      // El input está en 0–10; totalScore se guarda en 0–100 (contrato estable).
-      totalScore:    (() => { const n = parseNota10(schemaScore); return n == null ? null : n * 10; })(),
-    });
+    // N4.1: la nota final sale de la fuente elegida (notaDeFuente). El sobre
+    // `calificacion` lleva la nota 0-100 EXACTA (saveCorrection la usa sin la
+    // heurística ≤10 del totalScore legado, que malinterpretaría una nota
+    // baja); totalScore se sigue enviando para los lectores de siempre — null
+    // con fuente automática, que era el significado del input vacío.
+    const handleSave = () => {
+      const notaFinal = notaDeFuente(fuente, ps, instrumento);
+      onSaveCorrection?.(student?.id, exercise.id, {
+        levelComments: lvComments,
+        blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
+        globalComment: schemaGlobal.trim(),
+        totalScore:    fuente.fuente === "auto" ? null : notaFinal,
+        calificacion: {
+          fuente: fuente.fuente,
+          nota: notaFinal,
+          ...(fuente.fuente === "instrumento" ? { instrumento: { respuestas: fuente.respuestas, nota: notaFinal } } : {}),
+        },
+      });
+    };
     const alumnoNombre = (student?.displayName || student?.name || "el alumno") as string;
 
     // Mismo lenguaje que la corrección de cuestionario (Jon, 2026-07-06):
@@ -281,14 +297,14 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
 
             {/* ── Panel lateral (fijo; scrollea solo si no cabe) ── */}
             <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
-              {/* Bloque de nota: el número grande a color ES el input (NotaInput).
-                  Vacío → la nota de colocación automática en gris. */}
+              {/* Bloque de nota (N4.1): fuente elegible. Con instrumento, la
+                  rejilla va en la columna ancha (aquí no cabe); el panel
+                  muestra su nota en vivo. */}
               <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 4 }}>Nota</div>
-                <NotaInput value={schemaScore} onChange={setSchemaScore} auto100={ps} />
-                {ps != null && (
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Automática: colocación de bloques (±{effSchemaMargin} s)</div>
-                )}
+                <FuenteNotaPanel state={fuente} onChange={setFuente} preliminar={ps}
+                  preliminarLabel={ps != null ? `colocación de bloques (±${effSchemaMargin} s)` : undefined}
+                  instrumento={instrumento} rejillaEnPanel={false} />
               </div>
 
               {/* Comentario general + guardar: el cierre de la corrección
@@ -316,6 +332,18 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                   dejaba 16px de hueco arriba y desalineaba la primera tarjeta
                   respecto al bloque de NOTA de la izquierda. */}
               {hasAudio && <div style={{ marginBottom: 16 }}><AudioBar /></div>}
+
+              {/* N4.1: rejilla del instrumento (misma pieza que la vista previa
+                  del editor), en la columna ancha; su nota vive en el panel. */}
+              {fuente.fuente === "instrumento" && instrumento && (
+                <div style={{ ...S.card, borderRadius: 12, marginBottom: 16 }}>
+                  <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 10 }}>
+                    {instrumento.titulo?.trim() || "Instrumento de corrección"}
+                  </div>
+                  <InstrumentoRespuestas instrumento={instrumento} respuestas={fuente.respuestas}
+                    onChange={(respuestas) => setFuente({ ...fuente, respuestas })} />
+                </div>
+              )}
 
               {(blocks.length > 0 || hasKey) && (
                 <div style={{ ...S.card, borderRadius: 12, marginBottom: 16 }}>
@@ -435,15 +463,20 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
           <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
             <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={eyebrow}>Nota</div>
-              {tc?.corrected && tc.totalScore != null ? (() => {
-                const pct100 = normalizeScore100(tc.totalScore);
+              {tc?.corrected && ((tc.calificacion as { nota?: number | null } | undefined)?.nota != null || tc.totalScore != null) ? (() => {
+                // N4.1: el sobre trae la nota 0-100 exacta; el totalScore legado
+                // pasa por el umbral tolerante de siempre.
+                const sobreNota = (tc.calificacion as { nota?: number | null } | undefined)?.nota;
+                const pct100 = sobreNota ?? normalizeScore100(tc.totalScore);
                 return (
                   <>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
                       <span style={{ fontSize: 42, fontWeight: 800, color: scoreColor(pct100), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(pct100)}</span>
                       <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                     </div>
-                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Corregido por el profesor</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+                      Corregido por el profesor{ps != null && ` · automática: ${nota10(ps)}`}
+                    </div>
                   </>
                 );
               })() : ps != null ? (
