@@ -5,6 +5,7 @@
 import { useState, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Exercise, Category, Course, Unit, Group, ExerciseResult } from "../lib/types.js";
+import type { Instrumento } from "../lib/calificacion.js";
 import { C, F, S, FONT_SANS, SECTION_STYLE } from "../theme/tokens.js";
 import { textOn } from "../lib/color.js";
 import { fmtClock } from "../lib/time.js";
@@ -1178,6 +1179,8 @@ export function TeacherDash({
         onToggleVisibility={() => onUpdateExercise(selectedExercise.id, { hidden: !selectedExercise.hidden })}
         onAddToUnit={(unitId) => onAddExercisesToUnit(unitId, [selectedExercise.id as ExId])}
         onRemoveFromUnit={(unitId) => onRemoveExerciseFromUnit(unitId, String(selectedExercise.id))}
+        plantillasInstrumento={(currentUser?.instrumentos as Instrumento[] | undefined) ?? []}
+        onChangePlantillasInstrumento={(next) => { if (currentUser) onUpdateUser({ ...currentUser, instrumentos: next }); }}
       />
     );
   }

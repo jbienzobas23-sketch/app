@@ -2,6 +2,7 @@
 // Extraída de teacher.jsx (Fase 2, subdivisión).
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import type { Exercise, Question } from "../lib/types.js";
+import type { Instrumento } from "../lib/calificacion.js";
 import { C, S, F, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
@@ -25,10 +26,14 @@ interface QuestionManagerViewProps {
   exercise: Exercise;
   onSave: (questions: QuizQuestion[]) => void;
   onBack: () => void;
+  // N3.3: biblioteca de plantillas de instrumento del profesor, para las
+  // preguntas de desarrollo (se pasa tal cual al editor de pregunta).
+  plantillasInstrumento?: Instrumento[];
+  onChangePlantillasInstrumento?: (next: Instrumento[]) => void;
 }
 
 // ═══ 13. QUESTION MANAGER VIEW (profesor edita preguntas) ═══════════════════
-export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManagerViewProps) {
+export function QuestionManagerView({ exercise, onSave, onBack, plantillasInstrumento, onChangePlantillasInstrumento }: QuestionManagerViewProps) {
   const dur = exercise.duration as number;
   const [questions,   setQuestions]   = useState<QuizQuestion[]>((exercise.questions ?? []) as QuizQuestion[]);
   const [editingQ,    setEditingQ]    = useState<EditingQ>(null);
@@ -288,6 +293,8 @@ export function QuestionManagerView({ exercise, onSave, onBack }: QuestionManage
             defaultStart={isNewQ ? (editingQ as { defaultStart: number }).defaultStart : undefined}
             audioDuration={dur}
             audioUrl={exercise.audioUrl}
+            plantillasInstrumento={plantillasInstrumento}
+            onChangePlantillasInstrumento={onChangePlantillasInstrumento}
             onSave={(q: Question) => {
               const qq = q as QuizQuestion;
               if (isNewQ) setQuestions((prev) => [...prev, qq]);

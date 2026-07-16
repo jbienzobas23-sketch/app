@@ -14,7 +14,7 @@ import { useState } from "react";
 import { C, S, F, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { nota10 } from "../lib/scoring.js";
-import { cambiaTipoInstrumento, clonaInstrumento, notaInstrumento, TIPO_INSTRUMENTO_LABEL, type Instrumento } from "../lib/calificacion.js";
+import { cambiaTipoInstrumento, clonaInstrumento, notaInstrumento, nuevoInstrumento, TIPO_INSTRUMENTO_LABEL, type Instrumento } from "../lib/calificacion.js";
 import { ModalShell, ModalFooter, PesoChip } from "./primitives.jsx";
 
 const TIPOS = (["lista", "escala", "rubrica"] as const).map((id) => ({ id, label: TIPO_INSTRUMENTO_LABEL[id] }));
@@ -228,6 +228,62 @@ export function InstrumentoEditorModal({ initial, onSave, onGuardarPlantilla, on
         <ModalFooter onCancel={onClose} onSave={() => canSave && onSave(draft)} canSave={canSave} />
       </div>
     </ModalShell>
+  );
+}
+
+// ── Punto de adjuntado (N3.3) ────────────────────────────────────────────────
+// Bloque compartido por los tres sitios donde se adjunta un instrumento
+// (pregunta de desarrollo, interactivo libre y esquema): resumen del adjunto
+// + Crear / Desde plantilla / Editar / Quitar, con sus dos modales. El
+// llamador solo aporta dónde se escribe (onChange; undefined = quitar) y, si
+// tiene a mano el perfil del profesor, la biblioteca de plantillas.
+export function InstrumentoAttach({ instrumento, onChange, plantillas, onChangePlantillas }: {
+  instrumento?: Instrumento;
+  onChange: (instrumento: Instrumento | undefined) => void;
+  plantillas?: Instrumento[];
+  onChangePlantillas?: (next: Instrumento[]) => void;
+}) {
+  const [editando, setEditando] = useState<Instrumento | null>(null);
+  const [bibliotecaAbierta, setBibliotecaAbierta] = useState(false);
+  const conBiblioteca = plantillas != null && onChangePlantillas != null;
+  return (
+    <div>
+      {instrumento ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {instrumento.titulo?.trim() || TIPO_INSTRUMENTO_LABEL[instrumento.tipo]}
+            </div>
+            <div style={{ fontSize: 11.5, color: C.muted }}>
+              {TIPO_INSTRUMENTO_LABEL[instrumento.tipo]} · {instrumento.items.length} {instrumento.items.length === 1 ? "ítem" : "ítems"}
+            </div>
+          </div>
+          <button type="button" onClick={() => setEditando(clonaInstrumento(instrumento))} style={{ ...S.btn, padding: "5px 12px", fontSize: 12 }}>Editar</button>
+          <button type="button" onClick={() => onChange(undefined)} style={{ ...S.btnDanger, padding: "5px 12px", fontSize: 12 }}>Quitar</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => setEditando(nuevoInstrumento("lista"))} style={{ ...S.btn, flex: 1, fontSize: 12.5 }}>Crear instrumento</button>
+          {conBiblioteca && (
+            <button type="button" onClick={() => setBibliotecaAbierta(true)} style={{ ...S.btn, flex: 1, fontSize: 12.5 }}>Desde plantilla</button>
+          )}
+        </div>
+      )}
+      {editando && (
+        <InstrumentoEditorModal
+          initial={editando}
+          onSave={(i) => { onChange(i); setEditando(null); }}
+          onGuardarPlantilla={conBiblioteca ? (i) => onChangePlantillas([...plantillas, i]) : undefined}
+          onClose={() => setEditando(null)} />
+      )}
+      {bibliotecaAbierta && conBiblioteca && (
+        <InstrumentoBibliotecaModal
+          plantillas={plantillas}
+          onAdjuntar={(i) => { onChange(i); setBibliotecaAbierta(false); }}
+          onChangePlantillas={onChangePlantillas}
+          onClose={() => setBibliotecaAbierta(false)} />
+      )}
+    </div>
   );
 }
 

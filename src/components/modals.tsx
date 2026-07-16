@@ -10,8 +10,10 @@ import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelsOf, questionScopeOf, audioDisplayTitle } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
+import { instrumentoDe, type Instrumento } from "../lib/calificacion.js";
 import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput } from "./primitives.jsx";
 import { FragmentRangeSelector } from "./session.js";
+import { InstrumentoAttach } from "./InstrumentoEditor.jsx";
 
 // ── Tipos locales compartidos por los modales ────────────────────────────────
 // Usuario (perfil) — campos consumidos por los formularios de cuenta.
@@ -699,9 +701,17 @@ export function BookFormModal({ initial, allComposers = [], onSave, onClose }: {
 }
 
 // Editor de pregunta (test o desarrollo)
-export function QuestionEditorModal({ initial, defaultStart, audioDuration, audioUrl = null, onSave, onClose }: { initial?: Question | null; defaultStart?: number; audioDuration: number; audioUrl?: string | null; onSave: (q: Question) => void; onClose: () => void }) {
+export function QuestionEditorModal({ initial, defaultStart, audioDuration, audioUrl = null, onSave, onClose, plantillasInstrumento, onChangePlantillasInstrumento }: {
+  initial?: Question | null; defaultStart?: number; audioDuration: number; audioUrl?: string | null;
+  onSave: (q: Question) => void; onClose: () => void;
+  // N3.3: biblioteca de plantillas del profesor para el instrumento de desarrollo.
+  plantillasInstrumento?: Instrumento[]; onChangePlantillasInstrumento?: (next: Instrumento[]) => void;
+}) {
   const [text,            setText]            = useState(initial?.text || "");
   const [type,            setType]            = useState(initial?.type || "test");
+  // N3.3: instrumento de corrección de una pregunta de desarrollo — copia
+  // inline en q.evaluacion.instrumento (instantánea, nunca referencia).
+  const [instrumento,     setInstrumento]     = useState<Instrumento | undefined>(instrumentoDe(initial));
   const [scope,           setScope]           = useState<"fragmento" | "obra">(initial ? questionScopeOf(initial) : "fragmento");
   const [explanation,     setExplanation]     = useState(initial?.explanation || "");
   const [audioStart,      setAudioStart]      = useState<number>(initial?.audioStart ?? defaultStart ?? 0);
@@ -751,6 +761,9 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
       explanation: explanation.trim() || undefined,
       points:     type === "test" || type === "corta" ? points : undefined,
       accepted:   type === "corta" ? accepted : undefined,
+      // El instrumento solo tiene sentido en desarrollo (test/corta se
+      // autocorrigen); si se cambió el tipo después de adjuntarlo, se retira.
+      evaluacion: type === "desarrollo" && instrumento ? { instrumento } : undefined,
     });
   };
 
@@ -884,6 +897,16 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
             style={{ ...S.btn, width: "100%", marginBottom: 18, fontSize: 12, ...disabledStyle(options.length < 6) }}>
             + Añadir opción
           </button>
+        </>
+      )}
+
+      {type === "desarrollo" && (
+        <>
+          <label style={S.label}>Instrumento de corrección</label>
+          <div style={{ marginBottom: 14, padding: "10px 12px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
+            <InstrumentoAttach instrumento={instrumento} onChange={setInstrumento}
+              plantillas={plantillasInstrumento} onChangePlantillas={onChangePlantillasInstrumento} />
+          </div>
         </>
       )}
 

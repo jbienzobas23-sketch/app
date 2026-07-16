@@ -8,12 +8,13 @@ import { useState } from "react";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
-import { answerFor, partKeyReadyOf } from "../../lib/domain.js";
+import { answerFor, keyReadyOf, partKeyReadyOf } from "../../lib/domain.js";
 import { MODEL_META } from "../../lib/modelMeta.js";
 import type { Exercise, Part } from "../../lib/types.js";
-import type { EvaluacionExercise } from "../../lib/calificacion.js";
+import type { EvaluacionExercise, Instrumento } from "../../lib/calificacion.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { PesoChip } from "../primitives.jsx";
+import { InstrumentoAttach } from "../InstrumentoEditor.jsx";
 import type { EditorApi } from "./useExerciseEditor.js";
 import { StepHead } from "./editorUi.js";
 
@@ -50,13 +51,23 @@ function ClaveCell({ exercise, part, model, onRecordPart, onQuestionsPart }: {
 // `evaluacion` directamente sobre el ejercicio guardado (mismo patrón que el
 // interruptor de guía showHint): no pasa por el borrador del asistente.
 const calRow = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: `1px solid ${C.line}` } as const;
-function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Exercise; selectedModels: string[]; onUpdate: (patch: Partial<Exercise>) => void }) {
+function CalificacionCard({ exercise, selectedModels, onUpdate, plantillas, onChangePlantillas }: {
+  exercise: Exercise; selectedModels: string[]; onUpdate: (patch: Partial<Exercise>) => void;
+  plantillas?: Instrumento[]; onChangePlantillas?: (next: Instrumento[]) => void;
+}) {
   const [nuevoGrupo, setNuevoGrupo] = useState("");
   const sobre = (exercise.evaluacion ?? {}) as EvaluacionExercise;
   // Grados/Cifrado solo tienen sentido si alguna categoría del ejercicio lleva
   // cifrado de bajo (hasFigures) — sin eso, no hay segundo nivel que ponderar.
   const hasFigures = selectedModels.includes("interactivo") && (exercise.categories ?? []).some((c) => c.hasFigures);
   const hasEsquema = selectedModels.includes("esquema");
+  // N3.3: el instrumento se adjunta al esquema y al interactivo LIBRE (sin
+  // clave grabada, la definición de §0 del plan) — es la fuente docente con la
+  // que N4 podrá cerrar un intento que no tiene corrección automática completa.
+  // Si más tarde se graba la clave, la sección desaparece pero el sobre queda
+  // (lector tolerante: un instrumento sin uso no cambia ninguna nota).
+  const esLibre = selectedModels.includes("interactivo") && !keyReadyOf(exercise);
+  const conInstrumento = hasEsquema || esLibre;
   const cifradoActivo = sobre.niveles?.cifrado != null;
   const pesoGrados  = sobre.niveles?.grados ?? 70;
   const pesoCifrado = sobre.niveles?.cifrado ?? 30;
@@ -69,11 +80,16 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
   const pesoModelo = (m: string) => sobre.modelos?.[m] ?? 1;
   const totalModelos = selectedModels.reduce((s, m) => s + pesoModelo(m), 0);
 
-  if (!hasFigures && !hasEsquema && !esHibrido) return null;
+  if (!hasFigures && !hasEsquema && !esHibrido && !conInstrumento) return null;
   const setSobre = (patch: Partial<EvaluacionExercise>) => onUpdate({ evaluacion: { ...sobre, ...patch } });
   const setNiveles = (niveles?: { grados?: number; cifrado?: number }) => {
     const next: EvaluacionExercise = { ...sobre };
     if (niveles) next.niveles = niveles; else delete next.niveles;
+    onUpdate({ evaluacion: next });
+  };
+  const setInstrumento = (instrumento?: Instrumento) => {
+    const next: EvaluacionExercise = { ...sobre };
+    if (instrumento) next.instrumento = instrumento; else delete next.instrumento;
     onUpdate({ evaluacion: next });
   };
   const addGrupo = () => {
@@ -86,7 +102,7 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
     <div style={{ ...S.card }}>
       <p style={{ ...S.label, margin: "0 0 14px" }}>Calificación</p>
       {hasFigures && (
-        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: hasEsquema || esHibrido ? 12 : 0 }}>
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: hasEsquema || esHibrido || conInstrumento ? 12 : 0 }}>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
             {/* Al activar se sugiere 70/30 (editable); al desactivar, el lector
                 vuelve al defecto {grados: 1} = comportamiento de siempre. */}
@@ -116,7 +132,7 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
         </div>
       )}
       {esHibrido && (
-        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, marginBottom: hasEsquema ? 12 : 0 }}>
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, marginBottom: hasEsquema || conInstrumento ? 12 : 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Peso de cada modelo en la nota</div>
           <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Sin tocar nada, todos los modelos pesan igual.</div>
           <div style={{ marginTop: 4 }}>
@@ -134,7 +150,7 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
         </div>
       )}
       {hasEsquema && (
-        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${etiquetaActiva ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${etiquetaActiva ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: conInstrumento ? 12 : 0 }}>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
             <input type="checkbox" checked={etiquetaActiva}
               onChange={(e) => setSobre({ etiquetaCuenta: e.target.checked })}
@@ -168,11 +184,25 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
           )}
         </div>
       )}
+      {conInstrumento && (
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${sobre.instrumento ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Instrumento de corrección</div>
+          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55, marginBottom: 10 }}>Al corregir, la nota puede salir de sus ítems; la automática queda de referencia.</div>
+          <InstrumentoAttach instrumento={sobre.instrumento} onChange={setInstrumento}
+            plantillas={plantillas} onChangePlantillas={onChangePlantillas} />
+        </div>
+      )}
     </div>
   );
 }
 
-export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: string) => void; num: number; total: number }) {
+export function PasoClaves({ ed, num, total, plantillasInstrumento, onChangePlantillasInstrumento }: {
+  ed: EditorApi; goStep: (k: string) => void; num: number; total: number;
+  // N3.2/N3.3: biblioteca de plantillas del profesor (fa_users.data.instrumentos),
+  // inyectada desde TeacherDash a través de EditorShell.
+  plantillasInstrumento?: Instrumento[];
+  onChangePlantillasInstrumento?: (next: Instrumento[]) => void;
+}) {
   const {
     isCreating, isMultiPart, exercise, selectedModels, onPreview,
     exMargin, setExMargin, exSchemaMargin, setExSchemaMargin,
@@ -251,7 +281,8 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
       {/* Calificación también en multiparte (los pesos viven a nivel de
           ejercicio, compartidos por todas las partes). */}
       {!isCreating && isMultiPart && (
-        <div style={{ marginTop: 14 }}><CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate} /></div>
+        <div style={{ marginTop: 14 }}><CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate}
+          plantillas={plantillasInstrumento} onChangePlantillas={onChangePlantillasInstrumento} /></div>
       )}
       {isCreating || isMultiPart ? null : (
         <>
@@ -292,7 +323,8 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
           )}
 
           {/* ── Calificación (N2.2/N2.3): niveles del interactivo + etiqueta del esquema ── */}
-          <CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate} />
+          <CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate}
+            plantillas={plantillasInstrumento} onChangePlantillas={onChangePlantillasInstrumento} />
 
           {/* ── Esquema formal ── */}
           {hasEsquema && (

@@ -54,11 +54,32 @@ interface CorrectionAudioBarProps { time: number; timeRef: { current: number }; 
 // diálogo, trampa de foco (Tab cicla dentro), devolución del foco al cerrar y,
 // si se pasa `onClose`, cierre con Escape. `label` da el nombre accesible.
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+// Pila de modales abiertos (N3.3): con modales anidados (p. ej. el editor de
+// instrumento sobre el editor de pregunta) TODOS los ModalShell escuchan
+// keydown en document, y el de fuera se registró antes — sin esto, un Escape
+// cerraría los dos a la vez y la trampa de Tab del de fuera se llevaría el
+// foco detrás del velo. Solo el modal en lo alto de la pila atiende el teclado.
+const modalStack: symbol[] = [];
 export function ModalShell({ children, width = 480, align = "center", zIndex = 200, onClose, label = "Diálogo" }: ModalShellProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // Id estable por instancia, apilado SOLO al montar: el efecto del teclado se
+  // re-ejecuta con cada identidad nueva de onClose (arrows inline), y si el
+  // push viviera ahí, un re-render del modal de fuera lo subiría a lo alto de
+  // la pila por encima del de dentro.
+  const stackIdRef = useRef<symbol | null>(null);
+  if (stackIdRef.current == null) stackIdRef.current = Symbol("modal");
+  useEffect(() => {
+    const stackId = stackIdRef.current!;
+    modalStack.push(stackId);
+    return () => {
+      const idx = modalStack.indexOf(stackId);
+      if (idx >= 0) modalStack.splice(idx, 1);
+    };
+  }, []);
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
     const card = cardRef.current;
+    const esElDeArriba = () => modalStack[modalStack.length - 1] === stackIdRef.current;
     // Foco inicial: solo lo movemos si aún no está dentro del diálogo (respeta
     // modales que ya enfocan su propio input vía autoFocus).
     if (card && !card.contains(document.activeElement)) {
@@ -66,6 +87,7 @@ export function ModalShell({ children, width = 480, align = "center", zIndex = 2
       (f[0] ?? card).focus?.();
     }
     const onKey = (e: KeyboardEvent) => {
+      if (!esElDeArriba()) return;
       if (e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); return; }
       if (e.key === "Tab" && card) {
         const f = [...card.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);

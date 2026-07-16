@@ -7,6 +7,7 @@
 // useExerciseEditor (extraídos verbatim); esto es la presentación.
 import { useState, useRef } from "react";
 import type { Unit, Category } from "../../lib/types.js";
+import type { Instrumento } from "../../lib/calificacion.js";
 import { C, F, S, FONT_SANS } from "../../theme/tokens.js";
 import { keyReadyOf, partsOf, partKeyReadyOf, modelsOf } from "../../lib/domain.js";
 import { parseHashQuery, setHashQuery } from "../../lib/routing.js";
@@ -27,6 +28,10 @@ export interface EditorShellProps extends ExerciseEditorProps {
   onAddToUnit?: (unitId: string) => void;
   onRemoveFromUnit?: (unitId: string) => void;
   onAddCategory?: (c: Category) => void;
+  // N3.2/N3.3: biblioteca de plantillas de instrumento del profesor, para el
+  // punto de adjuntado del paso Claves.
+  plantillasInstrumento?: Instrumento[];
+  onChangePlantillasInstrumento?: (next: Instrumento[]) => void;
 }
 
 type StepKey = "identidad" | "audios" | "categorias" | "claves" | "revision";
@@ -122,7 +127,7 @@ export function EditorShell(props: EditorShellProps) {
     if (activeStep === "identidad")  return <PasoIdentidad {...common} />;
     if (activeStep === "audios")     return <PasoAudios {...common} />;
     if (activeStep === "categorias") return <PasoCategorias {...common} onAddCategory={onAddCategory} />;
-    if (activeStep === "claves")     return <PasoClaves {...common} />;
+    if (activeStep === "claves")     return <PasoClaves {...common} plantillasInstrumento={props.plantillasInstrumento} onChangePlantillasInstrumento={props.onChangePlantillasInstrumento} />;
     return <PasoRevision {...common} units={units} onToggleVisibility={onToggleVisibility} onAddToUnit={onAddToUnit} onRemoveFromUnit={onRemoveFromUnit}
       allReady={states._allReady} visible={states._visible} readyKeys={states._readyKeys} totalKeys={states._totalKeys} faltas={faltasList(ed, states)} />;
   })();

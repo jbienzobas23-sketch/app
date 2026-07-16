@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { InstrumentoEditor, InstrumentoEditorModal, InstrumentoBibliotecaModal } from "./InstrumentoEditor.js";
+import { InstrumentoEditor, InstrumentoEditorModal, InstrumentoBibliotecaModal, InstrumentoAttach } from "./InstrumentoEditor.js";
 import { nuevoInstrumento, NIVELES_ESCALA_DEFECTO, type Instrumento } from "../lib/calificacion.js";
 
 // Envoltorio con estado, como lo usa el modal: value/onChange de verdad.
@@ -106,6 +106,55 @@ describe("InstrumentoEditorModal", () => {
   it("sin onGuardarPlantilla (sin biblioteca a mano) el botón no existe", () => {
     render(<InstrumentoEditorModal initial={escalaDemo} onSave={() => {}} onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Guardar como plantilla" })).not.toBeInTheDocument();
+  });
+});
+
+describe("InstrumentoAttach (N3.3) — el punto de adjuntado compartido", () => {
+  it("sin instrumento: «Crear instrumento» y, solo con biblioteca a mano, «Desde plantilla»", () => {
+    const { rerender } = render(<InstrumentoAttach onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "Crear instrumento" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desde plantilla" })).not.toBeInTheDocument();
+    rerender(<InstrumentoAttach onChange={() => {}} plantillas={[]} onChangePlantillas={() => {}} />);
+    expect(screen.getByRole("button", { name: "Desde plantilla" })).toBeInTheDocument();
+  });
+
+  it("crear: abre el editor y al guardar entrega el instrumento completado", () => {
+    const onChange = vi.fn();
+    render(<InstrumentoAttach onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Crear instrumento" }));
+    fireEvent.change(screen.getByLabelText("Texto del ítem"), { target: { value: "Afina la sensible" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].items[0].texto).toBe("Afina la sensible");
+    // El modal se cierra al guardar.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("con instrumento: resumen + Editar/Quitar; quitar entrega undefined", () => {
+    const onChange = vi.fn();
+    render(<InstrumentoAttach instrumento={{ ...escalaDemo, titulo: "Rúbrica de fraseo" }} onChange={onChange} />);
+    expect(screen.getByText("Rúbrica de fraseo")).toBeInTheDocument();
+    expect(screen.getByText("Escala estimativa · 2 ítems")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Quitar" }));
+    expect(onChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it("editar trabaja sobre una copia: cancelar no muta el instrumento adjunto", () => {
+    const adjunto = { ...escalaDemo, titulo: "Original" };
+    render(<InstrumentoAttach instrumento={adjunto} onChange={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByPlaceholderText("Ej: Análisis de una modulación"), { target: { value: "Cambiado" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(adjunto.titulo).toBe("Original");
+  });
+
+  it("desde plantilla: adjuntar entrega la copia y cierra la biblioteca", () => {
+    const onChange = vi.fn();
+    render(<InstrumentoAttach onChange={onChange} plantillas={[{ ...escalaDemo, titulo: "Modulaciones" }]} onChangePlantillas={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Desde plantilla" }));
+    fireEvent.click(screen.getByRole("button", { name: "Adjuntar" }));
+    expect(onChange.mock.calls[0][0].titulo).toBe("Modulaciones");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 

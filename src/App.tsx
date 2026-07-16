@@ -561,6 +561,8 @@ export default function App() {
             navigate(getLastPanelPath("/profesor"));
           }}
           onBack={() => navigate(getLastPanelPath("/profesor"))}
+          plantillasInstrumento={user?.instrumentos ?? []}
+          onChangePlantillasInstrumento={(next) => { if (user) updateUser({ ...user, instrumentos: next }); }}
         />
       </Suspense>
     );
