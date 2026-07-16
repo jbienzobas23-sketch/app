@@ -1293,6 +1293,8 @@ export function TeacherDash({
           <CoursesTab
             courses={courses} units={units} exercises={exercises} groups={teacherGroups}
             results={{}}
+            students={students}
+            resultsPorAlumno={results}
             onCreateCourse={() => setEditingCourse("new")}
             onEditCourse={(c) => setEditingCourse(c)}
             onDeleteCourse={onDeleteCourse}

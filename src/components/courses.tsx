@@ -13,6 +13,8 @@ import { useIsMobile } from "../hooks/useIsMobile.js";
 import { ProgressRing, CtaButton, Menu, Fab, PesoEditor, PesoChip } from "./primitives.jsx";
 import { ExerciseItem } from "./ExerciseItem.jsx";
 import { KebabMenu } from "./KebabMenu.jsx";
+import { CuadernoCurso } from "./CuadernoCurso.jsx";
+import type { AlumnoCuaderno } from "../lib/cuaderno.js";
 
 // ── N1: pesos → reparto en % normalizado a 100 (PLAN_CALIFICACION.md) ───────
 // pesosDeCurso/pesosDeUnidad ya resuelven el peso tolerante por fila; aquí solo
@@ -66,6 +68,11 @@ interface CoursesData {
   exercises: Exercise[];
   results: ResultsMap;
   groups?: Group[];
+  // N5 (solo profesor): el cuaderno de calificaciones necesita los alumnos del
+  // profesor y los resultados POR alumno (results, arriba, es el mapa de UN
+  // usuario — vacío en la vista de gestión del profesor).
+  students?: AlumnoCuaderno[];
+  resultsPorAlumno?: Record<string, ResultsMap>;
 }
 
 // Callbacks de edición/navegación que fluyen desde TeacherDash hasta los paneles.
@@ -477,12 +484,16 @@ interface CourseDetailProps extends CoursesCallbacks {
   exercises: Exercise[];
   results: ResultsMap;
   groups?: Group[];
+  // N5 (solo profesor): cuaderno de calificaciones — ver CoursesData.
+  students?: AlumnoCuaderno[];
+  resultsPorAlumno?: Record<string, ResultsMap>;
   selUnitId: string | null;
   setSelUnitId: (id: string | null) => void;
   onBack: () => void;
 }
 export function CourseDetail({
   role, courses, courseId, units, exercises, results, groups,
+  students, resultsPorAlumno,
   selUnitId, setSelUnitId, onBack,
   onUpdateCourse = noop, onEditCourse = noop, onDeleteCourse = noop,
   onCreateUnit = noop, onEditUnit, onDeleteUnit, onUpdateUnit,
@@ -490,11 +501,16 @@ export function CourseDetail({
   onToggleVisibility, onPreview, onDuplicate, onDeleteExercise,
   onExercise, onViewCorrection, askConfirm = noop,
 }: CourseDetailProps) {
+  // N5.1: pestaña «Calificaciones» (solo profesor, y solo si TeacherDash pasó
+  // alumnos + resultados por alumno). El estado va ANTES del early-return para
+  // no condicionar hooks.
+  const [vista, setVista] = useState<"contenido" | "calificaciones">("contenido");
   const course = courses.find((c) => c.id === courseId);
   if (!course) return null;
   const cu   = courseUnitList(course, units, role);
   const unit = cu.find((u) => u.id === selUnitId) || cu[0] || null;
   const avg  = courseAverage(course, units, exercises, results, role);
+  const conCuaderno = role === "teacher" && students != null && resultsPorAlumno != null;
   return (
     <div style={{ fontFamily: F.sans }}>
       {/* Barra de título (Jon, 2026-07-06): botón de volver como flecha suelta
@@ -523,8 +539,24 @@ export function CourseDetail({
       <ProvisionalNote pendientes={avg.pendientes} singular="unidad pendiente" plural="unidades pendientes" />
       {course.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: "#888", margin: "-4px 0 18px" }}>{course.description}</div>}
 
-      {/* Dos columnas: barra lateral de unidades a 1/3 del ancho (antes 236px
-          fijos, quedaba estrecha) + ejercicios a 2/3 (sin tarjeta), Jon 2026-07-06. */}
+      {/* N5.1: conmutador Contenido | Calificaciones (solo profesor). */}
+      {conCuaderno && (
+        <div style={{ display: "inline-flex", border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+          {([["contenido", "Contenido"], ["calificaciones", "Calificaciones"]] as const).map(([k, label], i) => (
+            <button key={k} type="button" aria-pressed={vista === k} onClick={() => setVista(k)}
+              style={{ background: vista === k ? C.paper2 : C.paper, border: "none", borderLeft: i > 0 ? `1px solid ${C.line}` : "none", padding: "6px 14px", fontFamily: F.sans, fontSize: 13, fontWeight: 500, color: vista === k ? C.ink : C.muted, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {conCuaderno && vista === "calificaciones" ? (
+        <CuadernoCurso course={course} units={units} exercises={exercises}
+          students={students!} resultsPorAlumno={resultsPorAlumno!} groups={groups} />
+      ) : (
+      /* Dos columnas: barra lateral de unidades a 1/3 del ancho (antes 236px
+          fijos, quedaba estrecha) + ejercicios a 2/3 (sin tarjeta), Jon 2026-07-06. */
       <div style={{ display: "grid", gridTemplateColumns: "minmax(236px, 1fr) 2fr", gap: 18, alignItems: "start" }}>
         <UnitsList course={course} units={units} exercises={exercises} role={role} results={results} selUnitId={unit?.id ?? null} onSelectUnit={setSelUnitId} onCreateUnit={onCreateUnit}
           onEditUnit={onEditUnit} onUpdateUnit={onUpdateUnit} onDeleteUnit={onDeleteUnit} onAfterDeleteUnit={() => setSelUnitId(null)} askConfirm={askConfirm}
@@ -539,6 +571,7 @@ export function CourseDetail({
             askConfirm={askConfirm} />
         </div>
       </div>
+      )}
     </div>
   );
 }
