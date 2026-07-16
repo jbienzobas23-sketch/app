@@ -14,14 +14,10 @@ import { useState } from "react";
 import { C, S, F, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { nota10 } from "../lib/scoring.js";
-import { cambiaTipoInstrumento, notaInstrumento, type Instrumento } from "../lib/calificacion.js";
+import { cambiaTipoInstrumento, clonaInstrumento, notaInstrumento, TIPO_INSTRUMENTO_LABEL, type Instrumento } from "../lib/calificacion.js";
 import { ModalShell, ModalFooter, PesoChip } from "./primitives.jsx";
 
-const TIPOS: { id: Instrumento["tipo"]; label: string }[] = [
-  { id: "lista", label: "Lista de control" },
-  { id: "escala", label: "Escala estimativa" },
-  { id: "rubrica", label: "Rúbrica" },
-];
+const TIPOS = (["lista", "escala", "rubrica"] as const).map((id) => ({ id, label: TIPO_INSTRUMENTO_LABEL[id] }));
 
 // Valores 0..1 con coma española ("0,5"), como el resto de cifras de la app.
 const fmtValor = (v: number): string => String(v).replace(".", ",");
@@ -199,12 +195,16 @@ export function InstrumentoEditor({ value, onChange }: InstrumentoEditorProps) {
 }
 
 // ── Modal: borrador local + «Guardar» ────────────────────────────────────────
-export function InstrumentoEditorModal({ initial, onSave, onClose }: {
+export function InstrumentoEditorModal({ initial, onSave, onGuardarPlantilla, onClose }: {
   initial: Instrumento;
   onSave: (instrumento: Instrumento) => void;
+  // N3.2: guarda el borrador en la biblioteca del profesor (fa_users.data
+  // .instrumentos) sin cerrar el modal — se puede seguir editando la copia local.
+  onGuardarPlantilla?: (instrumento: Instrumento) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Instrumento>(initial);
+  const [plantillaGuardada, setPlantillaGuardada] = useState(false);
   // Un instrumento se puede guardar cuando todo lo que pondera tiene nombre:
   // cada ítem con texto y (fuera de lista) cada nivel con etiqueta.
   const canSave =
@@ -214,9 +214,68 @@ export function InstrumentoEditorModal({ initial, onSave, onClose }: {
   return (
     <ModalShell width={620} align="top" onClose={onClose} label="Instrumento de evaluación">
       <h3 style={{ margin: "0 0 18px", fontSize: 16, fontWeight: 600, color: C.ink }}>Instrumento de evaluación</h3>
-      <InstrumentoEditor value={draft} onChange={setDraft} />
+      <InstrumentoEditor value={draft} onChange={(i) => { setDraft(i); setPlantillaGuardada(false); }} />
+      {onGuardarPlantilla && (
+        <div style={{ marginTop: 14 }}>
+          <button type="button" disabled={!canSave || plantillaGuardada}
+            onClick={() => { onGuardarPlantilla(clonaInstrumento(draft)); setPlantillaGuardada(true); }}
+            style={{ ...S.btn, fontSize: 12, opacity: canSave && !plantillaGuardada ? 1 : 0.5 }}>
+            {plantillaGuardada ? "Plantilla guardada ✓" : "Guardar como plantilla"}
+          </button>
+        </div>
+      )}
       <div style={{ marginTop: 18 }}>
         <ModalFooter onCancel={onClose} onSave={() => canSave && onSave(draft)} canSave={canSave} />
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── Biblioteca de plantillas del profesor (N3.2) ─────────────────────────────
+// Adjuntar entrega una COPIA (clonaInstrumento): la instantánea que pide §2
+// del plan — editar la plantilla después no reescribe lo adjuntado. Duplicar y
+// eliminar operan por índice (las plantillas no llevan id propio) y persisten
+// vía onChangePlantillas (el llamador escribe el array entero en el perfil).
+export function InstrumentoBibliotecaModal({ plantillas, onAdjuntar, onChangePlantillas, onClose }: {
+  plantillas: Instrumento[];
+  onAdjuntar: (instrumento: Instrumento) => void;
+  onChangePlantillas: (next: Instrumento[]) => void;
+  onClose: () => void;
+}) {
+  const duplicar = (idx: number) => {
+    const copia = clonaInstrumento(plantillas[idx]);
+    copia.titulo = `${copia.titulo?.trim() || TIPO_INSTRUMENTO_LABEL[copia.tipo]} (copia)`;
+    const next = [...plantillas];
+    next.splice(idx + 1, 0, copia);
+    onChangePlantillas(next);
+  };
+  return (
+    <ModalShell width={520} align="top" onClose={onClose} label="Plantillas de instrumento">
+      <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: C.ink }}>Plantillas de instrumento</h3>
+      {plantillas.length === 0 && (
+        <p style={{ fontSize: 13, color: C.muted, margin: "0 0 4px" }}>
+          No hay plantillas guardadas. Al editar un instrumento, «Guardar como plantilla» lo añade aquí.
+        </p>
+      )}
+      {plantillas.map((p, idx) => (
+        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: idx > 0 ? `1px solid ${C.line}` : "none" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.serif, fontSize: 15.5, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {p.titulo?.trim() || TIPO_INSTRUMENTO_LABEL[p.tipo]}
+            </div>
+            <div style={{ fontSize: 11.5, color: C.muted }}>
+              {TIPO_INSTRUMENTO_LABEL[p.tipo]} · {p.items.length} {p.items.length === 1 ? "ítem" : "ítems"}
+            </div>
+          </div>
+          <button type="button" onClick={() => onAdjuntar(clonaInstrumento(p))} style={{ ...S.btnPrimary, padding: "5px 12px", fontSize: 12 }}>Adjuntar</button>
+          <button type="button" onClick={() => duplicar(idx)} style={{ ...S.btn, padding: "5px 10px", fontSize: 12 }}>Duplicar</button>
+          <button type="button" aria-label={`Eliminar plantilla ${p.titulo?.trim() || TIPO_INSTRUMENTO_LABEL[p.tipo]}`}
+            onClick={() => onChangePlantillas(plantillas.filter((_, j) => j !== idx))}
+            style={{ ...S.btnDanger, padding: "5px 9px", fontSize: 11 }}>×</button>
+        </div>
+      ))}
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+        <button type="button" onClick={onClose} style={{ ...S.btn }}>Cerrar</button>
       </div>
     </ModalShell>
   );

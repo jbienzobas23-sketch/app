@@ -47,6 +47,20 @@ export interface Instrumento {
 
 export interface PesoConfig { modo: "equitativa" | "personalizada"; pesos?: Record<string, number>; }
 
+// Nombre visible de cada tipo de instrumento — vive aquí (no en la UI) porque
+// es vocabulario del dominio: lo usan el editor, la biblioteca y el respaldo
+// de título de una plantilla sin titular.
+export const TIPO_INSTRUMENTO_LABEL: Record<Instrumento["tipo"], string> = {
+  lista: "Lista de control",
+  escala: "Escala estimativa",
+  rubrica: "Rúbrica",
+};
+
+// Copia profunda: tanto adjuntar (instantánea en el ejercicio/pregunta, §2 del
+// plan) como duplicar una plantilla deben desligarse del original — un
+// instrumento es JSON puro (sobres JSONB), el round-trip no pierde nada.
+export const clonaInstrumento = (i: Instrumento): Instrumento => JSON.parse(JSON.stringify(i)) as Instrumento;
+
 // ─── N3.1: factoría y cambio de tipo de un instrumento ──────────────────────
 // La lista de control tiene los niveles FIJOS Sí=1/No=0 (§2 del plan); escala y
 // rúbrica arrancan con los tres niveles del mockup, editables. Ids estables

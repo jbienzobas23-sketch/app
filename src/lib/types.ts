@@ -202,6 +202,10 @@ export interface UserProfile {
   defaultPalette?: string;
   isGuest?: boolean;
   recoveryEmail?: string;
+  // Plantillas de instrumento del profesor (N3.2). Al adjuntar una a un
+  // ejercicio o pregunta se COPIA inline (instantánea): editar la plantilla
+  // después no reescribe lo ya adjuntado.
+  instrumentos?: Instrumento[];
   [k: string]: unknown;
 }
 

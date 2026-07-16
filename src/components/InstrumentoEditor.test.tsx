@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { InstrumentoEditor, InstrumentoEditorModal } from "./InstrumentoEditor.js";
+import { InstrumentoEditor, InstrumentoEditorModal, InstrumentoBibliotecaModal } from "./InstrumentoEditor.js";
 import { nuevoInstrumento, NIVELES_ESCALA_DEFECTO, type Instrumento } from "../lib/calificacion.js";
 
 // Envoltorio con estado, como lo usa el modal: value/onChange de verdad.
@@ -87,5 +87,62 @@ describe("InstrumentoEditorModal", () => {
     fireEvent.click(guardar);
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0].items[0].texto).toBe("Marca el pulso");
+  });
+
+  it("«Guardar como plantilla» (N3.2): guarda una copia, confirma en el botón y se rearma al editar", () => {
+    const onGuardarPlantilla = vi.fn();
+    render(<InstrumentoEditorModal initial={escalaDemo} onSave={() => {}} onGuardarPlantilla={onGuardarPlantilla} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar como plantilla" }));
+    expect(onGuardarPlantilla).toHaveBeenCalledTimes(1);
+    // Copia profunda: no es el mismo objeto que el borrador inicial.
+    expect(onGuardarPlantilla.mock.calls[0][0]).toEqual(escalaDemo);
+    expect(onGuardarPlantilla.mock.calls[0][0]).not.toBe(escalaDemo);
+    expect(screen.getByRole("button", { name: "Plantilla guardada ✓" })).toBeInTheDocument();
+    // Editar el borrador rearma el botón (la plantilla guardada ya no coincide).
+    fireEvent.change(screen.getByPlaceholderText("Ej: Análisis de una modulación"), { target: { value: "Otra cosa" } });
+    expect(screen.getByRole("button", { name: "Guardar como plantilla" })).toBeInTheDocument();
+  });
+
+  it("sin onGuardarPlantilla (sin biblioteca a mano) el botón no existe", () => {
+    render(<InstrumentoEditorModal initial={escalaDemo} onSave={() => {}} onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Guardar como plantilla" })).not.toBeInTheDocument();
+  });
+});
+
+describe("InstrumentoBibliotecaModal (N3.2)", () => {
+  const plantillas: Instrumento[] = [
+    { ...escalaDemo, titulo: "Modulaciones" },
+    nuevoInstrumento("lista"),
+  ];
+
+  it("lista las plantillas con título (o el tipo como respaldo) y recuento de ítems", () => {
+    render(<InstrumentoBibliotecaModal plantillas={plantillas} onAdjuntar={() => {}} onChangePlantillas={() => {}} onClose={() => {}} />);
+    expect(screen.getByText("Modulaciones")).toBeInTheDocument();
+    expect(screen.getByText("Escala estimativa · 2 ítems")).toBeInTheDocument();
+    // La lista sin título usa la etiqueta del tipo como nombre.
+    expect(screen.getByText("Lista de control · 1 ítem")).toBeInTheDocument();
+  });
+
+  it("adjuntar entrega una copia profunda: mutarla no toca la plantilla", () => {
+    const onAdjuntar = vi.fn();
+    render(<InstrumentoBibliotecaModal plantillas={plantillas} onAdjuntar={onAdjuntar} onChangePlantillas={() => {}} onClose={() => {}} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Adjuntar" })[0]);
+    const copia = onAdjuntar.mock.calls[0][0] as Instrumento;
+    expect(copia).toEqual(plantillas[0]);
+    copia.items[0].texto = "mutado";
+    expect(plantillas[0].items[0].texto).toBe("Afinación");
+  });
+
+  it("duplicar inserta la copia «(copia)» justo detrás; eliminar la quita", () => {
+    const onChangePlantillas = vi.fn();
+    render(<InstrumentoBibliotecaModal plantillas={plantillas} onAdjuntar={() => {}} onChangePlantillas={onChangePlantillas} onClose={() => {}} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Duplicar" })[0]);
+    let next = onChangePlantillas.mock.calls[0][0] as Instrumento[];
+    expect(next).toHaveLength(3);
+    expect(next[1].titulo).toBe("Modulaciones (copia)");
+    fireEvent.click(screen.getByLabelText("Eliminar plantilla Modulaciones"));
+    next = onChangePlantillas.mock.lastCall![0] as Instrumento[];
+    expect(next).toHaveLength(1);
+    expect(next[0].tipo).toBe("lista");
   });
 });
