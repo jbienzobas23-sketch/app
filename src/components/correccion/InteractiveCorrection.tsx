@@ -50,6 +50,9 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
   const sobre     = result.calificacion;
   const corrected = tc?.corrected === true;
   const preliminar = (sobre?.preliminar ?? (corrected ? null : sc)) ?? null;
+  // N4.3: cobertura del libre congelada en la entrega (campo propio del
+  // sobre; jamás una nota).
+  const cobertura = sobre?.cobertura ?? null;
   const instrumento = instrumentoDe(exercise);
   const puedeCorregir = isTeacherMode && !!onSaveCorrection;
   const [fuente, setFuente] = useState<FuenteNotaState>(
@@ -195,6 +198,13 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
                   {preliminar == null && fuente.fuente === "auto" && (
                     <div style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Sin nota automática que certificar.</div>
                   )}
+                  {/* N4.3: la cobertura del libre, de referencia — es
+                      compleción, no acierto, y por eso no es certificable. */}
+                  {cobertura != null && (
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+                      Cobertura: <strong style={{ color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{cobertura} %</strong> · no mide acierto
+                    </div>
+                  )}
                 </>
               ) : corrected && notaCorregida != null ? (
                 <>
@@ -207,7 +217,17 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
                   </div>
                 </>
               ) : sc == null ? (
-                <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Sin clave de corrección todavía.</div>
+                // N4.3: el libre enseña su COBERTURA — en gris y en %, nunca
+                // como nota (mide compleción, no acierto), con la etiqueta
+                // literal que pide el plan.
+                cobertura != null ? (
+                  <>
+                    <div style={{ fontSize: 42, fontWeight: 800, color: C.muted, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{cobertura} %</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Cobertura — no mide acierto · pendiente de corrección</div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>Sin clave de corrección todavía.</div>
+                )
               ) : (
                 <>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>

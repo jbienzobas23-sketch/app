@@ -10,7 +10,7 @@ import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.j
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, questionsOf, addAttempt } from "../lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId } from "../lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, interactiveFigureDiagnostics, type Interval, type SchemaBlock } from "../lib/scoring.js";
-import { nivelesDe, notaNiveles, calcSchemaScore, etiquetaCuentaDe, equivalenciasDe, ponderar, modelosDe } from "../lib/calificacion.js";
+import { nivelesDe, notaNiveles, calcSchemaScore, etiquetaCuentaDe, equivalenciasDe, ponderar, modelosDe, coberturaLibre } from "../lib/calificacion.js";
 
 // N2.3: con sobre de evaluación (etiquetaCuenta definido en la autoría) la
 // nota del esquema exige también etiqueta equivalente; sin sobre, el lector
@@ -149,8 +149,15 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
             const extras = entries
               .filter((e) => e.categoryId !== currentCategoryId)
               .map((e) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
+            // N4.3: el LIBRE (sin clave → sin notas) congela su COBERTURA en un
+            // campo propio del sobre — mide compleción, no acierto, y no debe
+            // agregarse jamás como nota (score sigue null; la fuente docente
+            // de N4.1 es la que cierra el intento).
+            const cobertura = mainNotas ? null : coberturaLibre(mainIvs, projected.duration as number);
             byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now(),
-              ...(mainNotas ? { calificacion: { fuente: "auto", preliminar: mainScore, niveles: mainNotas } } : {}) };
+              ...(mainNotas
+                ? { calificacion: { fuente: "auto", preliminar: mainScore, niveles: mainNotas } }
+                : cobertura != null ? { calificacion: { fuente: "auto", cobertura } } : {}) };
             modelEntries.push({ nota: mainScore ?? null, peso: modelos[m] ?? 1 });
           }
         });
@@ -286,6 +293,11 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
         score:      scoreFor(e.categoryId, e.intervals),
       }));
 
+    // N4.3: el LIBRE (sin clave → sin notas) congela su COBERTURA en un campo
+    // propio del sobre — mide compleción, no acierto, y no debe agregarse
+    // jamás como nota (score sigue null y las medias lo cuentan pendiente;
+    // la fuente docente de N4.1 es la que cierra el intento).
+    const cobertura = mainNotas ? null : coberturaLibre(mainIvs, ex.duration as number);
     const data = addAttempt(existingResult, {
       categoryId: currentCategoryId,
       intervals:  mainIvs,
@@ -294,7 +306,9 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
       status:     resultStatusOf(null, ex),
       schemaPalette: activePalette,
       timestamp:  Date.now(),
-      ...(mainNotas ? { calificacion: { fuente: "auto" as const, preliminar: mainScore, niveles: mainNotas } } : {}),
+      ...(mainNotas
+        ? { calificacion: { fuente: "auto" as const, preliminar: mainScore, niveles: mainNotas } }
+        : cobertura != null ? { calificacion: { fuente: "auto" as const, cobertura } } : {}),
     });
 
     if (user) {

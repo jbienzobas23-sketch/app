@@ -40,8 +40,9 @@ export interface CorrectionResult {
   modeId?: string;
   intervals?: CorrectionIv[];
   extras?: Array<{ categoryId?: string; modeId?: string; score?: number | null }>;
-  // Sobre de calificación del intento (N2) — mismo shape que en lib/types.ts.
-  calificacion?: { fuente?: "auto" | "instrumento" | "directa"; preliminar?: number | null; niveles?: Record<string, number | null>; [k: string]: unknown };
+  // Sobre de calificación del intento (N2/N4) — mismo shape que en lib/types.ts.
+  // `cobertura` (N4.3) es del LIBRE: compleción, no acierto — nunca una nota.
+  calificacion?: { fuente?: "auto" | "instrumento" | "directa"; preliminar?: number | null; niveles?: Record<string, number | null>; cobertura?: number | null; [k: string]: unknown };
   [k: string]: unknown;
 }
 export interface CorrectionStudent { id: string; displayName?: string; name?: string; [k: string]: unknown; }

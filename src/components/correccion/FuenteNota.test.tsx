@@ -11,6 +11,7 @@ import { notaDeFuente, fuenteInicial, type FuenteNotaState } from "./notaShared.
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { SchemaCorrection } from "./SchemaCorrection.js";
 import { QuizCorrection } from "./QuizCorrection.js";
+import { InteractiveCorrection } from "./InteractiveCorrection.js";
 
 const instrumento: Instrumento = {
   tipo: "escala",
@@ -117,6 +118,50 @@ describe("QuizCorrection (profesor) — pool final y cierre (N4.2)", () => {
     expect(correction.totalScore).toBe(73);
     expect(correction.calificacion).toMatchObject({ fuente: "auto", nota: 73 });
     expect(correction.calificacion.porPregunta.d1).toEqual({ fuente: "directa", nota: 60 });
+  });
+});
+
+describe("InteractiveCorrection — libre con cobertura (N4.3)", () => {
+  const libre = {
+    id: "ex-libre", title: "Ejercicio libre", duration: 60, model: "interactivo", audioUrl: null, showHint: false,
+    categories: [{ id: "default", name: "Funciones", buttons: [] }], answers: {},
+    evaluacion: { instrumento },
+  } as unknown as Exercise;
+  const entrega = {
+    score: null, intervals: [{ fn: "T", start: 0, end: 43 }], status: "auto" as const,
+    calificacion: { fuente: "auto" as const, cobertura: 72 },
+  };
+
+  it("alumno: enseña la cobertura en % con su etiqueta literal, nunca como nota", () => {
+    render(<InteractiveCorrection exercise={libre} result={entrega} onBack={() => {}} />);
+    expect(screen.getByText("72 %")).toBeInTheDocument();
+    expect(screen.getByText(/Cobertura — no mide acierto/)).toBeInTheDocument();
+  });
+
+  it("profesor: sin automática que certificar, Guardar bloqueado; la fuente docente cierra el intento", () => {
+    const onSave = vi.fn();
+    render(<InteractiveCorrection exercise={libre} result={entrega} onBack={() => {}} isTeacherMode
+      student={{ id: "s1", displayName: "Vera" }} onSaveCorrection={onSave} />);
+    const guardar = screen.getByRole("button", { name: "Guardar corrección" });
+    expect(guardar).toBeDisabled();
+    // La cobertura queda de referencia también para el profesor.
+    expect(screen.getByText(/no mide acierto/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Nota directa" }));
+    fireEvent.change(screen.getByLabelText("Nota final (0–10)"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar corrección" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][2].calificacion).toMatchObject({ fuente: "directa", nota: 70 });
+  });
+
+  it("profesor: el instrumento adjunto (N3.3) también cierra, con la rejilla en la columna ancha", () => {
+    const onSave = vi.fn();
+    render(<InteractiveCorrection exercise={libre} result={entrega} onBack={() => {}} isTeacherMode
+      student={{ id: "s1", displayName: "Vera" }} onSaveCorrection={onSave} />);
+    fireEvent.click(screen.getByRole("button", { name: "Instrumento" }));
+    fireEvent.click(screen.getByRole("button", { name: "Identifica secciones: Notable" }));
+    fireEvent.click(screen.getByRole("button", { name: "Justifica cadencias: Notable" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar corrección" }));
+    expect(onSave.mock.calls[0][2].calificacion).toMatchObject({ fuente: "instrumento", nota: 100 });
   });
 });
 
