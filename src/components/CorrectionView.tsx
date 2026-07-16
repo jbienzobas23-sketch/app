@@ -6,6 +6,7 @@ import { C, S, FONT_SANS } from "../theme/tokens.js";
 import { scoreColor } from "../lib/color.js";
 import { partsOf, partToExercise, modelsOf, resultPartsOf } from "../lib/domain.js";
 import { aggregateParts, nota10 } from "../lib/scoring.js";
+import { ponderar, modelosDe } from "../lib/calificacion.js";
 import { parseHashQuery, setHashQuery } from "../lib/routing.js";
 
 // ── Tipos y piezas troceadas (M3.4) ──────────────────────────────────────────
@@ -75,16 +76,21 @@ function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = fa
   const activePart = parts[activeIdx] || parts[0];
   const goToPart = (idx: number) => { setActiveIdx(idx); setHashQuery({ parte: String(idx + 1) }); };
 
-  // Agregado de UNA parte: media de sus modelos (mismo criterio que la nota
-  // de ejercicio agrega sus partes — aggregateParts, sin pesos por modelo).
+  // Agregado de UNA parte: media ponderada de sus modelos (N2.5): pares
+  // (nota, peso) por modelo vía modelosDe — sin sobre, todos pesan 1 y es la
+  // media de siempre; los null se quedan (ponderar los excluye), en vez de
+  // filtrarlos antes de agregar.
   const partAggregate = (partId: string) => {
     const p = parts.find((x) => x.id === partId);
     if (!p) return { score: null, pending: false };
     const projected = partToExercise(exercise, p);
     const pModels = modelsOf(projected);
+    const modelos = modelosDe(projected);
     const results = pModels.map((m) => effectiveModelResult(resultParts[partId]?.byModel?.[m], teacherPartsCorrection[partId]?.[m]));
-    const scores = results.map((r) => r.score).filter((s): s is number => s != null);
-    return { score: scores.length ? aggregateParts(scores) : null, pending: results.some((r) => r.status === "pendiente") };
+    return {
+      score: ponderar(pModels.map((m, i) => ({ nota: results[i].score ?? null, peso: modelos[m] ?? 1 }))),
+      pending: results.some((r) => r.status === "pendiente"),
+    };
   };
 
   const partAggregates = parts.map((p) => partAggregate(p.id));
@@ -105,12 +111,14 @@ function MultiPartCorrectionShell({ exercise, result, onBack, isTeacherMode = fa
     const partScores = parts.map((p) => {
       const projected = partToExercise(exercise, p);
       const pModels = modelsOf(projected);
-      const scores = pModels.map((m) => {
+      const modelos = modelosDe(projected);
+      // N2.5: gemelo del partAggregate de arriba — misma ponderación por modelo.
+      const entries = pModels.map((m) => {
         const r = effectiveModelResult(resultParts[p.id]?.byModel?.[m], mergedParts[p.id]?.[m]);
         if (r.status === "pendiente") anyPending = true;
-        return r.score;
-      }).filter((s): s is number => s != null);
-      return scores.length ? aggregateParts(scores) : null;
+        return { nota: r.score ?? null, peso: modelos[m] ?? 1 };
+      });
+      return ponderar(entries);
     });
     onSaveCorrection?.(studentId, exerciseId, {
       parts: mergedParts,

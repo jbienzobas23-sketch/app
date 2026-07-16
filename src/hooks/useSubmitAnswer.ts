@@ -10,7 +10,7 @@ import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.j
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, questionsOf, addAttempt } from "../lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId } from "../lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, interactiveFigureDiagnostics, type Interval, type SchemaBlock } from "../lib/scoring.js";
-import { nivelesDe, notaNiveles, calcSchemaScore, etiquetaCuentaDe, equivalenciasDe } from "../lib/calificacion.js";
+import { nivelesDe, notaNiveles, calcSchemaScore, etiquetaCuentaDe, equivalenciasDe, ponderar, modelosDe } from "../lib/calificacion.js";
 
 // N2.3: con sobre de evaluación (etiquetaCuenta definido en la autoría) la
 // nota del esquema exige también etiqueta equivalente; sin sobre, el lector
@@ -106,7 +106,11 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
         const projected = partToExercise(ex, p);
         const pModels = modelsOf(projected);
         const byModel: Record<string, unknown> = {};
-        const modelScores: number[] = [];
+        // N2.5: pares (nota, peso) por modelo vía modelosDe — sin sobre, todos
+        // pesan 1 y es la media de siempre; los null se quedan en su par
+        // (ponderar los excluye), en vez de filtrarlos antes de agregar.
+        const modelos = modelosDe(projected);
+        const modelEntries: Array<{ nota: number | null; peso: number }> = [];
         pModels.forEach((m) => {
           const raw: ModelAnswerPayload = partPayload?.byModel?.[m] || {};
           const status = resultStatusOf(null, projected);
@@ -114,11 +118,11 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
           if (m === "cuestionario") {
             const score = calcQuestionnaireScore(questionsOf(projected), raw.answers);
             byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
-            if (score != null) modelScores.push(score);
+            modelEntries.push({ nota: score ?? null, peso: modelos[m] ?? 1 });
           } else if (m === "esquema") {
             const score = schemaScoreOf(projected, raw.blocks || [], projected.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
             byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
-            if (score != null) modelScores.push(score);
+            modelEntries.push({ nota: score ?? null, peso: modelos[m] ?? 1 });
           } else {
             const entries = raw.entries || [];
             const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
@@ -147,11 +151,11 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
               .map((e) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
             byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now(),
               ...(mainNotas ? { calificacion: { fuente: "auto", preliminar: mainScore, niveles: mainNotas } } : {}) };
-            if (mainScore != null) modelScores.push(mainScore);
+            modelEntries.push({ nota: mainScore ?? null, peso: modelos[m] ?? 1 });
           }
         });
         partsEnvelope[p.id] = { byModel };
-        partScores.push(modelScores.length ? aggregateParts(modelScores) : null);
+        partScores.push(ponderar(modelEntries));
         partPoints.push(p.points ?? 1);
       });
       const data = addAttempt(existingResult, {

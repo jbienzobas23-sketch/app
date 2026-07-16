@@ -64,8 +64,12 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
   // Ausente = OFF (ejercicios de antes del plan); los nuevos nacen con true.
   const etiquetaActiva = sobre.etiquetaCuenta === true;
   const equivalencias = sobre.equivalencias ?? [];
+  // N2.5: pesos por modelo, solo en híbridos (2 modelos). Sin sobre, iguales.
+  const esHibrido = selectedModels.length > 1;
+  const pesoModelo = (m: string) => sobre.modelos?.[m] ?? 1;
+  const totalModelos = selectedModels.reduce((s, m) => s + pesoModelo(m), 0);
 
-  if (!hasFigures && !hasEsquema) return null;
+  if (!hasFigures && !hasEsquema && !esHibrido) return null;
   const setSobre = (patch: Partial<EvaluacionExercise>) => onUpdate({ evaluacion: { ...sobre, ...patch } });
   const setNiveles = (niveles?: { grados?: number; cifrado?: number }) => {
     const next: EvaluacionExercise = { ...sobre };
@@ -82,7 +86,7 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
     <div style={{ ...S.card }}>
       <p style={{ ...S.label, margin: "0 0 14px" }}>Calificación</p>
       {hasFigures && (
-        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: hasEsquema ? 12 : 0 }}>
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: hasEsquema || esHibrido ? 12 : 0 }}>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
             {/* Al activar se sugiere 70/30 (editable); al desactivar, el lector
                 vuelve al defecto {grados: 1} = comportamiento de siempre. */}
@@ -109,6 +113,24 @@ function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Ex
               </div>
             </div>
           )}
+        </div>
+      )}
+      {esHibrido && (
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 10, marginBottom: hasEsquema ? 12 : 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Peso de cada modelo en la nota</div>
+          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>Sin tocar nada, todos los modelos pesan igual.</div>
+          <div style={{ marginTop: 4 }}>
+            {selectedModels.map((m) => (
+              <div key={m} style={{ ...calRow }}>
+                <span style={{ fontSize: 13, color: C.ink2 }}>{MODEL_META[m]?.label ?? m}</span>
+                <PesoChip value={pesoModelo(m)} editable
+                  onChange={(n) => setSobre({ modelos: { ...(sobre.modelos ?? {}), [m]: n } })} />
+              </div>
+            ))}
+            <div style={{ fontSize: 12, color: C.muted, paddingTop: 8 }}>
+              {totalModelos > 0 ? selectedModels.map((m) => `${Math.round((pesoModelo(m) / totalModelos) * 100)} %`).join(" · ") : "—"}
+            </div>
+          </div>
         </div>
       )}
       {hasEsquema && (
