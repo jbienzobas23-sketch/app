@@ -10,6 +10,7 @@
 // imports — mismo patrón que ya usa scoring.ts con su propio `Question` local
 // en vez de importarlo de types.ts.
 import { partSlotIndex, phraseSlotIndex } from "./palette.js";
+import { uid } from "./ids.js";
 
 // N0.1 — la media ponderada: los null no cuentan ni en el numerador ni en el
 // denominador (permite "no penalizar lo aún no corregido"); redondeo entero.
@@ -45,6 +46,46 @@ export interface Instrumento {
 }
 
 export interface PesoConfig { modo: "equitativa" | "personalizada"; pesos?: Record<string, number>; }
+
+// ─── N3.1: factoría y cambio de tipo de un instrumento ──────────────────────
+// La lista de control tiene los niveles FIJOS Sí=1/No=0 (§2 del plan); escala y
+// rúbrica arrancan con los tres niveles del mockup, editables. Ids estables
+// ("si"/"no", "n0".."n2") para que las respuestas y los descriptores no queden
+// huérfanos al reordenar.
+export const NIVELES_LISTA: Instrumento["niveles"] = [
+  { id: "si", etiqueta: "Sí", valor: 1 },
+  { id: "no", etiqueta: "No", valor: 0 },
+];
+
+export const NIVELES_ESCALA_DEFECTO: Instrumento["niveles"] = [
+  { id: "n0", etiqueta: "Insuficiente", valor: 0 },
+  { id: "n1", etiqueta: "Adecuado", valor: 0.5 },
+  { id: "n2", etiqueta: "Notable", valor: 1 },
+];
+
+export function nuevoInstrumento(tipo: Instrumento["tipo"]): Instrumento {
+  const plantillaNiveles = tipo === "lista" ? NIVELES_LISTA : NIVELES_ESCALA_DEFECTO;
+  return {
+    tipo,
+    niveles: plantillaNiveles.map((n) => ({ ...n })),
+    items: [{ id: uid("it"), texto: "", peso: 1 }],
+  };
+}
+
+// Cambiar el tipo conserva los ítems (texto y peso, lo caro de escribir).
+// Entrar o salir de "lista" sustituye los niveles (los de lista son fijos y no
+// sirven como escala); escala ↔ rúbrica los conserva. Fuera de rúbrica los
+// descriptores se retiran: quedan colgados de ids de nivel que pueden cambiar.
+export function cambiaTipoInstrumento(instrumento: Instrumento, tipo: Instrumento["tipo"]): Instrumento {
+  if (tipo === instrumento.tipo) return instrumento;
+  const cruzaLista = tipo === "lista" || instrumento.tipo === "lista";
+  const plantillaNiveles = tipo === "lista" ? NIVELES_LISTA : NIVELES_ESCALA_DEFECTO;
+  const niveles = cruzaLista ? plantillaNiveles.map((n) => ({ ...n })) : instrumento.niveles;
+  const items = tipo === "rubrica"
+    ? instrumento.items
+    : instrumento.items.map(({ descriptores: _descartados, ...item }) => item);
+  return { ...instrumento, tipo, niveles, items };
+}
 
 // Sobre de evaluación de un ejercicio (niveles del interactivo, etiqueta del
 // esquema, modelos de un híbrido, instrumento de una pregunta/ejercicio libre).

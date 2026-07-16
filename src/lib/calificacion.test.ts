@@ -3,6 +3,7 @@ import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
   etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento, notaNiveles,
   matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre, mediaDe,
+  nuevoInstrumento, cambiaTipoInstrumento, NIVELES_LISTA, NIVELES_ESCALA_DEFECTO,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -137,6 +138,48 @@ describe("notaInstrumento", () => {
   it("sin instrumento o sin ítems → null", () => {
     expect(notaInstrumento(undefined, {})).toBeNull();
     expect(notaInstrumento({ tipo: "lista", niveles: [], items: [] }, {})).toBeNull();
+  });
+});
+
+describe("nuevoInstrumento / cambiaTipoInstrumento (N3.1)", () => {
+  it("lista nueva: niveles fijos Sí=1/No=0 y un ítem vacío de peso 1", () => {
+    const instr = nuevoInstrumento("lista");
+    expect(instr.niveles).toEqual(NIVELES_LISTA);
+    expect(instr.items).toHaveLength(1);
+    expect(instr.items[0]).toMatchObject({ texto: "", peso: 1 });
+  });
+  it("escala y rúbrica nuevas arrancan con los tres niveles del mockup", () => {
+    expect(nuevoInstrumento("escala").niveles).toEqual(NIVELES_ESCALA_DEFECTO);
+    expect(nuevoInstrumento("rubrica").niveles).toEqual(NIVELES_ESCALA_DEFECTO);
+  });
+  it("los niveles de la factoría son copias: mutarlos no toca las plantillas", () => {
+    const instr = nuevoInstrumento("lista");
+    instr.niveles[0].etiqueta = "Mutado";
+    expect(NIVELES_LISTA[0].etiqueta).toBe("Sí");
+  });
+  it("cambiar de tipo conserva los ítems (texto y peso)", () => {
+    const lista = { ...nuevoInstrumento("lista"), items: [{ id: "i1", texto: "Afinación", peso: 3 }] };
+    const escala = cambiaTipoInstrumento(lista, "escala");
+    expect(escala.items).toEqual([{ id: "i1", texto: "Afinación", peso: 3 }]);
+    expect(escala.niveles).toEqual(NIVELES_ESCALA_DEFECTO);
+  });
+  it("escala ↔ rúbrica conserva los niveles editados; entrar en lista los sustituye por los fijos", () => {
+    const escala = { ...nuevoInstrumento("escala"), niveles: [{ id: "x", etiqueta: "Mal", valor: 0 }, { id: "y", etiqueta: "Bien", valor: 1 }] };
+    expect(cambiaTipoInstrumento(escala, "rubrica").niveles).toBe(escala.niveles);
+    expect(cambiaTipoInstrumento(escala, "lista").niveles).toEqual(NIVELES_LISTA);
+  });
+  it("salir de rúbrica retira los descriptores (quedarían huérfanos de sus niveles)", () => {
+    const rubrica = {
+      tipo: "rubrica" as const,
+      niveles: [{ id: "l0", etiqueta: "Mal", valor: 0 }, { id: "l1", etiqueta: "Bien", valor: 1 }],
+      items: [{ id: "i1", texto: "x", peso: 1, descriptores: { l0: "Ausente", l1: "Completa" } }],
+    };
+    const lista = cambiaTipoInstrumento(rubrica, "lista");
+    expect(lista.items[0]).toEqual({ id: "i1", texto: "x", peso: 1 });
+  });
+  it("mismo tipo: devuelve el mismo objeto sin cambios", () => {
+    const instr = nuevoInstrumento("escala");
+    expect(cambiaTipoInstrumento(instr, "escala")).toBe(instr);
   });
 });
 
