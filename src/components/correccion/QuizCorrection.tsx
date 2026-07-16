@@ -9,7 +9,7 @@ import { C, S, F, FONT_SANS } from "../../theme/tokens.js";
 import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
 import { questionsSnapshotOf, questionScopeOf, questionsOf } from "../../lib/domain.js";
-import { calcQuestionnaireFinal, gradeShort, nota10 } from "../../lib/scoring.js";
+import { calcQuestionnaireFinal, calcQuestionnaireScore, gradeShort, nota10 } from "../../lib/scoring.js";
 import { instrumentoDe, type CalificacionCorreccion } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
@@ -95,6 +95,11 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
       return [q.id, st ? notaDeFuente(st, null, instrumentoDeQ(q)) : null];
     }));
     const final = calcQuestionnaireFinal(questions, result.answers, notasManuales);
+    // La PRELIMINAR de referencia se recalcula en puro (test + corta sobre la
+    // instantánea) en vez de leer result.score: tras guardar, score pasa a ser
+    // la FINAL (saveCorrection la sustituye) y el rótulo «automática» mentiría
+    // (regla de oro 3: la preliminar nunca se pierde — aquí, recomputándola).
+    const preliminarQuiz = calcQuestionnaireScore(questions, result.answers);
     // ¿Es correcta la respuesta a UNA pregunta autocorregible (test o corta)?
     // null = no autocorregible (desarrollo, o "corta" sin aceptadas configuradas).
     const isQGraded = (q: (typeof questions)[number], ans: string | undefined): boolean | null => {
@@ -252,7 +257,7 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                   </div>
                   <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-                    {sc != null && <>Automática (test y corta): <strong style={{ color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{nota10(sc)}</strong></>}
+                    {preliminarQuiz != null && <>Automática (test y corta): <strong style={{ color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{nota10(preliminarQuiz)}</strong></>}
                     {final.pendientes > 0 && (
                       <span style={{ display: "block", color: C.fnD, fontWeight: 600 }}>
                         ✎ {final.pendientes} de desarrollo sin nota
@@ -510,7 +515,7 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                         <span style={{ fontSize: 42, fontWeight: 800, color: scoreColor(pct100), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{nota10(pct100)}</span>
                         <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                       </div>
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Corregido por el profesor{sc != null && ` · automática: ${nota10(sc)}`}</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Corregido por el profesor{preliminarQuiz != null && ` · automática: ${nota10(preliminarQuiz)}`}</div>
                     </>
                   );
                 })() : sc != null ? (
@@ -694,7 +699,9 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                           <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor</div>
                           <div style={{ fontSize: 13, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{teacherComment}</div>
                         </div>
-                      ) : q.type === "desarrollo" && (
+                      ) : q.type === "desarrollo" && !(tc?.corrected && califCorreccion?.porPregunta?.[q.id]?.nota != null) && (
+                        // N4.2: con la pregunta ya calificada (nota visible
+                        // arriba), este aviso legado sobraba — y mentía.
                         <p style={{ fontSize: 11, color: C.muted2, margin: "10px 0 0" }}>Pendiente de revisión por el profesor.</p>
                       )}
                       </div>
