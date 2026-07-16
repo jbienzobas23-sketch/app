@@ -773,7 +773,19 @@ export function QuestionEditorModal({ initial, defaultStart, audioDuration, audi
 
       <label style={S.label}>Tipo</label>
       <div style={{ ...S.row, gap: 8, marginBottom: 14 }}>
-        {[{ id: "test", label: "Tipo test" }, { id: "corta", label: "Respuesta corta" }, { id: "desarrollo", label: "Desarrollo" }].map((opt) => (
+        {/* N3.4 (Jon, 2026-07-13): «corta» se retira SOLO de la autoría — ya no
+            se crean cortas nuevas, pero las existentes se muestran, se editan y
+            se autocorrigen igual (gradeShort y QuizCorrection intactos, lector
+            legado). Revierte a sabiendas parte de la protección de
+            PLAN_MAESTRO_2 §1: lo que esa protección salvaguardaba (datos y
+            corrección de las cortas) se conserva íntegro; solo desaparece la
+            opción del selector. Al editar una corta legada la opción sigue ahí,
+            para no forzar un cambio de tipo con solo abrir la pregunta. */}
+        {[
+          { id: "test", label: "Tipo test" },
+          ...(initial?.type === "corta" ? [{ id: "corta", label: "Respuesta corta" }] : []),
+          { id: "desarrollo", label: "Desarrollo" },
+        ].map((opt) => (
           <button key={opt.id} type="button" onClick={() => setType(opt.id)}
             style={{
               ...S.btn, flex: 1, fontSize: 12,
