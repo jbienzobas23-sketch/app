@@ -12,7 +12,7 @@ import { fmtClock } from "../../lib/time.js";
 import { seedFromId } from "../../lib/audio.js";
 import { audioDisplayTitle } from "../../lib/domain.js";
 import { AudioWaveIcon } from "../primitives.jsx";
-import { Menu } from "../primitives.jsx";
+import { Menu, PesoChip } from "../primitives.jsx";
 import { FragmentRangeSelector } from "../session.js";
 import { MAX_PARTS, type EditorApi } from "./useExerciseEditor.js";
 import { StepHead, Switch } from "./editorUi.js";
@@ -269,6 +269,15 @@ export function PasoAudios({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
                       onChange={(e) => updatePartField(selPart.id, { composerName: e.target.value || undefined })} />
                   </div>
                 </div>
+                {/* N2.4 (Jon, 2026-07-13, revierte M0.6): el peso de la parte en la
+                    nota vuelve a editarse en la autoría. aggregateParts ya lo
+                    pondera desde siempre; solo estaba cerrada la edición. */}
+                {parts.length > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: `1px solid ${C.line}`, paddingTop: 12, marginTop: 12 }}>
+                    <span style={{ fontSize: 13, color: C.ink2 }}>Peso de esta parte en la nota</span>
+                    <PesoChip value={selPart.points ?? 1} editable onChange={(n) => updatePartField(selPart.id, { points: n })} />
+                  </div>
+                )}
               </div>
             );
           })()}

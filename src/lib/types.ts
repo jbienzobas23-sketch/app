@@ -78,7 +78,9 @@ export interface Part {
   schemaKey?: unknown[];
   repetitions?: unknown[];
   questions?: Question[];
-  /** @deprecated M0.6: ya no se edita en la autoría; se conserva y se pondera (aggregateParts) solo para partes legacy que lo guardaron con un valor distinto de 1. */
+  // Peso de la parte en la nota del ejercicio (pondera aggregateParts).
+  // N2.4 (Jon, 2026-07-13): vuelve a editarse en la autoría (PasoAudios) —
+  // revierte la retirada de M0.6, que lo dejó solo-lectura para partes legacy.
   points?: number;
   [k: string]: unknown;
 }
