@@ -131,7 +131,11 @@ export function unitAverage(unit: Unit, exercises: Exercise[], results: ResultsM
       id: String(ex.id),
       nota: result?.score ?? null,
       peso: pesos[i]?.peso ?? 1,
-      pendiente: !result || resultStatusOf(result, ex) === "pendiente",
+      // score null con estado "auto" existe: el interactivo LIBRE (sin clave)
+      // entrega con calcScore null y resultStatusOf devuelve "auto" (solo mira
+      // el modelo) — sin este término, una unidad con esa entrega sin calificar
+      // podría lucir ● "corregido". Sin nota utilizable = pendiente, siempre.
+      pendiente: !result || result.score == null || resultStatusOf(result, ex) === "pendiente",
     };
   });
   return mediaDe(hijos);

@@ -211,17 +211,33 @@ export function PesoEditor({ modo, reparto, onModoChange }: PesoEditorProps) {
 // deshabilitado — para no parecer un control roto.
 export interface PesoChipProps { value: number; editable: boolean; onChange?: (n: number) => void; }
 export function PesoChip({ value, editable, onChange }: PesoChipProps) {
+  // Borrador local mientras se teclea; el valor solo se CONFIRMA al salir del
+  // campo (blur) o con Enter. Confirmar por tecla escribiría en el servidor en
+  // cada pulsación y, al vaciar el campo para reescribir, persistiría un peso
+  // 0 transitorio que no es lo que el profesor quiso. Vacío al salir = se
+  // descarta y se restaura el valor vigente.
+  const [draft, setDraft] = useState<string | null>(null);
   const chipStyle: CSSProperties = {
     display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0,
     background: C.paper2, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 8px",
     fontFamily: F.sans, fontSize: 12.5, color: C.ink2, fontVariantNumeric: "tabular-nums",
   };
   if (!editable) return <span style={chipStyle}>{value} %</span>;
+  const commit = () => {
+    if (draft == null) return;
+    setDraft(null);
+    if (draft === "") return;
+    const n = Number(draft);
+    if (n !== value) onChange?.(n);
+  };
   return (
-    <span style={chipStyle} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <input type="text" inputMode="numeric" aria-label="Peso" value={String(value)}
-        onChange={(e) => { const d = e.target.value.replace(/\D/g, ""); onChange?.(d === "" ? 0 : Number(d)); }}
-        style={{ width: 24, textAlign: "right", background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit" }} />
+    <span style={chipStyle} onClick={(e) => e.stopPropagation()}>
+      <input type="text" inputMode="numeric" aria-label="Peso"
+        value={draft ?? String(value)}
+        onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))}
+        onBlur={commit}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        style={{ width: 28, textAlign: "right", background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit" }} />
       %
     </span>
   );

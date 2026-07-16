@@ -175,6 +175,10 @@ export function CourseProgressBar({ num, total, width = 120, accent = C.ink }: {
 export function CourseCard({ course, units, exercises, role, results, groups, onOpen }: Omit<CoursesData, "courses"> & { course: Course; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
   const cs = courseProgress(course, units, exercises, role, results);
+  // N1.4: media del curso en la tarjeta, SOLO alumno (sus resultados). Al
+  // profesor esta pantalla no le pasa resultados (results={{}}, es gestión de
+  // temario) y el "— ○" permanente sería ruido.
+  const avg = role === "student" ? courseAverage(course, units, exercises, results, role) : null;
   return (
     <button onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{ font: "inherit", textAlign: "left", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 14, minHeight: 172,
@@ -191,7 +195,10 @@ export function CourseCard({ course, units, exercises, role, results, groups, on
           )}
           {role === "teacher" && <div style={{ marginTop: 7 }}><CourseVisBadge course={course} groups={groups} /></div>}
         </div>
-        <ProgressRing ready={cs.unitsDone} total={cs.units} size={60} stroke={5} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, flexShrink: 0 }}>
+          <ProgressRing ready={cs.unitsDone} total={cs.units} size={60} stroke={5} />
+          {avg && <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />}
+        </div>
       </div>
     </button>
   );
@@ -556,6 +563,8 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
         : <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
             {courses.map((c) => {
               const cs = courseProgress(c, units, exercises, role, results);
+              // N1.4: media solo para el alumno (ver CourseCard, mismo criterio).
+              const avg = role === "student" ? courseAverage(c, units, exercises, results, role) : null;
               return (
                 <button key={c.id} onClick={() => onOpenCourse(c.id)}
                   style={{ font: "inherit", boxSizing: "border-box", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 15, padding: "20px 18px", borderRadius: 16, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", boxShadow: "0 1px 3px rgba(26,25,21,0.03)" }}>
@@ -571,6 +580,7 @@ export function MobileCoursesScreen({ role, courses, units, exercises, results, 
                       </span>
                     )}
                   </span>
+                  {avg && <MediaScore nota={avg.nota} pendientes={avg.pendientes} total={avg.total} />}
                   <ChevronRightIcon />
                 </button>
               );

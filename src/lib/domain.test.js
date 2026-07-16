@@ -154,6 +154,13 @@ describe("unitAverage (N1, PLAN_CALIFICACION.md)", () => {
     const results = { e1: { score: 80 }, e3: { score: 50 } };
     expect(unitAverage(unit, exercises, results, "teacher")).toEqual({ nota: 65, pendientes: 1, total: 2 });
   });
+  it("una entrega SIN nota utilizable (score null) cuenta pendiente aunque su modelo sea 'auto' (el libre)", () => {
+    // Interactivo sin clave: submitAnswer guarda score null y resultStatusOf
+    // devuelve "auto" (solo mira el modelo). Sin nota no hay nada corregido.
+    const unit = { id: "u6", exerciseIds: ["e1", "e2"] };
+    const results = { e1: { score: 80 }, e2: { score: null, status: "auto" } };
+    expect(unitAverage(unit, exercises, results, "teacher")).toEqual({ nota: 80, pendientes: 1, total: 2 });
+  });
   it("pesos personalizados se respetan", () => {
     const unit = { id: "u4", exerciseIds: ["e1", "e2"], evaluacion: { modo: "personalizada", pesos: { e1: 3, e2: 1 } } };
     const results = { e1: { score: 80 }, e2: { score: 60 } };
