@@ -11,12 +11,13 @@ import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { rowButtonProps } from "../../lib/a11y.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { schemaDiagnostics, nota10 } from "../../lib/scoring.js";
-import { equivalenciasDe, instrumentoDe } from "../../lib/calificacion.js";
+import { equivalenciasDe, instrumentoDe, fundeComentarios, mapaDeComentarios, tramosDeComentarios, comentarioGeneralDe, type CalificacionCorreccion, type ComentarioAnclado, type ComentarioTramo } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { SchemaPlayhead, CorrectionAudioBar } from "../primitives.jsx";
 import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
 import { normalizeScore100, type CorrectionViewProps, type SchemaBlock } from "./shared.js";
+import { ComentariosTramoEditor, ComentariosTramoView } from "./ComentariosTramo.js";
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { fuenteInicial, notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
@@ -24,9 +25,14 @@ import { AttemptBanner } from "./AttemptBanner.js";
 export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
-  const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => tc?.levelComments || {});
-  const [blkComments,  setBlkComments]  = useState<Record<string, string>>(() => tc?.blockComments || {});
-  const [schemaGlobal, setSchemaGlobal] = useState(tc?.globalComment || "");
+  // N4.4: los comentarios se leen SIEMPRE por el lector — comentarios[] si la
+  // corrección es nueva, o los cuatro campos legados fundidos a esa forma.
+  // Las escrituras van solo a comentarios[] (los campos legados no se tocan).
+  const comentariosGuardados = fundeComentarios((tc?.calificacion as CalificacionCorreccion | undefined)?.comentarios, tc);
+  const [lvComments,   setLvComments]   = useState<Record<string, string>>(() => mapaDeComentarios(comentariosGuardados, "nivel"));
+  const [blkComments,  setBlkComments]  = useState<Record<string, string>>(() => mapaDeComentarios(comentariosGuardados, "bloque"));
+  const [schemaGlobal, setSchemaGlobal] = useState(() => comentarioGeneralDe(comentariosGuardados));
+  const [tramos,       setTramos]       = useState<ComentarioTramo[]>(() => tramosDeComentarios(comentariosGuardados));
   // N4.1: la nota manual pasa a ser una FUENTE elegible (Automática /
   // Instrumento si está adjunto / Nota directa). El estado repone una
   // corrección guardada desde el sobre `calificacion`; sin sobre, una nota
@@ -66,10 +72,10 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
   //  · por NIVEL  → se abre pulsando «+ Nivel» o la ETIQUETA del nivel en la tira.
   //  · por BLOQUE → se abre pulsando ESE bloque concreto en el esquema del alumno.
   const [openLv, setOpenLv] = useState<Set<number>>(
-    () => new Set(activeLevels.filter((lv) => (tc?.levelComments?.[lv.id] || "").trim()).map((lv) => lv.id))
+    () => new Set(activeLevels.filter((lv) => (mapaDeComentarios(comentariosGuardados, "nivel")[lv.id] || "").trim()).map((lv) => lv.id))
   );
   const [openBlk, setOpenBlk] = useState<Set<string>>(
-    () => new Set(Object.entries(tc?.blockComments || {}).filter(([, v]) => (v || "").trim()).map(([k]) => k))
+    () => new Set(Object.entries(mapaDeComentarios(comentariosGuardados, "bloque")).filter(([, v]) => (v || "").trim()).map(([k]) => k))
   );
   const lvTextareaRefs  = useRef<Record<number, HTMLTextAreaElement | null>>({});
   const blkTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -232,15 +238,25 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
     // con fuente automática, que era el significado del input vacío.
     const handleSave = () => {
       const notaFinal = notaDeFuente(fuente, ps, instrumento);
+      // N4.4: los comentarios se escriben SOLO en comentarios[] (general +
+      // nivel + bloque + tramo); los campos legados dejan de emitirse — el
+      // lector (fundeComentarios) sigue leyendo las correcciones antiguas.
+      const comentarios: ComentarioAnclado[] = [
+        ...(schemaGlobal.trim() ? [{ id: "general", ancla: { tipo: "general" as const }, texto: schemaGlobal.trim() }] : []),
+        ...Object.entries(lvComments).filter(([, v]) => v?.trim())
+          .map(([lvId, texto]) => ({ id: `lv-${lvId}`, ancla: { tipo: "nivel" as const, ref: String(lvId) }, texto: texto.trim() })),
+        ...Object.entries(blkComments).filter(([, v]) => v?.trim())
+          .map(([blockId, texto]) => ({ id: `b-${blockId}`, ancla: { tipo: "bloque" as const, ref: blockId }, texto: texto.trim() })),
+        ...tramos.filter((t) => t.texto.trim())
+          .map((t) => ({ id: t.id, ancla: { tipo: "tramo" as const, ref: { start: t.start, end: t.end } }, texto: t.texto.trim() })),
+      ];
       onSaveCorrection?.(student?.id, exercise.id, {
-        levelComments: lvComments,
-        blockComments: Object.fromEntries(Object.entries(blkComments).filter(([, v]) => v?.trim())),
-        globalComment: schemaGlobal.trim(),
-        totalScore:    fuente.fuente === "auto" ? null : notaFinal,
+        totalScore: fuente.fuente === "auto" ? null : notaFinal,
         calificacion: {
           fuente: fuente.fuente,
           nota: notaFinal,
           ...(fuente.fuente === "instrumento" ? { instrumento: { respuestas: fuente.respuestas, nota: notaFinal } } : {}),
+          comentarios,
         },
       });
     };
@@ -355,6 +371,14 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                 </div>
               )}
 
+              {/* N4.4: comentarios anclados a un tramo del audio (salto por
+                  seek — el esquema no usa candado de región). */}
+              {hasAudio && (
+                <div style={{ marginBottom: 16 }}>
+                  <ComentariosTramoEditor tramos={tramos} onChange={setTramos} duration={dur} currentTime={time} onJump={(t) => seekTo(t.start)} />
+                </div>
+              )}
+
               {/* Comentarios opcionales (Jon, 2026-07-06): en reposo, una fila de
                   botones. Se abren también desde el esquema (bloque → su
                   comentario; etiqueta de nivel → comentario del nivel). Cada
@@ -429,6 +453,10 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
   // nota FIJO a la izquierda (de solo lectura, sin NotaInput/guardar) y a la
   // derecha las tiras del esquema + diagnóstico, con scroll propio.
   const showRefSchema = (Boolean(exercise.immediateSchemaFeedback) || Boolean(tc?.corrected)) && hasKey;
+  // N4.4: el alumno lee los comentarios por el lector — nuevas y legadas igual.
+  const comentariosNivel  = mapaDeComentarios(comentariosGuardados, "nivel");
+  const comentariosBloque = mapaDeComentarios(comentariosGuardados, "bloque");
+  const comentarioGeneral = comentarioGeneralDe(comentariosGuardados);
   const eyebrow: CSSProperties = { fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 4 };
   const split = !isMobile;
   const pageStyle: CSSProperties = split
@@ -495,16 +523,16 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
               )}
             </div>
 
-            {tc?.corrected && (tc.globalComment || activeLevels.some((lv) => tc.levelComments?.[lv.id]) || Object.values(tc.blockComments || {}).some(Boolean)) && (
+            {tc?.corrected && (comentarioGeneral || activeLevels.some((lv) => comentariosNivel[lv.id]) || Object.values(comentariosBloque).some(Boolean)) && (
               <div style={{ background: C.paper, border: `1.5px solid rgba(47,111,184,0.35)`, borderRadius: 14, padding: "14px 16px" }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: C.quiz, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Corrección del profesor</div>
-                {activeLevels.filter((lv) => tc.levelComments?.[lv.id]).map((lv) => (
+                {activeLevels.filter((lv) => comentariosNivel[lv.id]).map((lv) => (
                   <div key={lv.id} style={{ marginBottom: 8, padding: "8px 10px", background: C.paper2, borderRadius: 8, borderLeft: `3px solid ${lv.color}` }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: lv.color, marginBottom: 3 }}>{lv.sub}</div>
-                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{tc.levelComments?.[lv.id]}</div>
+                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comentariosNivel[lv.id]}</div>
                   </div>
                 ))}
-                {tc.blockComments && Object.entries(tc.blockComments).filter(([, v]) => v).map(([blockId, comment]) => {
+                {Object.entries(comentariosBloque).filter(([, v]) => v).map(([blockId, comment]) => {
                   const block = blocks.find((b) => b.id === blockId);
                   if (!block) return null;
                   const lv = SCHEMA_LEVELS.find((l) => l.id === block.level);
@@ -518,10 +546,10 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                     </div>
                   );
                 })}
-                {tc.globalComment && (
+                {comentarioGeneral && (
                   <div style={{ padding: "9px 11px", background: "rgba(47,111,184,0.06)", border: `1px solid rgba(47,111,184,0.2)`, borderRadius: 8, marginTop: 4 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: C.quiz, marginBottom: 4 }}>Comentario general</div>
-                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{tc.globalComment}</div>
+                    <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{comentarioGeneral}</div>
                   </div>
                 )}
               </div>
@@ -531,6 +559,11 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
           {/* ── Columna del esquema (scroll propio; aquí vive lo ANCHO) ── */}
           <div style={rightColStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
             {hasAudio && <div style={{ marginBottom: 16 }}><AudioBar /></div>}
+
+            {/* N4.4: comentarios de tramo — pulsar el rango salta el audio. */}
+            {tc?.corrected && hasAudio && (
+              <ComentariosTramoView tramos={tramosDeComentarios(comentariosGuardados)} onJump={(t) => seekTo(t.start)} />
+            )}
 
             {(blocks.length > 0 || showRefSchema) && (
               <div style={{ ...S.card, borderRadius: 12, marginBottom: 16 }}>

@@ -3,7 +3,7 @@
 // índice abierto) para una migración gradual: el objeto exercise tiene muchos
 // campos usados por toda la app; aquí se tipan los que consumen los módulos ya
 // migrados, sin romper el acceso a los demás. Se irán afinando.
-import type { EvaluacionExercise, Instrumento, InstrumentoRelleno, PesoConfig } from "./calificacion.js";
+import type { ComentarioAnclado, EvaluacionExercise, Instrumento, InstrumentoRelleno, PesoConfig } from "./calificacion.js";
 
 export interface Button {
   id: string;
@@ -154,6 +154,9 @@ export interface ExerciseResult {
     instrumento?: InstrumentoRelleno;
     porPregunta?: Record<string, { fuente: "instrumento" | "directa"; nota: number | null; instrumento?: InstrumentoRelleno }>;
     cobertura?: number | null;
+    // N4.4: comentarios anclados de la corrección (las escrituras nuevas van
+    // solo aquí; los campos legados de teacherCorrection se leen fundidos).
+    comentarios?: ComentarioAnclado[];
     [k: string]: unknown;
   };
   [k: string]: unknown;

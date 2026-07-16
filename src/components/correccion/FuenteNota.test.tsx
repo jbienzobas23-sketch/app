@@ -190,4 +190,30 @@ describe("SchemaCorrection (profesor) — guardar con fuente instrumento", () =>
     expect(correction.calificacion.instrumento.respuestas).toEqual({ a: "n0", b: "n0" });
     expect(correction.totalScore).toBe(0);
   });
+
+  it("N4.4: editar una corrección LEGADA migra sus comentarios a comentarios[] y deja de emitir los campos viejos", () => {
+    const exercise = {
+      id: "ex-2", title: "Esquema con comentarios", duration: 60, model: "esquema",
+      schemaKey: [{ id: "k1", level: 1, start: 0, end: 30, label: "A" }],
+    } as unknown as Exercise;
+    const result = {
+      type: "esquema",
+      blocks: [{ id: "b1", level: 1, start: 0, end: 30, label: "A" }],
+      placementScore: 100, score: 100, status: "corregido" as const,
+      teacherCorrection: { corrected: true, globalComment: "Bien resuelto.", levelComments: { "1": "Partes claras." }, totalScore: null },
+    };
+    const onSave = vi.fn();
+    render(<SchemaCorrection exercise={exercise} result={result} onBack={() => {}} isTeacherMode
+      student={{ id: "s1", displayName: "Lucía" }} onSaveCorrection={onSave} />);
+    // Los comentarios legados se reponen en la UI (lector) …
+    expect(screen.getByDisplayValue("Bien resuelto.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Partes claras.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar corrección" }));
+    const correction = onSave.mock.calls[0][2];
+    // … y al guardar viajan SOLO en comentarios[] (forward-only).
+    expect(correction.globalComment).toBeUndefined();
+    expect(correction.levelComments).toBeUndefined();
+    expect(correction.calificacion.comentarios).toContainEqual({ id: "general", ancla: { tipo: "general" }, texto: "Bien resuelto." });
+    expect(correction.calificacion.comentarios).toContainEqual({ id: "lv-1", ancla: { tipo: "nivel", ref: "1" }, texto: "Partes claras." });
+  });
 });

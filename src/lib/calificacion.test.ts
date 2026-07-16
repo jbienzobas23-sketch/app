@@ -4,6 +4,7 @@ import {
   etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento, notaNiveles,
   matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre, mediaDe,
   nuevoInstrumento, cambiaTipoInstrumento, NIVELES_LISTA, NIVELES_ESCALA_DEFECTO,
+  fundeComentarios, mapaDeComentarios, tramosDeComentarios, comentarioGeneralDe,
 } from "./calificacion.js";
 
 describe("ponderar", () => {
@@ -180,6 +181,41 @@ describe("nuevoInstrumento / cambiaTipoInstrumento (N3.1)", () => {
   it("mismo tipo: devuelve el mismo objeto sin cambios", () => {
     const instr = nuevoInstrumento("escala");
     expect(cambiaTipoInstrumento(instr, "escala")).toBe(instr);
+  });
+});
+
+describe("fundeComentarios (N4.4) — lector de comentarios anclados", () => {
+  const legado = {
+    globalComment: "Buen trabajo en general.",
+    questionComments: { q1: "Revisa la cadencia.", q2: "  " },
+    blockComments: { b7: "El puente empieza antes." },
+    levelComments: { "2": "Las frases están bien delimitadas." },
+  };
+  it("sin comentarios[] funde los cuatro campos legados con su tipo y ref", () => {
+    const out = fundeComentarios(undefined, legado);
+    expect(out).toContainEqual({ id: "general", ancla: { tipo: "general" }, texto: "Buen trabajo en general." });
+    expect(out).toContainEqual({ id: "q-q1", ancla: { tipo: "pregunta", ref: "q1" }, texto: "Revisa la cadencia." });
+    expect(out).toContainEqual({ id: "b-b7", ancla: { tipo: "bloque", ref: "b7" }, texto: "El puente empieza antes." });
+    expect(out).toContainEqual({ id: "lv-2", ancla: { tipo: "nivel", ref: "2" }, texto: "Las frases están bien delimitadas." });
+    // q2 era solo espacios: no genera comentario.
+    expect(out).toHaveLength(4);
+  });
+  it("con comentarios[] (escritura nueva, completa) los legados NO se duplican", () => {
+    const nuevos = [{ id: "general", ancla: { tipo: "general" as const }, texto: "Texto nuevo." }];
+    expect(fundeComentarios(nuevos, legado)).toBe(nuevos);
+  });
+  it("sin nada → lista vacía", () => {
+    expect(fundeComentarios(undefined, undefined)).toEqual([]);
+    expect(fundeComentarios([], { globalComment: "" })).toEqual([]);
+  });
+  it("mapaDeComentarios proyecta un tipo a mapa ref → texto; tramosDeComentarios aplana los tramos", () => {
+    const lista = fundeComentarios(undefined, legado).concat([
+      { id: "ct-1", ancla: { tipo: "tramo", ref: { start: 12, end: 16 } }, texto: "El pivote es vi, no ii." },
+    ]);
+    expect(mapaDeComentarios(lista, "pregunta")).toEqual({ q1: "Revisa la cadencia." });
+    expect(mapaDeComentarios(lista, "nivel")).toEqual({ "2": "Las frases están bien delimitadas." });
+    expect(tramosDeComentarios(lista)).toEqual([{ id: "ct-1", start: 12, end: 16, texto: "El pivote es vi, no ii." }]);
+    expect(comentarioGeneralDe(lista)).toBe("Buen trabajo en general.");
   });
 });
 

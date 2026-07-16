@@ -10,12 +10,13 @@ import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
 import { questionsSnapshotOf, questionScopeOf, questionsOf } from "../../lib/domain.js";
 import { calcQuestionnaireFinal, calcQuestionnaireScore, gradeShort, nota10 } from "../../lib/scoring.js";
-import { instrumentoDe, type CalificacionCorreccion } from "../../lib/calificacion.js";
+import { instrumentoDe, fundeComentarios, mapaDeComentarios, tramosDeComentarios, comentarioGeneralDe, type CalificacionCorreccion, type ComentarioAnclado, type ComentarioTramo } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { CorrectionAudioBar } from "../primitives.jsx";
 import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
 import { normalizeScore100, type CorrectionViewProps } from "./shared.js";
+import { ComentariosTramoEditor, ComentariosTramoView } from "./ComentariosTramo.js";
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
@@ -23,14 +24,19 @@ import { AttemptBanner } from "./AttemptBanner.js";
 export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
   const dur = exercise.duration as number;
   const tc  = result.teacherCorrection;
-  const [qComments,  setQComments]  = useState<Record<string, string>>(() => tc?.questionComments || {});
-  const [quizGlobal, setQuizGlobal] = useState(tc?.globalComment || "");
   const califCorreccion = tc?.calificacion as CalificacionCorreccion | undefined;
+  // N4.4: los comentarios se leen SIEMPRE por el lector — comentarios[] si la
+  // corrección es nueva, o los cuatro campos legados fundidos a esa forma.
+  // Las escrituras van solo a comentarios[] (los campos legados no se tocan).
+  const comentariosGuardados = fundeComentarios(califCorreccion?.comentarios, tc);
+  const [qComments,  setQComments]  = useState<Record<string, string>>(() => mapaDeComentarios(comentariosGuardados, "pregunta"));
+  const [quizGlobal, setQuizGlobal] = useState(() => comentarioGeneralDe(comentariosGuardados));
+  const [tramos,     setTramos]     = useState<ComentarioTramo[]>(() => tramosDeComentarios(comentariosGuardados));
   // Comentario por pregunta plegado (Jon, 2026-07-05): el textarea siempre
   // visible en test/corta engordaba cada tarjeta sin aportar hasta que el
   // profesor decide comentar — se abre bajo demanda (o si ya hay comentario).
   const [openComments, setOpenComments] = useState<Set<string>>(
-    () => new Set(Object.entries(tc?.questionComments || {}).filter(([, v]) => (v || "").trim()).map(([k]) => k))
+    () => new Set(Object.entries(mapaDeComentarios(comentariosGuardados, "pregunta")).filter(([, v]) => (v || "").trim()).map(([k]) => k))
   );
   const openComment = (qId: string) => setOpenComments((s) => new Set(s).add(qId));
   // Anclas de las tarjetas de pregunta: el índice lateral hace scroll a ellas.
@@ -52,6 +58,14 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
   };
   const releaseFragment = () => {
     if (loopRegionRef.current) { loopRegionRef.current = null; setActiveFragmentQId(null); }
+  };
+  // N4.4: salto de audio de un comentario de tramo — reutiliza el bucle de
+  // fragmento existente (candado de región), como pide el plan.
+  const saltoTramo = (t: ComentarioTramo) => {
+    if (!audioReady) return;
+    loopRegionRef.current = { audioStart: t.start, audioEnd: t.end };
+    setActiveFragmentQId(null);
+    playFrom(t.start);
   };
 
     // Instantánea (F5, T5.5): las preguntas TAL COMO ERAN al entregar, no las
@@ -115,10 +129,18 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
     const puedeCerrar = final.pendientes === 0;
     const handleSaveQuiz = () => {
       if (!puedeCerrar) return;
+      // N4.4: los comentarios se escriben SOLO en comentarios[] (general +
+      // pregunta + tramo); los campos legados dejan de emitirse — el lector
+      // (fundeComentarios) sigue leyendo las correcciones antiguas.
+      const comentarios: ComentarioAnclado[] = [
+        ...(quizGlobal.trim() ? [{ id: "general", ancla: { tipo: "general" as const }, texto: quizGlobal.trim() }] : []),
+        ...Object.entries(qComments).filter(([, v]) => v?.trim())
+          .map(([qId, texto]) => ({ id: `q-${qId}`, ancla: { tipo: "pregunta" as const, ref: qId }, texto: texto.trim() })),
+        ...tramos.filter((t) => t.texto.trim())
+          .map((t) => ({ id: t.id, ancla: { tipo: "tramo" as const, ref: { start: t.start, end: t.end } }, texto: t.texto.trim() })),
+      ];
       const correction = {
         corrected: true,
-        questionComments: qComments,
-        globalComment: quizGlobal,
         totalScore: final.nota,
         calificacion: {
           // La fuente del TOTAL es el pool automático (las fuentes elegidas
@@ -131,6 +153,7 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
             const fuenteQ = st?.fuente === "instrumento" ? "instrumento" as const : "directa" as const;
             return [q.id, { fuente: fuenteQ, nota: n, ...(fuenteQ === "instrumento" && st ? { instrumento: { respuestas: st.respuestas, nota: n } } : {}) }];
           })),
+          comentarios,
         } satisfies CalificacionCorreccion,
       };
       onSaveCorrection?.(student?.id, exercise.id, correction);
@@ -336,6 +359,14 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+
+                {/* N4.4: comentarios anclados a un tramo del audio — el salto
+                    reutiliza el bucle de fragmento (candado de región). */}
+                {hasAudio && (
+                  <div style={{ marginBottom: 16 }}>
+                    <ComentariosTramoEditor tramos={tramos} onChange={setTramos} duration={dur} currentTime={time} onJump={saltoTramo} />
                   </div>
                 )}
 
@@ -562,10 +593,12 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                 </>
               )}
 
-              {tc?.corrected && tc?.globalComment && (
+              {/* N4.4: el general se lee por el lector — cubre correcciones
+                  nuevas (comentarios[]) y legadas (globalComment) por igual. */}
+              {tc?.corrected && comentarioGeneralDe(comentariosGuardados) && (
                 <div style={{ background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor</div>
-                  <div style={{ fontSize: 12.5, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{tc.globalComment}</div>
+                  <div style={{ fontSize: 12.5, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{comentarioGeneralDe(comentariosGuardados)}</div>
                 </div>
               )}
             </aside>
@@ -592,11 +625,17 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                 </div>
               )}
 
+              {/* N4.4: comentarios de tramo del profesor — pulsar el rango
+                  salta el audio ahí (mismo bucle de fragmento). */}
+              {tc?.corrected && hasAudio && (
+                <ComentariosTramoView tramos={tramosDeComentarios(comentariosGuardados)} onJump={saltoTramo} />
+              )}
+
               <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
                 {questions.map((q, idx) => {
                   const studentAnswer = result.answers?.[q.id];
                   const v = veredictoDe(q);
-                  const teacherComment = tc?.corrected ? tc?.questionComments?.[q.id] : null;
+                  const teacherComment = tc?.corrected ? mapaDeComentarios(comentariosGuardados, "pregunta")[q.id] : null;
                   return (
                     <div key={q.id} ref={(el) => { qRefs.current[q.id] = el; }} style={{ scrollMarginTop: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "0 2px" }}>

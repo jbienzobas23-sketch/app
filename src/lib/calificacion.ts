@@ -181,6 +181,80 @@ export interface CalificacionCorreccion {
   instrumento?: InstrumentoRelleno;
   // Cuestionario (N4.2): fuente y nota por pregunta de desarrollo.
   porPregunta?: Record<string, { fuente: "instrumento" | "directa"; nota: number | null; instrumento?: InstrumentoRelleno }>;
+  // N4.4: comentarios de retroalimentación anclados — las escrituras nuevas
+  // van SOLO aquí; los cuatro campos legados de TeacherCorrection se leen con
+  // fundeComentarios y no se reescriben (forward-only).
+  comentarios?: ComentarioAnclado[];
+}
+
+// ─── N4.4: comentarios anclados ──────────────────────────────────────────────
+// Un comentario del profesor con su ancla: general (sin ref), pregunta/bloque/
+// nivel (ref = id del elemento) o tramo (ref = {start, end} en segundos, con
+// salto de audio al mostrarse).
+export interface ComentarioAnclado {
+  id: string;
+  ancla: { tipo: "general" | "pregunta" | "bloque" | "nivel" | "tramo"; ref?: string | { start: number; end: number } };
+  texto: string;
+}
+
+// Lector tolerante: si la corrección ya trae comentarios[] (escritura nueva,
+// que es completa), se usa tal cual; si no, se FUNDEN los cuatro campos
+// legados de TeacherCorrection a la forma nueva — una corrección antigua se
+// lee por el mismo camino sin reescribir nada. Ids deterministas por ancla
+// (no hace falta unicidad global: viven dentro de una corrección).
+export function fundeComentarios(
+  comentarios: ComentarioAnclado[] | null | undefined,
+  legado: {
+    globalComment?: string;
+    questionComments?: Record<string, string>;
+    blockComments?: Record<string, string>;
+    levelComments?: Record<string, string>;
+  } | null | undefined,
+): ComentarioAnclado[] {
+  if (comentarios?.length) return comentarios;
+  const out: ComentarioAnclado[] = [];
+  if (legado?.globalComment?.trim()) {
+    out.push({ id: "general", ancla: { tipo: "general" }, texto: legado.globalComment.trim() });
+  }
+  const porMapa = (mapa: Record<string, string> | undefined, tipo: "pregunta" | "bloque" | "nivel", prefijo: string) => {
+    for (const [ref, texto] of Object.entries(mapa ?? {})) {
+      if (texto?.trim()) out.push({ id: `${prefijo}-${ref}`, ancla: { tipo, ref }, texto: texto.trim() });
+    }
+  };
+  porMapa(legado?.questionComments, "pregunta", "q");
+  porMapa(legado?.blockComments, "bloque", "b");
+  porMapa(legado?.levelComments, "nivel", "lv");
+  return out;
+}
+
+// Proyección práctica para las vistas: los comentarios de un tipo con ref de
+// texto, como mapa ref → texto (la forma que ya consumen los estados de las
+// vistas de corrección).
+export function mapaDeComentarios(
+  comentarios: ComentarioAnclado[],
+  tipo: "pregunta" | "bloque" | "nivel",
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const c of comentarios) {
+    if (c.ancla.tipo === tipo && typeof c.ancla.ref === "string") out[c.ancla.ref] = c.texto;
+  }
+  return out;
+}
+
+// Los tramos de una corrección, aplanados a la forma con la que trabajan el
+// editor y el salto de audio.
+export interface ComentarioTramo { id: string; start: number; end: number; texto: string; }
+export function tramosDeComentarios(comentarios: ComentarioAnclado[]): ComentarioTramo[] {
+  return comentarios
+    .filter((c) => c.ancla.tipo === "tramo" && typeof c.ancla.ref === "object" && c.ancla.ref != null)
+    .map((c) => {
+      const ref = c.ancla.ref as { start: number; end: number };
+      return { id: c.id, start: ref.start, end: ref.end, texto: c.texto };
+    });
+}
+
+export function comentarioGeneralDe(comentarios: ComentarioAnclado[]): string {
+  return comentarios.find((c) => c.ancla.tipo === "general")?.texto ?? "";
 }
 
 // ─── N0.3: nota de un instrumento (lista/escala/rúbrica) a partir de las

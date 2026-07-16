@@ -13,7 +13,7 @@ import { fmtClock } from "../../lib/time.js";
 import { answerFor, btnOf } from "../../lib/domain.js";
 import { useState } from "react";
 import { interactiveDiagnostics, interactiveFigureDiagnostics, nota10 } from "../../lib/scoring.js";
-import { instrumentoDe, nivelesDe } from "../../lib/calificacion.js";
+import { instrumentoDe, nivelesDe, fundeComentarios, tramosDeComentarios, comentarioGeneralDe, type CalificacionCorreccion, type ComentarioAnclado, type ComentarioTramo } from "../../lib/calificacion.js";
 import { figureOf } from "../../lib/figures.js";
 import { DEFAULT_MARGIN } from "../../lib/sessionConstants.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
@@ -21,6 +21,7 @@ import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { ScoreBadge, SchemaPlayhead, CorrectionAudioBar } from "../primitives.jsx";
 import { FigureLabel } from "../session.js";
 import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
+import { ComentariosTramoEditor, ComentariosTramoView } from "./ComentariosTramo.js";
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { fuenteInicial, notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { normalizeScore100, type CorrectionViewProps, type CorrectionIv } from "./shared.js";
@@ -59,17 +60,28 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
     () => fuenteInicial(tc?.calificacion as Parameters<typeof fuenteInicial>[0], normalizeScore100((tc?.totalScore as number | null | undefined) ?? null)),
   );
   const notaFinalPanel = notaDeFuente(fuente, preliminar, instrumento);
+  // N4.4: el interactivo estrena comentarios (general + tramo) — leídos por el
+  // lector (nuevas y legadas igual) y escritos SOLO en comentarios[].
+  const comentariosGuardados = fundeComentarios((tc?.calificacion as CalificacionCorreccion | undefined)?.comentarios, tc);
+  const [globalComment, setGlobalComment] = useState(() => comentarioGeneralDe(comentariosGuardados));
+  const [tramos, setTramos] = useState<ComentarioTramo[]>(() => tramosDeComentarios(comentariosGuardados));
   // Guardar exige una nota: certificar la automática (existente), el
   // instrumento relleno o una directa. Un libre con fuente «automática» no
   // tiene nada que certificar — la fuente docente es la que cierra (N4.3).
   const handleSaveInteractive = () => {
     if (notaFinalPanel == null) return;
+    const comentarios: ComentarioAnclado[] = [
+      ...(globalComment.trim() ? [{ id: "general", ancla: { tipo: "general" as const }, texto: globalComment.trim() }] : []),
+      ...tramos.filter((t) => t.texto.trim())
+        .map((t) => ({ id: t.id, ancla: { tipo: "tramo" as const, ref: { start: t.start, end: t.end } }, texto: t.texto.trim() })),
+    ];
     onSaveCorrection?.(student?.id, exercise.id, {
       totalScore: fuente.fuente === "auto" ? null : notaFinalPanel,
       calificacion: {
         fuente: fuente.fuente,
         nota: notaFinalPanel,
         ...(fuente.fuente === "instrumento" ? { instrumento: { respuestas: fuente.respuestas, nota: notaFinalPanel } } : {}),
+        comentarios,
       },
     });
   };
@@ -255,10 +267,24 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
             </div>
 
             {puedeCorregir && (
-              <button onClick={handleSaveInteractive} disabled={notaFinalPanel == null}
-                style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 14, opacity: notaFinalPanel == null ? 0.5 : 1, cursor: notaFinalPanel == null ? "default" : "pointer" }}>
-                {corrected ? "Actualizar corrección" : "Guardar corrección"}
-              </button>
+              <>
+                {/* N4.4: comentario general, como en cuestionario y esquema. */}
+                <textarea value={globalComment} onChange={(e) => setGlobalComment(e.target.value)}
+                  placeholder="Comentario global para el alumno…" rows={3}
+                  style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS, fontSize: 12.5, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px", color: C.ink, resize: "vertical", marginBottom: 8 }} />
+                <button onClick={handleSaveInteractive} disabled={notaFinalPanel == null}
+                  style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 14, opacity: notaFinalPanel == null ? 0.5 : 1, cursor: notaFinalPanel == null ? "default" : "pointer" }}>
+                  {corrected ? "Actualizar corrección" : "Guardar corrección"}
+                </button>
+              </>
+            )}
+
+            {/* N4.4: el alumno ve el comentario general junto a la nota. */}
+            {!puedeCorregir && corrected && comentarioGeneralDe(comentariosGuardados) && (
+              <div style={{ background: "rgba(47,111,184,0.06)", border: `1px solid ${C.quiz}55`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.quiz, fontWeight: 700, marginBottom: 4 }}>Comentario del profesor</div>
+                <div style={{ fontSize: 12.5, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{comentarioGeneralDe(comentariosGuardados)}</div>
+              </div>
             )}
 
             {/* Resumen del diagnóstico. Con cifrado (figDiag), se separan
@@ -322,6 +348,17 @@ export function InteractiveCorrection({ exercise, result, onBack, isTeacherMode 
                 <InstrumentoRespuestas instrumento={instrumento} respuestas={fuente.respuestas}
                   onChange={(respuestas) => setFuente({ ...fuente, respuestas })} />
               </div>
+            )}
+
+            {/* N4.4: comentarios de tramo — editor del profesor / vista del
+                alumno con salto de audio (seek). */}
+            {puedeCorregir && hasAudio && (
+              <div style={{ marginBottom: 16 }}>
+                <ComentariosTramoEditor tramos={tramos} onChange={setTramos} duration={dur} currentTime={time} onJump={(t) => seekTo(t.start)} />
+              </div>
+            )}
+            {!puedeCorregir && corrected && hasAudio && (
+              <ComentariosTramoView tramos={tramosDeComentarios(comentariosGuardados)} onJump={(t) => seekTo(t.start)} />
             )}
 
             {!tieneClave ? (
