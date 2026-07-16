@@ -349,6 +349,15 @@ describe("schemaDiagnostics", () => {
     const d = schemaDiagnostics(key, student, 3);
     expect(d.sobrantes).toEqual([{ id: "s2", level: 1, start: 20, end: 24, label: "B" }]);
   });
+  it("N2.3: una equivalencia del profesor da etiquetaOk y se marca etiquetaEquivalencia", () => {
+    const key     = [{ id: "k1", level: 1, start: 0, end: 4, label: "Puente" }];
+    const student = [{ id: "s1", level: 1, start: 0, end: 4, label: "transicion" }]; // sin tilde, del alumno
+    const sin = schemaDiagnostics(key, student, 3);
+    expect(sin.bloques[0].etiquetaOk).toBe(false); // sin grupos, no equivalen
+    const con = schemaDiagnostics(key, student, 3, [["Puente", "Transición"]]);
+    expect(con.bloques[0].etiquetaOk).toBe(true);
+    expect(con.bloques[0].etiquetaEquivalencia).toBe(true);
+  });
 });
 
 describe("aggregateParts", () => {

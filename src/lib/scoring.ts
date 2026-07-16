@@ -1,7 +1,7 @@
 // ═══ SCORING E INTERVALOS ════════════════════════════════════════════════════
 // Funciones puras de puntuación (interactivo, cuestionario, esquema) y utilidades
 // de intervalos. Extraídas de App.jsx (Fase 0). Migrado a TypeScript (Fase 3).
-import { ponderar, labelsMatchForLevel, matchSchemaBlocks } from "./calificacion.js";
+import { ponderar, labelsMatchForLevel, matchSchemaBlocks, etiquetaEquivalente } from "./calificacion.js";
 
 // `fig` (opcional): id de cifrado de bajo (inversión) en categorías con
 // hasFigures — ver lib/figures.ts. Los ejercicios sin cifrado no lo llevan.
@@ -257,6 +257,9 @@ export interface SchemaBlockDiagnostic {
   estado: "exacto" | "desplazado" | "falta";
   delta?: number;
   etiquetaOk: boolean;
+  // N2.3: la etiqueta casó por un grupo de equivalencias del profesor (≈),
+  // no por ranura semántica ni texto — la corrección lo distingue.
+  etiquetaEquivalencia?: boolean;
 }
 export interface SchemaDiagnostics {
   bloques: SchemaBlockDiagnostic[];
@@ -278,13 +281,18 @@ export const schemaDiagnostics = (
   keyBlocks: SchemaBlock[] | null | undefined,
   studentBlocks: SchemaBlock[] | null | undefined,
   schemaMargin = 3,
+  equivalencias: string[][] = [],   // N2.3: grupos de sinónimos del profesor; [] = como siempre
 ): SchemaDiagnostics | null => {
   if (!keyBlocks?.length) return null;
   const { matches, sobrantes } = matchSchemaBlocks(keyBlocks, studentBlocks, schemaMargin);
   const bloques: SchemaBlockDiagnostic[] = matches.map(({ key: kb, student: best, delta }): SchemaBlockDiagnostic => {
     if (!best || delta == null) return { id: kb.id, level: kb.level, label: kb.label, estado: "falta", etiquetaOk: false };
     const estado = Math.abs(delta) <= SCHEMA_EXACT_TOLERANCE ? "exacto" : "desplazado";
-    return { id: kb.id, level: kb.level, label: kb.label, estado, delta, etiquetaOk: labelsMatchForLevel(kb.level, kb.label, best.label) };
+    const okDirecto = labelsMatchForLevel(kb.level, kb.label, best.label);
+    const ok = okDirecto || etiquetaEquivalente(kb.level, kb.label, best.label, equivalencias);
+    // El campo solo se emite cuando aplica: sin equivalencias, la forma del
+    // diagnóstico es byte-idéntica a la de siempre (tests de caracterización).
+    return { id: kb.id, level: kb.level, label: kb.label, estado, delta, etiquetaOk: ok, ...(ok && !okDirecto ? { etiquetaEquivalencia: true } : {}) };
   });
   return { bloques, sobrantes };
 };

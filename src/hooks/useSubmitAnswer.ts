@@ -10,7 +10,16 @@ import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.j
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, questionsOf, addAttempt } from "../lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId } from "../lib/palette.js";
 import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, interactiveFigureDiagnostics, type Interval, type SchemaBlock } from "../lib/scoring.js";
-import { nivelesDe, notaNiveles } from "../lib/calificacion.js";
+import { nivelesDe, notaNiveles, calcSchemaScore, etiquetaCuentaDe, equivalenciasDe } from "../lib/calificacion.js";
+
+// N2.3: con sobre de evaluación (etiquetaCuenta definido en la autoría) la
+// nota del esquema exige también etiqueta equivalente; sin sobre, el lector
+// legado (solo colocación) — un ejercicio antiguo no cambia de fórmula por
+// instalar el plan (regla de oro 1). Los esquemas nuevos nacen con el sobre.
+const schemaScoreOf = (ex: Exercise, blocks: SchemaBlock[], margin: number): number | null =>
+  ex.evaluacion?.etiquetaCuenta != null
+    ? calcSchemaScore(ex.schemaKey as SchemaBlock[], blocks, margin, { etiquetaCuenta: etiquetaCuentaDe(ex), equivalencias: equivalenciasDe(ex) })
+    : calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], blocks, margin);
 import { createDb } from "../data/db.js";
 
 // Payload que entregan las vistas de sesión al entregar un ejercicio (F7,
@@ -107,7 +116,7 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
             byModel[m] = { type: "cuestionario", answers: raw.answers || {}, score, status, schemaPalette: activePalette, timestamp: Date.now(), questionsSnapshot: questionsOf(projected) };
             if (score != null) modelScores.push(score);
           } else if (m === "esquema") {
-            const score = calcSchemaPlacementScore(projected.schemaKey as SchemaBlock[], raw.blocks || [], projected.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
+            const score = schemaScoreOf(projected, raw.blocks || [], projected.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
             byModel[m] = { type: "esquema", blocks: raw.blocks || [], placementScore: score, score, status, schemaPalette: raw.schemaPalette ?? activePalette, timestamp: Date.now() };
             if (score != null) modelScores.push(score);
           } else {
@@ -201,7 +210,7 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
         return;
       }
       // Modo preview (profesor prueba) o alumno: ambos van a CorrectionView
-      const placementScore = calcSchemaPlacementScore(ex.schemaKey as SchemaBlock[], payload.blocks || [], ex.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
+      const placementScore = schemaScoreOf(ex, payload.blocks || [], ex.schemaMargin ?? DEFAULT_SCHEMA_MARGIN);
       const data = { type: "esquema", blocks: payload.blocks, placementScore, score: placementScore, status: resultStatusOf(null, ex), schemaPalette: payload.schemaPalette ?? SCHEMA_PALETTE_DEFAULT, timestamp: Date.now() };
       if (payload.mode !== "preview") {
         // Solo guardar si es un alumno real. Intentos (F6, T6.3): la

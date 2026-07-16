@@ -400,6 +400,9 @@ export function useExerciseEditor({ exercise: exerciseProp, onBack, onRecord, on
         answers:    {},
         ...(hasCuestionario ? { questions: [] } : {}),
         ...(hasEsquema ? { listenOnly, immediateSchemaFeedback, schemaLevels: [...schemaLevels] } : {}),
+        // N2.3 (Jon, 2026-07-13): los esquemas NUEVOS nacen con la etiqueta
+        // contando en la nota (tolerante); en los antiguos, sobre ausente = OFF.
+        ...(hasEsquema ? { evaluacion: { etiquetaCuenta: true } } : {}),
         showComposer,
         composerName: activeComposer || null,
       });

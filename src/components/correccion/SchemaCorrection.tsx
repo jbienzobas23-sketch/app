@@ -11,6 +11,7 @@ import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { rowButtonProps } from "../../lib/a11y.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { schemaDiagnostics, nota10 } from "../../lib/scoring.js";
+import { equivalenciasDe } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { SchemaPlayhead, CorrectionAudioBar } from "../primitives.jsx";
@@ -43,7 +44,9 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
   const effSchemaMargin = (exercise.schemaMargin as number | undefined) ?? 3;
   // Diagnóstico por bloque (T2.5): NO toca la nota — `ps` (colocación) sigue
   // siendo la fuente de verdad. Separa "¿lo colocó bien?" de "¿lo llamó bien?".
-  const diag = schemaDiagnostics(schemaKey, blocks, effSchemaMargin);
+  // N2.3: las equivalencias del profesor («Puente = Transición») cuentan como
+  // etiqueta correcta y se marcan aparte (≈).
+  const diag = schemaDiagnostics(schemaKey, blocks, effSchemaMargin, equivalenciasDe(exercise));
   const nombresPct = diag && diag.bloques.length > 0
     ? Math.round((diag.bloques.filter((b) => b.etiquetaOk).length / diag.bloques.length) * 100)
     : null;
@@ -188,15 +191,23 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
         <span style={{ fontSize: 12, color: C.ink2 }}>Colocación {ps ?? 0}% · Nombres {nombresPct ?? 0}%</span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {/* N2.3: glifo + palabra por bloque (✓ exacto · △ desplazado · ✗ falta)
+            y, para la etiqueta, ≈ cuando casó por una equivalencia del profesor
+            («Puente = Transición») — nunca solo color ni solo glifo. */}
         {diag.bloques.map((b, i) => (
-          <span key={b.id ?? i} title={b.etiquetaOk ? "Etiqueta correcta" : "Etiqueta incorrecta"}
+          <span key={b.id ?? i} title={b.etiquetaOk ? (b.etiquetaEquivalencia ? "Etiqueta equivalente" : "Etiqueta correcta") : "Etiqueta incorrecta"}
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, background: C.paper2, border: `1px solid ${C.line}`, fontSize: 12.5 }}>
             <strong style={{ color: C.ink, fontFamily: FONT_SERIF }}>{b.label || "—"}</strong>
-            <span style={{ color: C.muted }}>
-              {b.estado}
+            <span style={{ color: b.estado === "exacto" ? C.fnT : b.estado === "desplazado" ? C.fnD : C.danger, fontWeight: 600 }}>
+              {b.estado === "exacto" ? "✓ exacto" : b.estado === "desplazado" ? "△ desplazado" : "✗ falta"}
               {b.estado === "desplazado" && b.delta != null && ` ${b.delta > 0 ? "+" : ""}${b.delta}s`}
             </span>
-            <span aria-label={b.etiquetaOk ? "etiqueta correcta" : "etiqueta incorrecta"} style={{ color: b.etiquetaOk ? C.fnT : C.danger, fontWeight: 800 }}>{b.etiquetaOk ? "✓" : "✗"}</span>
+            {b.estado !== "falta" && (
+              <span aria-label={b.etiquetaOk ? (b.etiquetaEquivalencia ? "etiqueta equivalente" : "etiqueta correcta") : "etiqueta incorrecta"}
+                style={{ color: b.etiquetaOk ? C.fnT : C.danger, fontWeight: 700 }}>
+                {b.etiquetaOk ? (b.etiquetaEquivalencia ? "≈ equivalente" : "✓ etiqueta") : "✗ etiqueta"}
+              </span>
+            )}
           </span>
         ))}
         {diag.sobrantes.length > 0 && (

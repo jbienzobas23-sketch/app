@@ -4,6 +4,7 @@
 // móvil), según docs/demo_editor_ejercicio_v3.html (stepClaves). Todo se
 // reutiliza verbatim de ExerciseDetailView; la grabación abre las vistas de
 // siempre (?paso=4 se conserva al volver, M5.6).
+import { useState } from "react";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
 import { SCHEMA_LEVELS } from "../../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
@@ -44,57 +45,107 @@ function ClaveCell({ exercise, part, model, onRecordPart, onQuestionsPart }: {
 }
 
 // ── N2: sección «Calificación» — todo lo que pondera la nota del ejercicio ──
-// Niveles del interactivo (grados/cifrado, N2.2). Escribe el sobre `evaluacion`
-// directamente sobre el ejercicio guardado (mismo patrón que el interruptor de
-// guía showHint): editar la calificación no pasa por el borrador del asistente.
+// Una sola tarjeta con secciones (como el mockup): niveles del interactivo
+// (grados/cifrado, N2.2) y etiqueta del esquema (N2.3). Escribe el sobre
+// `evaluacion` directamente sobre el ejercicio guardado (mismo patrón que el
+// interruptor de guía showHint): no pasa por el borrador del asistente.
 const calRow = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: `1px solid ${C.line}` } as const;
-function CalificacionCard({ exercise, onUpdate }: { exercise: Exercise; onUpdate: (patch: Partial<Exercise>) => void }) {
+function CalificacionCard({ exercise, selectedModels, onUpdate }: { exercise: Exercise; selectedModels: string[]; onUpdate: (patch: Partial<Exercise>) => void }) {
+  const [nuevoGrupo, setNuevoGrupo] = useState("");
   const sobre = (exercise.evaluacion ?? {}) as EvaluacionExercise;
   // Grados/Cifrado solo tienen sentido si alguna categoría del ejercicio lleva
   // cifrado de bajo (hasFigures) — sin eso, no hay segundo nivel que ponderar.
-  const hasFigures = (exercise.categories ?? []).some((c) => c.hasFigures);
+  const hasFigures = selectedModels.includes("interactivo") && (exercise.categories ?? []).some((c) => c.hasFigures);
+  const hasEsquema = selectedModels.includes("esquema");
   const cifradoActivo = sobre.niveles?.cifrado != null;
   const pesoGrados  = sobre.niveles?.grados ?? 70;
   const pesoCifrado = sobre.niveles?.cifrado ?? 30;
   const totalNiv = pesoGrados + pesoCifrado;
+  // Ausente = OFF (ejercicios de antes del plan); los nuevos nacen con true.
+  const etiquetaActiva = sobre.etiquetaCuenta === true;
+  const equivalencias = sobre.equivalencias ?? [];
 
-  if (!hasFigures) return null;
+  if (!hasFigures && !hasEsquema) return null;
+  const setSobre = (patch: Partial<EvaluacionExercise>) => onUpdate({ evaluacion: { ...sobre, ...patch } });
   const setNiveles = (niveles?: { grados?: number; cifrado?: number }) => {
     const next: EvaluacionExercise = { ...sobre };
     if (niveles) next.niveles = niveles; else delete next.niveles;
     onUpdate({ evaluacion: next });
   };
+  const addGrupo = () => {
+    const grupo = nuevoGrupo.split("=").map((s) => s.trim()).filter(Boolean);
+    if (grupo.length < 2) return;
+    setSobre({ equivalencias: [...equivalencias, grupo] });
+    setNuevoGrupo("");
+  };
   return (
     <div style={{ ...S.card }}>
       <p style={{ ...S.label, margin: "0 0 14px" }}>Calificación</p>
-      <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
-        <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
-          {/* Al activar se sugiere 70/30 (editable); al desactivar, el lector
-              vuelve al defecto {grados: 1} = comportamiento de siempre. */}
-          <input type="checkbox" checked={cifradoActivo}
-            onChange={(e) => setNiveles(e.target.checked ? { grados: 70, cifrado: 30 } : undefined)}
-            style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>El cifrado cuenta en la nota</div>
-            <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>La inversión se evalúa solo sobre los grados acertados.</div>
-          </div>
-        </label>
-        {cifradoActivo && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ ...calRow }}>
-              <span style={{ fontSize: 13, color: C.ink2 }}>Grados</span>
-              <PesoChip value={pesoGrados} editable onChange={(n) => setNiveles({ grados: n, cifrado: pesoCifrado })} />
+      {hasFigures && (
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${cifradoActivo ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s", marginBottom: hasEsquema ? 12 : 0 }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+            {/* Al activar se sugiere 70/30 (editable); al desactivar, el lector
+                vuelve al defecto {grados: 1} = comportamiento de siempre. */}
+            <input type="checkbox" checked={cifradoActivo}
+              onChange={(e) => setNiveles(e.target.checked ? { grados: 70, cifrado: 30 } : undefined)}
+              style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>El cifrado cuenta en la nota</div>
+              <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>La inversión se evalúa solo sobre los grados acertados.</div>
             </div>
-            <div style={{ ...calRow }}>
-              <span style={{ fontSize: 13, color: C.ink2 }}>Cifrado de inversiones</span>
-              <PesoChip value={pesoCifrado} editable onChange={(n) => setNiveles({ grados: pesoGrados, cifrado: n })} />
+          </label>
+          {cifradoActivo && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ ...calRow }}>
+                <span style={{ fontSize: 13, color: C.ink2 }}>Grados</span>
+                <PesoChip value={pesoGrados} editable onChange={(n) => setNiveles({ grados: n, cifrado: pesoCifrado })} />
+              </div>
+              <div style={{ ...calRow }}>
+                <span style={{ fontSize: 13, color: C.ink2 }}>Cifrado de inversiones</span>
+                <PesoChip value={pesoCifrado} editable onChange={(n) => setNiveles({ grados: pesoGrados, cifrado: n })} />
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, paddingTop: 8 }}>
+                {totalNiv > 0 ? `${Math.round((pesoGrados / totalNiv) * 100)} % · ${Math.round((pesoCifrado / totalNiv) * 100)} %` : "—"}
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: C.muted, paddingTop: 8 }}>
-              {totalNiv > 0 ? `${Math.round((pesoGrados / totalNiv) * 100)} % · ${Math.round((pesoCifrado / totalNiv) * 100)} %` : "—"}
+          )}
+        </div>
+      )}
+      {hasEsquema && (
+        <div style={{ padding: "12px 14px", background: C.paper2, border: `1px solid ${etiquetaActiva ? C.fnT + "55" : C.line}`, borderRadius: 10, transition: "border-color .15s" }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 14, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={etiquetaActiva}
+              onChange={(e) => setSobre({ etiquetaCuenta: e.target.checked })}
+              style={{ marginTop: 3, flexShrink: 0, cursor: "pointer" }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>La etiqueta cuenta en la nota (tolerante)</div>
+              <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>«B» y «Desarrollo» valen como la misma etiqueta; mayúsculas y tildes no importan.</div>
             </div>
-          </div>
-        )}
-      </div>
+          </label>
+          {etiquetaActiva && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: equivalencias.length ? 8 : 0 }}>
+                {equivalencias.map((grupo, i) => (
+                  <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 999, padding: "2px 6px 2px 10px", fontSize: 12.5, color: C.ink2 }}>
+                    {grupo.join(" = ")}
+                    <button type="button" aria-label={`Quitar equivalencia ${grupo.join(" = ")}`}
+                      onClick={() => setSobre({ equivalencias: equivalencias.filter((_, j) => j !== i) })}
+                      style={{ border: "none", background: "transparent", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 13 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="text" value={nuevoGrupo} placeholder="Puente = Transición" aria-label="Nueva equivalencia"
+                  onChange={(e) => setNuevoGrupo(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addGrupo(); }}
+                  style={{ ...S.input, flex: 1, marginBottom: 0, fontSize: 13 }} />
+                <button type="button" onClick={addGrupo} disabled={nuevoGrupo.split("=").filter((s) => s.trim()).length < 2}
+                  style={{ ...S.btn, padding: "6px 14px", fontSize: 12.5 }}>Añadir</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -177,8 +228,8 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
       ) : null}
       {/* Calificación también en multiparte (los pesos viven a nivel de
           ejercicio, compartidos por todas las partes). */}
-      {!isCreating && isMultiPart && hasInteractivo && (
-        <div style={{ marginTop: 14 }}><CalificacionCard exercise={exercise} onUpdate={ed.onUpdate} /></div>
+      {!isCreating && isMultiPart && (
+        <div style={{ marginTop: 14 }}><CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate} /></div>
       )}
       {isCreating || isMultiPart ? null : (
         <>
@@ -218,8 +269,8 @@ export function PasoClaves({ ed, num, total }: { ed: EditorApi; goStep: (k: stri
             </div>
           )}
 
-          {/* ── Calificación (N2.2): pesos de los niveles del interactivo ── */}
-          {hasInteractivo && <CalificacionCard exercise={exercise} onUpdate={ed.onUpdate} />}
+          {/* ── Calificación (N2.2/N2.3): niveles del interactivo + etiqueta del esquema ── */}
+          <CalificacionCard exercise={exercise} selectedModels={selectedModels} onUpdate={ed.onUpdate} />
 
           {/* ── Esquema formal ── */}
           {hasEsquema && (
