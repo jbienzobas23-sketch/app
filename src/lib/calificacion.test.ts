@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ponderar, pesosDeCurso, pesosDeUnidad, nivelesDe, modelosDe,
-  etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento,
+  etiquetaCuentaDe, equivalenciasDe, instrumentoDe, notaInstrumento, notaNiveles,
   matchSchemaBlocks, etiquetaEquivalente, calcSchemaScore, coberturaLibre, mediaDe,
 } from "./calificacion.js";
 
@@ -55,6 +55,22 @@ describe("nivelesDe", () => {
   });
   it("con cifrado configurado, devuelve ambos niveles", () => {
     expect(nivelesDe({ evaluacion: { niveles: { grados: 70, cifrado: 30 } } })).toEqual({ grados: 70, cifrado: 30 });
+  });
+});
+
+describe("notaNiveles", () => {
+  it("con el defecto {grados: 1} es exactamente la nota de grados", () => {
+    expect(notaNiveles({ grados: 73, cifrado: 20 }, { grados: 1 })).toBe(73);
+  });
+  it("pondera grados y cifrado según sus pesos (70/30)", () => {
+    // 80*70 + 50*30 = 7100 → /100 = 71
+    expect(notaNiveles({ grados: 80, cifrado: 50 }, { grados: 70, cifrado: 30 })).toBe(71);
+  });
+  it("cifrado con peso pero sin nota (clave sin fig) no penaliza: queda fuera", () => {
+    expect(notaNiveles({ grados: 80, cifrado: null }, { grados: 70, cifrado: 30 })).toBe(80);
+  });
+  it("sin ninguna nota → null (el libre sin clave)", () => {
+    expect(notaNiveles({ grados: null, cifrado: null }, { grados: 70, cifrado: 30 })).toBeNull();
   });
 });
 

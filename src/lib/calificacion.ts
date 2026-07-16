@@ -84,6 +84,14 @@ export function nivelesDe(exercise: { evaluacion?: EvaluacionExercise } | null |
   return out;
 }
 
+// N2.1: nota de un ejercicio con niveles (grados/cifrado) — un nivel sin
+// peso configurado no entra; un nivel con peso pero sin nota (p. ej. cifrado
+// en un ejercicio cuya clave no lo usa) tampoco (null fuera de ponderar).
+// Con el defecto {grados: 1} de nivelesDe es EXACTAMENTE calcScore.
+export function notaNiveles(notas: Record<string, number | null>, pesos: Record<string, number>): number | null {
+  return ponderar(Object.entries(pesos).map(([nivel, peso]) => ({ nota: notas[nivel] ?? null, peso })));
+}
+
 // Pesos por modelo de un híbrido (N2.5); vacío = "todos iguales" — el
 // combinador aplica `?? 1` por modelo, mismo patrón que part.points.
 export function modelosDe(exercise: { evaluacion?: EvaluacionExercise } | null | undefined): Record<string, number> {

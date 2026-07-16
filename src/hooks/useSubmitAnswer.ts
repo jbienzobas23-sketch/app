@@ -9,7 +9,8 @@ import { parseHashQuery, getLastPanelPath } from "../lib/routing.js";
 import { DEFAULT_MARGIN, DEFAULT_SCHEMA_MARGIN } from "../lib/sessionConstants.js";
 import { modelsOf, answerFor, resultStatusOf, partsOf, partToExercise, updatePart, questionsOf, addAttempt } from "../lib/domain.js";
 import { SCHEMA_PALETTE_DEFAULT, effectivePaletteId } from "../lib/palette.js";
-import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, type Interval, type SchemaBlock } from "../lib/scoring.js";
+import { calcScore, calcSchemaPlacementScore, calcQuestionnaireScore, aggregateParts, interactiveFigureDiagnostics, type Interval, type SchemaBlock } from "../lib/scoring.js";
+import { nivelesDe, notaNiveles } from "../lib/calificacion.js";
 import { createDb } from "../data/db.js";
 
 // Payload que entregan las vistas de sesión al entregar un ejercicio (F7,
@@ -112,17 +113,31 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
           } else {
             const entries = raw.entries || [];
             const currentCategoryId = raw.currentCategoryId || entries[0]?.categoryId || "default";
-            const scoreFor = (categoryId: string, intervals: Interval[]) => {
+            // N2.1: la nota del interactivo pondera sus niveles (grados y, si el
+            // profesor activó el cifrado, ese también) — con el lector por
+            // defecto {grados: 1} es exactamente el calcScore de siempre.
+            const niveles = nivelesDe(projected);
+            const notasFor = (categoryId: string, intervals: Interval[]) => {
               const key = answerFor(projected, categoryId) as Interval[];
-              return key.length ? calcScore(key, intervals, projected.duration as number, projected.margin ?? DEFAULT_MARGIN) : null;
+              if (!key.length) return null;
+              return {
+                grados:  calcScore(key, intervals, projected.duration as number, projected.margin ?? DEFAULT_MARGIN),
+                cifrado: interactiveFigureDiagnostics(key, intervals, projected.duration as number, projected.margin ?? DEFAULT_MARGIN)?.pct ?? null,
+              };
+            };
+            const scoreFor = (categoryId: string, intervals: Interval[]) => {
+              const notas = notasFor(categoryId, intervals);
+              return notas ? notaNiveles(notas, niveles) : null;
             };
             const mainEntry = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
             const mainIvs   = mainEntry?.intervals || [];
-            const mainScore = scoreFor(currentCategoryId, mainIvs);
+            const mainNotas = notasFor(currentCategoryId, mainIvs);
+            const mainScore = mainNotas ? notaNiveles(mainNotas, niveles) : null;
             const extras = entries
               .filter((e) => e.categoryId !== currentCategoryId)
               .map((e) => ({ categoryId: e.categoryId, intervals: e.intervals, score: scoreFor(e.categoryId, e.intervals) }));
-            byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now() };
+            byModel[m] = { categoryId: currentCategoryId, intervals: mainIvs, score: mainScore, extras, status, schemaPalette: activePalette, timestamp: Date.now(),
+              ...(mainNotas ? { calificacion: { fuente: "auto", preliminar: mainScore, niveles: mainNotas } } : {}) };
             if (mainScore != null) modelScores.push(mainScore);
           }
         });
@@ -210,10 +225,22 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
     const entries          = payload.entries || [];
     const currentCategoryId = payload.currentCategoryId || entries[0]?.categoryId || "default";
 
-    const scoreFor = (categoryId: string, intervals: Interval[]) => {
+    // N2.1: nota = ponderar los niveles del ejercicio (grados + cifrado si el
+    // profesor lo activó); con el lector por defecto {grados: 1} es
+    // exactamente el calcScore de siempre. El desglose por nivel de la
+    // categoría principal se congela en calificacion.niveles (preliminar).
+    const nivelesConfig = nivelesDe(ex);
+    const notasFor = (categoryId: string, intervals: Interval[]) => {
       const key = answerFor(ex, categoryId) as Interval[];
       if (!key.length) return null;
-      return calcScore(key, intervals, ex.duration as number, ex.margin ?? DEFAULT_MARGIN);
+      return {
+        grados:  calcScore(key, intervals, ex.duration as number, ex.margin ?? DEFAULT_MARGIN),
+        cifrado: interactiveFigureDiagnostics(key, intervals, ex.duration as number, ex.margin ?? DEFAULT_MARGIN)?.pct ?? null,
+      };
+    };
+    const scoreFor = (categoryId: string, intervals: Interval[]) => {
+      const notas = notasFor(categoryId, intervals);
+      return notas ? notaNiveles(notas, nivelesConfig) : null;
     };
 
     if (exCtx.mode === "record") {
@@ -235,7 +262,8 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
     // Modo alumno: el "principal" es el currentCategoryId
     const mainEntry  = entries.find((e) => e.categoryId === currentCategoryId) || entries[0];
     const mainIvs    = mainEntry?.intervals || [];
-    const mainScore  = scoreFor(currentCategoryId, mainIvs);
+    const mainNotas  = notasFor(currentCategoryId, mainIvs);
+    const mainScore  = mainNotas ? notaNiveles(mainNotas, nivelesConfig) : null;
 
     const extras = entries
       .filter((e) => e.categoryId !== currentCategoryId)
@@ -253,6 +281,7 @@ export function useSubmitAnswer({ exCtx, routePartId, user, results, setResults,
       status:     resultStatusOf(null, ex),
       schemaPalette: activePalette,
       timestamp:  Date.now(),
+      ...(mainNotas ? { calificacion: { fuente: "auto" as const, preliminar: mainScore, niveles: mainNotas } } : {}),
     });
 
     if (user) {

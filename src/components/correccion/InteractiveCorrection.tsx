@@ -12,6 +12,7 @@ import { textOn, scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
 import { answerFor, btnOf } from "../../lib/domain.js";
 import { interactiveDiagnostics, interactiveFigureDiagnostics, nota10 } from "../../lib/scoring.js";
+import { nivelesDe } from "../../lib/calificacion.js";
 import { figureOf } from "../../lib/figures.js";
 import { DEFAULT_MARGIN } from "../../lib/sessionConstants.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
@@ -43,6 +44,16 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
   // distintas y hasta ahora la corrección solo evaluaba el grado. `figDiag` es
   // null si la clave no usa cifrado (categoría normal, sin hasFigures).
   const figDiag = sc != null ? interactiveFigureDiagnostics(teacherAns, studentAns ?? [], dur, effMargin) : null;
+  // N2.1: desglose por NIVEL congelado en la entrega (calificacion.niveles) —
+  // solo cuando el ejercicio pondera el cifrado. La nota grande ya ES la
+  // ponderada (la escribió submitAnswer); aquí se enseña de qué se compone.
+  // Entregas antiguas (sin sobre) siguen viendo exactamente lo de siempre.
+  const califNiveles = result.calificacion?.niveles;
+  const pesosNiveles = nivelesDe(exercise);
+  const totalPesosNiveles = (pesosNiveles.grados ?? 0) + (pesosNiveles.cifrado ?? 0);
+  const factorDe = (peso: number | undefined) =>
+    peso != null && totalPesosNiveles > 0 ? `×${(peso / totalPesosNiveles).toFixed(2).replace(".", ",")}` : null;
+  const desgloseNiveles = califNiveles && pesosNiveles.cifrado != null ? califNiveles : null;
   const pct = (t: number) => `${(t / dur) * 100}%`;
   const alumnoNombre = (student?.displayName || student?.name || "el alumno") as string;
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -141,6 +152,21 @@ export function InteractiveCorrection({ exercise, result, onBack, backLabel = "�
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                   </div>
                   <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Automática · margen ±{effMargin} s</div>
+                  {/* N2.1: fila por nivel con su peso (cifra + «×0,30») —
+                      el alumno y el profesor ven el mismo desglose. */}
+                  {desgloseNiveles && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {([["grados", "Grados"], ["cifrado", "Cifrado"]] as const).map(([nivel, label]) => (
+                        <div key={nivel} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12.5 }}>
+                          <span style={{ color: C.muted }}>{label}</span>
+                          <span>
+                            <strong style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{desgloseNiveles[nivel] != null ? `${desgloseNiveles[nivel]}%` : "—"}</strong>
+                            <span style={{ color: C.muted, fontSize: 11, marginLeft: 5, fontVariantNumeric: "tabular-nums" }}>{factorDe(pesosNiveles[nivel])}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -138,6 +138,16 @@ export interface ExerciseResult {
   // este campo (entregas de antes de T6.3), el propio result ES el único
   // intento — ver attemptsOf en domain.ts.
   attempts?: ExerciseResult[];
+  // Sobre de calificación del intento (N2, calificacion.ts): fuente de la
+  // nota, preliminar congelada en la entrega (regla de oro 3: nunca se
+  // pierde) y desglose por nivel (grados/cifrado). Crece en N3/N4 con
+  // instrumento, porPregunta y comentarios.
+  calificacion?: {
+    fuente?: "auto" | "instrumento" | "directa";
+    preliminar?: number | null;
+    niveles?: Record<string, number | null>;
+    [k: string]: unknown;
+  };
   [k: string]: unknown;
 }
 
