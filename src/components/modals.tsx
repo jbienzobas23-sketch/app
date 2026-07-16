@@ -10,8 +10,8 @@ import { fetchAudioBuffer } from "../lib/audio.js";
 import { modelsOf, questionScopeOf, audioDisplayTitle } from "../lib/domain.js";
 import { CATEGORY_COLORS, KEY_SEQUENCE } from "../seed.js";
 import { createUser, resetCredential } from "../auth/authClient.js";
-import { instrumentoDe, type Instrumento } from "../lib/calificacion.js";
-import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput } from "./primitives.jsx";
+import { instrumentoDe, type Instrumento, type PesoConfig } from "../lib/calificacion.js";
+import { ModalShell, ErrorMsg, CredentialInput, ModalFooter, SuggestInput, TagInput, PesoEditor, PesoChip } from "./primitives.jsx";
 import { FragmentRangeSelector } from "./session.js";
 import { InstrumentoAttach } from "./InstrumentoEditor.jsx";
 
@@ -170,11 +170,53 @@ export function GroupEditorModal({ initial, students, currentUserId, onSave, onC
   );
 }
 
-export function CourseFormModal({ initial, groups = [], onSave, onClose }: { initial?: Course | null; groups?: Group[]; onSave: (course: Course) => void; onClose: () => void }) {
+// ── Ponderación dentro del modal (revisión de Jon, 2026-07-16) ───────────────
+// Los pesos se editan AL EDITAR el curso o la unidad — no inline en la vista
+// de contenido, que estaba siempre visible. Conmutador + fila por hijo con
+// chip editable + reparto en texto; trabaja sobre el borrador del modal, así
+// que solo persiste al pulsar Guardar.
+function PesoConfigSection({ titulo, filas, value, onChange }: {
+  titulo: string;
+  filas: { id: string; nombre: string }[];
+  value: PesoConfig | undefined;
+  onChange: (next: PesoConfig) => void;
+}) {
+  // Con 0 ó 1 hijo, ponderar es un no-op — sin controles sin efecto.
+  if (filas.length < 2) return null;
+  const modo = value?.modo === "personalizada" ? "personalizada" : "equitativa";
+  const pesos = filas.map((f) => (modo === "personalizada" ? (value?.pesos?.[f.id] ?? 1) : 1));
+  const total = pesos.reduce((s, p) => s + p, 0);
+  const pct = (p: number) => (total > 0 ? Math.round((p / total) * 100) : 0);
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <label style={{ ...S.label, marginBottom: 8 }}>{titulo}</label>
+      <PesoEditor modo={modo} reparto={pesos.map(pct)}
+        onModoChange={(m) => onChange({ modo: m, pesos: value?.pesos ?? {} })} />
+      {modo === "personalizada" && (
+        <div style={{ marginTop: 8 }}>
+          {filas.map((f, i) => (
+            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: i > 0 ? `1px solid ${C.line}` : "none" }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: C.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</span>
+              <PesoChip value={pesos[i]} editable
+                onChange={(n) => onChange({ modo: "personalizada", pesos: { ...(value?.pesos ?? {}), [f.id]: n } })} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CourseFormModal({ initial, groups = [], units = [], onSave, onClose }: { initial?: Course | null; groups?: Group[]; units?: Unit[]; onSave: (course: Course) => void; onClose: () => void }) {
   const [name,              setName]              = useState(initial?.name || "");
   const [desc,              setDesc]              = useState(initial?.description || "");
   const [visibility,        setVisibility]        = useState(initial?.visibility || "teacher");
   const [visibilityGroupId, setVisibilityGroupId] = useState(initial?.visibilityGroupId || "");
+  const [evaluacion,        setEvaluacion]        = useState<PesoConfig | undefined>(initial?.evaluacion);
+  // Unidades del curso (en su orden) para la sección de ponderación.
+  const unidadesDelCurso = (initial?.unitIds ?? [])
+    .map((id) => units.find((u) => u.id === id))
+    .filter((u): u is Unit => !!u);
 
   const canSave = name.trim().length > 0 && (visibility !== "group" || visibilityGroupId !== "");
 
@@ -188,6 +230,12 @@ export function CourseFormModal({ initial, groups = [], onSave, onClose }: { ini
       visibility,
       visibilityGroupId: visibility === "group" ? visibilityGroupId : null,
       createdAt:         initial?.createdAt || Date.now(),
+      // updateCourse REEMPLAZA el objeto: lo que este modal no re-emita se
+      // pierde — conservar explícitamente lo que no edita (antes de esto,
+      // editar el nombre borraba hidden/ownerId/evaluacion).
+      ...(evaluacion ? { evaluacion } : {}),
+      ...(initial?.hidden != null ? { hidden: initial.hidden } : {}),
+      ...(initial?.ownerId != null ? { ownerId: initial.ownerId } : {}),
     });
   };
 
@@ -236,15 +284,24 @@ export function CourseFormModal({ initial, groups = [], onSave, onClose }: { ini
         </div>
       )}
 
+      <PesoConfigSection titulo="Peso de cada unidad en la media del curso"
+        filas={unidadesDelCurso.map((u) => ({ id: u.id, nombre: u.name || u.id }))}
+        value={evaluacion} onChange={setEvaluacion} />
+
       <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>
   );
 }
 
 // Formulario de unidad
-export function UnitFormModal({ initial, onSave, onClose }: { initial?: Unit | null; onSave: (unit: Unit) => void; onClose: () => void }) {
+export function UnitFormModal({ initial, exercises = [], onSave, onClose }: { initial?: Unit | null; exercises?: Exercise[]; onSave: (unit: Unit) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name || "");
   const [desc, setDesc] = useState(initial?.description || "");
+  const [evaluacion, setEvaluacion] = useState<PesoConfig | undefined>(initial?.evaluacion);
+  // Ejercicios de la unidad (en su orden) para la sección de ponderación.
+  const ejerciciosDeUnidad = (initial?.exerciseIds ?? [])
+    .map((id) => exercises.find((e) => String(e.id) === String(id)))
+    .filter((e): e is Exercise => !!e);
   const canSave = name.trim().length > 0;
 
   const handleSave = () => {
@@ -255,6 +312,10 @@ export function UnitFormModal({ initial, onSave, onClose }: { initial?: Unit | n
       description: desc.trim(),
       exerciseIds: initial?.exerciseIds || [],
       createdAt:   initial?.createdAt || Date.now(),
+      // updateUnit REEMPLAZA el objeto: conservar lo que este modal no edita
+      // (antes, editar el nombre borraba hidden/evaluacion).
+      ...(evaluacion ? { evaluacion } : {}),
+      ...(initial?.hidden != null ? { hidden: initial.hidden } : {}),
     });
   };
 
@@ -267,6 +328,9 @@ export function UnitFormModal({ initial, onSave, onClose }: { initial?: Unit | n
       <label style={S.label}>Descripción (opcional)</label>
       <textarea style={{ ...S.input, marginBottom: 18, minHeight: 60, resize: "vertical", fontFamily: FONT_SANS }}
         value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Objetivos y contenido…" />
+      <PesoConfigSection titulo="Peso de cada ejercicio en la media de la unidad"
+        filas={ejerciciosDeUnidad.map((e) => ({ id: String(e.id), nombre: e.title || String(e.id) }))}
+        value={evaluacion} onChange={setEvaluacion} />
       <ModalFooter onCancel={onClose} onSave={handleSave} canSave={canSave} saveLabel={initial ? "Guardar" : "Crear"} />
     </ModalShell>
   );

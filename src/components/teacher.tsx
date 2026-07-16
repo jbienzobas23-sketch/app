@@ -1392,6 +1392,7 @@ export function TeacherDash({
           <CourseFormModal
             initial={editingCourse === "new" ? null : editingCourse}
             groups={teacherGroups}
+            units={units}
             onSave={(c) => { if (editingCourse === "new") onAddCourse({ ...c, ownerId: currentUser.id }); else onUpdateCourse(c); setEditingCourse(null); }}
             onClose={() => setEditingCourse(null)} />
         )}
@@ -1399,6 +1400,7 @@ export function TeacherDash({
         {(editingUnit !== null || unitFormCourseId !== null) && (
           <UnitFormModal
             initial={editingUnit}
+            exercises={exercises}
             onSave={(newUnit) => {
               if (editingUnit) onUpdateUnit(newUnit);
               else onAddUnit(newUnit, unitFormCourseId);
