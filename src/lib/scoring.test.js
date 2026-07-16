@@ -2,7 +2,41 @@ import { describe, it, expect } from "vitest";
 import {
   getAt, resolveOverlap, calcScore, calcQuestionnaireScore, calcSchemaPlacementScore,
   interactiveDiagnostics, interactiveFigureDiagnostics, schemaDiagnostics, aggregateParts, gradeShort, nota10,
+  calcQuestionnaireFinal,
 } from "./scoring.js";
+
+// ─── N4.2: nota FINAL del cuestionario (pool único por points) ───────────────
+describe("calcQuestionnaireFinal (N4.2)", () => {
+  const qs = [
+    { id: "t1", type: "test", correctOptionId: "A", points: 1 },
+    { id: "c1", type: "corta", accepted: ["Semicadencia"], points: 1 },
+    { id: "d1", type: "desarrollo", points: 2 },
+  ];
+  it("pool único: test + corta legada (auto) + desarrollo (manual), ponderado por points", () => {
+    // (100·1 + 0·1 + 60·2) / 4 = 55
+    const r = calcQuestionnaireFinal(qs, { t1: "A", c1: "mal" }, { d1: 60 });
+    expect(r).toEqual({ nota: 55, pendientes: 0 });
+  });
+  it("un desarrollo sin nota no penaliza (fuera del pool) pero cuenta pendiente", () => {
+    // (100·1 + 100·1) / 2 = 100; d1 pendiente
+    const r = calcQuestionnaireFinal(qs, { t1: "A", c1: "Semicadencia" }, {});
+    expect(r).toEqual({ nota: 100, pendientes: 1 });
+  });
+  it("sin desarrollo, coincide exactamente con la preliminar (calcQuestionnaireScore)", () => {
+    const soloAuto = qs.slice(0, 2);
+    const answers = { t1: "A", c1: "semicadencia " };
+    const r = calcQuestionnaireFinal(soloAuto, answers, {});
+    expect(r.pendientes).toBe(0);
+    expect(r.nota).toBe(calcQuestionnaireScore(soloAuto, answers));
+  });
+  it("una nota manual baja entra exacta (5 significa 0,5 sobre 10)", () => {
+    const soloDev = [{ id: "d1", type: "desarrollo" }];
+    expect(calcQuestionnaireFinal(soloDev, {}, { d1: 5 })).toEqual({ nota: 5, pendientes: 0 });
+  });
+  it("sin preguntas puntuables → nota null", () => {
+    expect(calcQuestionnaireFinal([], {}, {})).toEqual({ nota: null, pendientes: 0 });
+  });
+});
 
 // Tests de caracterización: fijan el comportamiento ACTUAL para detectar
 // regresiones en fases posteriores (no describen el comportamiento "ideal").

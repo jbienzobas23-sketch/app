@@ -10,6 +10,7 @@ import type { Instrumento } from "../../lib/calificacion.js";
 import { notaDeFuente, fuenteInicial, type FuenteNotaState } from "./notaShared.js";
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { SchemaCorrection } from "./SchemaCorrection.js";
+import { QuizCorrection } from "./QuizCorrection.js";
 
 const instrumento: Instrumento = {
   tipo: "escala",
@@ -84,6 +85,38 @@ describe("FuenteNotaPanel", () => {
   it("sin opción automática cuando conAuto=false (pregunta de desarrollo)", () => {
     render(<PanelControlado preliminar={null} conAuto={false} />);
     expect(screen.queryByRole("button", { name: "Automática" })).not.toBeInTheDocument();
+  });
+});
+
+describe("QuizCorrection (profesor) — pool final y cierre (N4.2)", () => {
+  it("Guardar se bloquea hasta calificar el desarrollo; al cerrar envía el pool por points y porPregunta", () => {
+    const exercise = {
+      id: "q-ex", title: "Cuestionario demo", duration: 30, model: "cuestionario", categories: [], audioUrl: null, showHint: false,
+      questions: [
+        { id: "t1", type: "test", text: "¿Modo?", options: [{ id: "A", text: "Mayor" }, { id: "B", text: "Menor" }], correctOptionId: "A", points: 1, audioStart: 0, audioEnd: 10 },
+        { id: "d1", type: "desarrollo", text: "Analiza la modulación", points: 2, audioStart: 10, audioEnd: 20 },
+      ],
+    } as unknown as Exercise;
+    const result = { type: "cuestionario", answers: { t1: "A", d1: "Va de La menor a Do mayor" }, score: 100, status: "pendiente" as const };
+    const onSave = vi.fn();
+    render(<QuizCorrection exercise={exercise} result={result} onBack={() => {}} isTeacherMode
+      student={{ id: "s1", displayName: "Marco" }} onSaveCorrection={onSave} />);
+
+    // La final aparece sin nota de desarrollo: preliminar 100 en el pool y
+    // 1 pendiente → Guardar bloqueado.
+    expect(screen.getByText("✎ 1 de desarrollo sin nota")).toBeInTheDocument();
+    const guardar = screen.getByRole("button", { name: "Guardar corrección" });
+    fireEvent.click(guardar);
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Nota directa 6 al desarrollo → pool = (100·1 + 60·2) / 3 = 73.
+    fireEvent.change(screen.getByLabelText("Nota final (0–10)"), { target: { value: "6" } });
+    fireEvent.click(guardar);
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const correction = onSave.mock.calls[0][2];
+    expect(correction.totalScore).toBe(73);
+    expect(correction.calificacion).toMatchObject({ fuente: "auto", nota: 73 });
+    expect(correction.calificacion.porPregunta.d1).toEqual({ fuente: "directa", nota: 60 });
   });
 });
 

@@ -87,6 +87,37 @@ export const calcQuestionnaireScore = (
   return Math.round((earnedPoints / totalPoints) * 100);
 };
 
+// ─── N4.2: nota FINAL del cuestionario ───────────────────────────────────────
+// Un solo pool ponderado por points: test y corta legada se autocorrigen
+// (100/0, como calcQuestionnaireScore — que queda como PRELIMINAR); desarrollo
+// entra con la nota manual del profesor (0-100). Una de desarrollo sin nota no
+// penaliza (queda fuera de ponderar) pero cuenta en `pendientes` — el panel de
+// corrección exige 0 pendientes para cerrar como "corregido". Sin ninguna de
+// desarrollo, es exactamente la preliminar (mismo pool, mismos pesos).
+export const calcQuestionnaireFinal = (
+  questions: Question[] | null | undefined,
+  answers: Record<string, string> | null | undefined,
+  notasManuales: Record<string, number | null | undefined> | null | undefined,
+): { nota: number | null; pendientes: number } => {
+  const ans = (answers || {}) as Record<string, string>;
+  const notas = notasManuales || {};
+  let pendientes = 0;
+  const entries: { nota: number | null; peso: number }[] = [];
+  for (const q of questions || []) {
+    const peso = q.points ?? 1;
+    if (q.type === "test" && q.correctOptionId) {
+      entries.push({ nota: ans[q.id] === q.correctOptionId ? 100 : 0, peso });
+    } else if (q.type === "corta" && q.accepted?.length) {
+      entries.push({ nota: gradeShort(ans[q.id], q.accepted) ? 100 : 0, peso });
+    } else if (q.type === "desarrollo") {
+      const n = notas[q.id];
+      if (n == null) pendientes++;
+      entries.push({ nota: n ?? null, peso });
+    }
+  }
+  return { nota: ponderar(entries), pendientes };
+};
+
 export const calcSchemaPlacementScore = (
   keyBlocks: SchemaBlock[] | null | undefined,
   studentBlocks: SchemaBlock[],

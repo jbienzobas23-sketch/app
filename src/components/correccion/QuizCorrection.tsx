@@ -8,14 +8,16 @@ import type { ExerciseResult } from "../../lib/types.js";
 import { C, S, F, FONT_SANS } from "../../theme/tokens.js";
 import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
-import { questionsSnapshotOf, questionScopeOf } from "../../lib/domain.js";
-import { gradeShort, nota10 } from "../../lib/scoring.js";
+import { questionsSnapshotOf, questionScopeOf, questionsOf } from "../../lib/domain.js";
+import { calcQuestionnaireFinal, gradeShort, nota10 } from "../../lib/scoring.js";
+import { instrumentoDe, type CalificacionCorreccion } from "../../lib/calificacion.js";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer.js";
 import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { CorrectionAudioBar } from "../primitives.jsx";
+import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
 import { normalizeScore100, type CorrectionViewProps } from "./shared.js";
-import { NotaInput } from "./NotaInput.js";
-import { parseNota10, useAutoHideScroll } from "./notaShared.js";
+import { FuenteNotaPanel } from "./FuenteNota.js";
+import { notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
 
 export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false, backLabel = isTeacherMode ? "← Volver" : "← Mis ejercicios", student = null, onSaveCorrection = null, extraHeaderContent = null, queueLabel = null, onPrev = null, onNext = null }: CorrectionViewProps) {
@@ -23,15 +25,7 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
   const tc  = result.teacherCorrection;
   const [qComments,  setQComments]  = useState<Record<string, string>>(() => tc?.questionComments || {});
   const [quizGlobal, setQuizGlobal] = useState(tc?.globalComment || "");
-  // La nota manual se edita en 0–10 como TEXTO (Jon, 2026-07-06) pero se ALMACENA
-  // en 0–100 (totalScore, compatible con lo ya guardado). El saneado, parseo y
-  // el input in situ viven en correccion/NotaInput.tsx (compartidos con la
-  // corrección de esquema).
-  const [quizScore,  setQuizScore]  = useState<string>(() => {
-    const n = normalizeScore100(tc?.totalScore);
-    return n == null ? "" : nota10(n)!;
-  });
-  const quizNota = parseNota10(quizScore);
+  const califCorreccion = tc?.calificacion as CalificacionCorreccion | undefined;
   // Comentario por pregunta plegado (Jon, 2026-07-05): el textarea siempre
   // visible en test/corta engordaba cada tarjeta sin aportar hasta que el
   // profesor decide comentar — se abre bajo demanda (o si ya hay comentario).
@@ -73,6 +67,34 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
     const correctN  = testQs.filter((q) => result.answers?.[q.id] === q.correctOptionId).length
                      + cortaQs.filter((q) => gradeShort(result.answers?.[q.id], q.accepted)).length;
     const col       = scoreColor(sc);
+
+    // ── N4.2: fuente y nota POR PREGUNTA de desarrollo ──────────────────────
+    // El total del cuestionario ya no se teclea: sale de calcQuestionnaireFinal
+    // (un solo pool por points con test + corta legada + desarrollo). Cada
+    // desarrollo se califica con su propia fuente (instrumento adjunto, N3.3,
+    // o nota directa); una corrección guardada se repone desde porPregunta.
+    // El instrumento de una pregunta: el de la VIGENTE si sigue existiendo
+    // (el profesor pudo adjuntarlo después de la entrega; la instantánea no lo
+    // tendría), con la instantánea como respaldo si la pregunta se borró.
+    const vigentes = questionsOf(exercise);
+    const instrumentoDeQ = (q: { id: string }) => instrumentoDe(vigentes.find((x) => x.id === q.id) ?? questions.find((x) => x.id === q.id));
+    const [fuentesDev, setFuentesDev] = useState<Record<string, FuenteNotaState>>(() =>
+      Object.fromEntries(devQs.map((q) => {
+        const pp = califCorreccion?.porPregunta?.[q.id];
+        const fuente: FuenteNotaState["fuente"] = pp?.fuente ?? (instrumentoDeQ(q) ? "instrumento" : "directa");
+        return [q.id, {
+          fuente,
+          directa: pp?.fuente === "directa" && pp.nota != null ? (nota10(pp.nota) ?? "") : "",
+          respuestas: pp?.instrumento?.respuestas ?? {},
+        }];
+      })),
+    );
+    const setFuenteDev = (qId: string, next: FuenteNotaState) => setFuentesDev((prev) => ({ ...prev, [qId]: next }));
+    const notasManuales = Object.fromEntries(devQs.map((q) => {
+      const st = fuentesDev[q.id];
+      return [q.id, st ? notaDeFuente(st, null, instrumentoDeQ(q)) : null];
+    }));
+    const final = calcQuestionnaireFinal(questions, result.answers, notasManuales);
     // ¿Es correcta la respuesta a UNA pregunta autocorregible (test o corta)?
     // null = no autocorregible (desarrollo, o "corta" sin aceptadas configuradas).
     const isQGraded = (q: (typeof questions)[number], ans: string | undefined): boolean | null => {
@@ -81,13 +103,30 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
       return null;
     };
 
+    // Cerrar exige todas las de desarrollo con nota (N4.2): mientras falte
+    // alguna, el intento sigue "pendiente" con la preliminar visible — no se
+    // guarda un corregido a medias. Sin desarrollo, siempre se puede cerrar
+    // (la final es exactamente la preliminar: mismo pool, mismos pesos).
+    const puedeCerrar = final.pendientes === 0;
     const handleSaveQuiz = () => {
+      if (!puedeCerrar) return;
       const correction = {
         corrected: true,
         questionComments: qComments,
         globalComment: quizGlobal,
-        // El input está en 0–10; totalScore se guarda en 0–100 (contrato estable).
-        totalScore: quizNota == null ? null : quizNota * 10,
+        totalScore: final.nota,
+        calificacion: {
+          // La fuente del TOTAL es el pool automático (las fuentes elegidas
+          // viven en porPregunta); nota 0-100 exacta, sin heurística ≤10.
+          fuente: "auto",
+          nota: final.nota,
+          porPregunta: Object.fromEntries(devQs.map((q) => {
+            const st = fuentesDev[q.id];
+            const n = notasManuales[q.id] ?? null;
+            const fuenteQ = st?.fuente === "instrumento" ? "instrumento" as const : "directa" as const;
+            return [q.id, { fuente: fuenteQ, nota: n, ...(fuenteQ === "instrumento" && st ? { instrumento: { respuestas: st.respuestas, nota: n } } : {}) }];
+          })),
+        } satisfies CalificacionCorreccion,
       };
       onSaveCorrection?.(student?.id, exercise.id, correction);
     };
@@ -99,7 +138,12 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
     type Veredicto = { symbol: string; word: string; color: string; bg: string };
     const veredictoDe = (q: (typeof questions)[number]): Veredicto => {
       if (q.type === "desarrollo") {
-        const word = isTeacherMode ? "A tu corrección" : (qComments[q.id]?.trim() ? "Comentada" : "Pendiente de revisión");
+        // N4.2: el veredicto de un desarrollo es su NOTA — para el profesor la
+        // del panel en vivo; para el alumno la guardada en porPregunta.
+        const notaDev = isTeacherMode ? notasManuales[q.id] : (califCorreccion?.porPregunta?.[q.id]?.nota ?? null);
+        const word = notaDev != null
+          ? (isTeacherMode ? "Calificada" : "Corregida")
+          : (isTeacherMode ? "Sin nota" : (qComments[q.id]?.trim() ? "Comentada" : "Pendiente de revisión"));
         return { symbol: "✎", word, color: C.quiz, bg: "rgba(47,111,184,0.08)" };
       }
       const ans = result.answers?.[q.id];
@@ -194,14 +238,27 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
 
               {/* ── Índice lateral (fijo; scrollea solo si no cabe) ── */}
               <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
-                {/* Bloque de nota (Jon, 2026-07-05): el número grande a color ES
-                    el input — se edita in situ, sin repetir la nota en un campo
-                    aparte. Vacío → placeholder con la nota automática (gris); al
-                    escribir, el número toma el color del rango. El desglose por
-                    pregunta lo cuenta el índice de abajo (✓/✗/✎), no aquí. */}
+                {/* Bloque de nota (N4.2): la FINAL calculada en vivo con el pool
+                    único (test + corta legada + desarrollo con nota manual).
+                    La preliminar automática queda debajo como referencia
+                    (regla de oro 3); las de desarrollo se califican en su
+                    propia tarjeta, no aquí. */}
                 <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
-                  <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 4 }}>Nota</div>
-                  <NotaInput value={quizScore} onChange={setQuizScore} auto100={sc} />
+                  <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 4 }}>Nota final</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                    <span style={{ fontSize: 42, fontWeight: 800, color: final.nota != null ? scoreColor(final.nota) : C.muted, lineHeight: 1, fontVariantNumeric: "tabular-nums", fontFamily: FONT_SANS }}>
+                      {nota10(final.nota) ?? "—"}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+                    {sc != null && <>Automática (test y corta): <strong style={{ color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{nota10(sc)}</strong></>}
+                    {final.pendientes > 0 && (
+                      <span style={{ display: "block", color: C.fnD, fontWeight: 600 }}>
+                        ✎ {final.pendientes} de desarrollo sin nota
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Índice de preguntas: veredicto + número + inicio del texto.
@@ -242,11 +299,13 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                   rows={3}
                   style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT_SANS, fontSize: 12.5, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px", color: C.ink, resize: "vertical", marginBottom: 8 }}
                 />
-                <button onClick={handleSaveQuiz} style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 6 }}>
+                <button onClick={handleSaveQuiz} disabled={!puedeCerrar} title={puedeCerrar ? undefined : "Faltan preguntas de desarrollo por calificar"}
+                  style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 6, opacity: puedeCerrar ? 1 : 0.5, cursor: puedeCerrar ? "pointer" : "default" }}>
                   {tc?.corrected ? "Actualizar corrección" : "Guardar corrección"}
                 </button>
                 {onNext && (
-                  <button onClick={() => { handleSaveQuiz(); onNext(); }} style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, background: C.fnT, borderColor: C.fnT }}>
+                  <button onClick={() => { if (!puedeCerrar) return; handleSaveQuiz(); onNext(); }} disabled={!puedeCerrar}
+                    style={{ ...S.btnPrimary, width: "100%", padding: 12, borderRadius: 10, fontSize: 13, background: C.fnT, borderColor: C.fnT, opacity: puedeCerrar ? 1 : 0.5, cursor: puedeCerrar ? "pointer" : "default" }}>
                     Guardar y siguiente
                   </button>
                 )}
@@ -365,6 +424,18 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                               </span>
                               {studentAnswer && tagAlumno(v.color)}
                             </div>
+                            {/* N4.2: la nota de ESTA pregunta, con su fuente
+                                (instrumento adjunto o directa) — entra en el
+                                pool de la nota final ponderada por sus puntos. */}
+                            {fuentesDev[q.id] && (
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+                                <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: C.muted, marginBottom: 6 }}>
+                                  Nota de esta pregunta · {q.points ?? 1} {(q.points ?? 1) === 1 ? "punto" : "puntos"}
+                                </div>
+                                <FuenteNotaPanel state={fuentesDev[q.id]} onChange={(next) => setFuenteDev(q.id, next)}
+                                  preliminar={null} conAuto={false} instrumento={instrumentoDeQ(q)} />
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -429,8 +500,10 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
             <aside style={asideStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
               <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
                 <div style={eyebrow}>Nota</div>
-                {tc?.corrected && tc?.totalScore != null ? (() => {
-                  const pct100 = normalizeScore100(tc.totalScore);
+                {tc?.corrected && (califCorreccion?.nota != null || tc?.totalScore != null) ? (() => {
+                  // N4.2: el sobre trae la nota 0-100 exacta; el totalScore
+                  // legado pasa por el umbral tolerante de siempre.
+                  const pct100 = califCorreccion?.nota ?? normalizeScore100(tc.totalScore);
                   return (
                     <>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
@@ -586,6 +659,27 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                             </span>
                             {studentAnswer && tagAlumno(v.color)}
                           </div>
+                          {/* N4.2: la nota de esta pregunta y, si se corrigió
+                              con instrumento, el mismo desglose que vio el
+                              profesor (rejilla de solo lectura). */}
+                          {(() => {
+                            const pp = tc?.corrected ? califCorreccion?.porPregunta?.[q.id] : undefined;
+                            if (!pp || pp.nota == null) return null;
+                            const instr = instrumentoDeQ(q);
+                            return (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={{ fontSize: 12.5, color: C.muted }}>
+                                  Nota: <strong style={{ color: scoreColor(pp.nota), fontVariantNumeric: "tabular-nums" }}>{nota10(pp.nota)}</strong>
+                                  <span style={{ marginLeft: 6 }}>· {q.points ?? 1} {(q.points ?? 1) === 1 ? "punto" : "puntos"}</span>
+                                </div>
+                                {pp.instrumento && instr && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <InstrumentoRespuestas instrumento={instr} respuestas={pp.instrumento.respuestas} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
 
