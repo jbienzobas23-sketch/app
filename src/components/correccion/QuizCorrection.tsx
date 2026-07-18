@@ -16,7 +16,7 @@ import { useIsMobile } from "../../hooks/useIsMobile.js";
 import { CorrectionAudioBar } from "../primitives.jsx";
 import { InstrumentoRespuestas } from "../InstrumentoRespuestas.jsx";
 import { normalizeScore100, type CorrectionViewProps } from "./shared.js";
-import { ComentariosTramoEditor, ComentariosTramoView } from "./ComentariosTramo.js";
+import { ComentariosTramoView } from "./ComentariosTramo.js";
 import { FuenteNotaPanel } from "./FuenteNota.js";
 import { notaDeFuente, useAutoHideScroll, type FuenteNotaState } from "./notaShared.js";
 import { AttemptBanner } from "./AttemptBanner.js";
@@ -31,7 +31,9 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
   const comentariosGuardados = fundeComentarios(califCorreccion?.comentarios, tc);
   const [qComments,  setQComments]  = useState<Record<string, string>>(() => mapaDeComentarios(comentariosGuardados, "pregunta"));
   const [quizGlobal, setQuizGlobal] = useState(() => comentarioGeneralDe(comentariosGuardados));
-  const [tramos,     setTramos]     = useState<ComentarioTramo[]>(() => tramosDeComentarios(comentariosGuardados));
+  // El editor de tramos se retiró de la corrección (Jon, 2026-07-16); los
+  // tramos guardados de correcciones anteriores se conservan al reescribir.
+  const [tramos] = useState<ComentarioTramo[]>(() => tramosDeComentarios(comentariosGuardados));
   // Comentario por pregunta plegado (Jon, 2026-07-05): el textarea siempre
   // visible en test/corta engordaba cada tarjeta sin aportar hasta que el
   // profesor decide comentar — se abre bajo demanda (o si ya hay comentario).
@@ -209,10 +211,15 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
             style={{ width: "100%", fontFamily: FONT_SANS, fontSize: 13, background: C.field, border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 12px", color: C.ink, resize: "vertical", boxSizing: "border-box", marginTop: 10 }}
           />
         ) : (
-          <button onClick={() => openComment(qId)} className="fa-pressable"
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, color: C.muted, textDecoration: "underline", textUnderlineOffset: 2, marginTop: 10 }}>
-            + Comentario
-          </button>
+          // A la derecha y como acción reconocible (Jon, 2026-07-16): el enlace
+          // subrayado a la izquierda se confundía con el texto — ahora es una
+          // píldora del color de acción, alineada con los controles.
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+            <button onClick={() => openComment(qId)} className="fa-pressable"
+              style={{ background: "transparent", border: `1px solid ${C.quiz}55`, borderRadius: 999, padding: "5px 14px", cursor: "pointer", fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.quiz }}>
+              + Comentario
+            </button>
+          </div>
         )
       );
 
@@ -279,14 +286,11 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                     </span>
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.muted2 }}>/10</span>
                   </div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-                    {preliminarQuiz != null && <>Automática (test y corta): <strong style={{ color: C.ink2, fontVariantNumeric: "tabular-nums" }}>{nota10(preliminarQuiz)}</strong></>}
-                    {final.pendientes > 0 && (
-                      <span style={{ display: "block", color: C.fnD, fontWeight: 600 }}>
-                        ✎ {final.pendientes} de desarrollo sin nota
-                      </span>
-                    )}
-                  </div>
+                  {final.pendientes > 0 && (
+                    <div style={{ fontSize: 10.5, color: C.fnD, fontWeight: 600, marginTop: 6, lineHeight: 1.5 }}>
+                      ✎ {final.pendientes} de desarrollo sin nota
+                    </div>
+                  )}
                 </div>
 
                 {/* Índice de preguntas: veredicto + número + inicio del texto.
@@ -341,32 +345,13 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
 
               {/* ── Columna de preguntas (scroll propio en escritorio) ── */}
               <div style={rightColStyle} className="fa-autohide-scroll" onScroll={handleAutoHideScroll}>
-                {/* Barra de audio compartida + candado de región (M3.3) */}
+                {/* Barra de audio compartida. El candado de región y los chips
+                    «▶ Fragmento» por pregunta se retiraron de la corrección de
+                    profesor (Jon, 2026-07-16): solo queda la reproducción libre. */}
                 {hasAudio && (
                   <div style={{ marginBottom: 16 }}>
                     <CorrectionAudioBar time={time} timeRef={audioTimeRef} duration={dur} playing={playing} audioReady={audioReady}
                       togglePlay={togglePlay} onSeek={(e) => { const r = e.currentTarget.getBoundingClientRect(); releaseFragment(); seekTo(((e.clientX - r.left) / r.width) * dur); }} />
-                    {activeFragmentQId && (() => {
-                      const aq   = questions.find((q) => q.id === activeFragmentQId);
-                      const aIdx = questions.findIndex((q) => q.id === activeFragmentQId);
-                      const isObra = !!aq && questionScopeOf(aq) === "obra";
-                      return (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontSize: 12, color: C.quiz, marginTop: 8, flexWrap: "wrap" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${C.quiz}12`, borderRadius: 999, padding: "4px 12px", fontWeight: 600 }}>
-                            {isObra ? `📖 Obra completa · P${aIdx + 1}` : `🔒 Fragmento P${aIdx + 1} · bucle`}
-                          </span>
-                          <button onClick={releaseFragment} className="fa-pressable" style={{ ...S.btn, padding: "4px 12px", fontSize: 11 }}>Liberar</button>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {/* N4.4: comentarios anclados a un tramo del audio — el salto
-                    reutiliza el bucle de fragmento (candado de región). */}
-                {hasAudio && (
-                  <div style={{ marginBottom: 16 }}>
-                    <ComentariosTramoEditor tramos={tramos} onChange={setTramos} duration={dur} currentTime={time} onJump={saltoTramo} />
                   </div>
                 )}
 
@@ -394,15 +379,6 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                           <span title={v.word} style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 999, background: C.paper2, border: `1px solid ${C.line}` }}>
                             <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700, color: C.ink, letterSpacing: "0.01em" }}>Pregunta {idx + 1}</span>
                           </span>
-                          <span style={{ flex: 1 }} />
-                          {hasAudio && (
-                            <button onClick={() => playQuestionFragment(q)} className="fa-pressable"
-                              style={{ ...S.badge, background: activeFragmentQId === q.id && playing ? C.quiz : "transparent", color: activeFragmentQId === q.id && playing ? "#fff" : C.quiz, border: `1px solid ${C.quiz}55`, cursor: "pointer", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                              {questionScopeOf(q) === "obra"
-                                ? (activeFragmentQId === q.id && playing ? "❚❚ Obra completa" : "▸ Obra completa")
-                                : (activeFragmentQId === q.id && playing ? `❚❚ ${fmtClock(q.audioStart ?? 0)}–${fmtClock(q.audioEnd ?? 0)}` : `▶ ${fmtClock(q.audioStart ?? 0)}–${fmtClock(q.audioEnd ?? 0)}`)}
-                            </button>
-                          )}
                         </div>
                         <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px" }}>
                         <div style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 600, color: C.ink, lineHeight: 1.22, marginBottom: 16 }}>{q.text}</div>
@@ -472,14 +448,6 @@ export function QuizCorrection({ exercise, result, onBack, isTeacherMode = false
                                   preliminar={null} conAuto={false} instrumento={instrumentoDeQ(q)} />
                               </div>
                             )}
-                          </div>
-                        )}
-
-                        {/* Guía de corrección (la explicación que escribiste al
-                            crear la pregunta): referencia discreta, no un cartel. */}
-                        {q.explanation && (
-                          <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic", marginTop: 10 }}>
-                            Guía: {q.explanation}
                           </div>
                         )}
 
