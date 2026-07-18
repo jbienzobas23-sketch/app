@@ -19,7 +19,7 @@ import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
 import { uid } from "../lib/ids.js";
 import { fmtClock } from "../lib/time.js";
-import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC, SCHEMA_CAP_W } from "../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC, SCHEMA_CAP_TRANSITION, SCHEMA_CAP_TRANSITION_DRAG, schemaCapLeft, schemaCapRadius } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
@@ -160,9 +160,10 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // (rAF), sin pasar por setBlocks/setGuides en cada evento — ver el efecto
   // principal de arrastre más abajo para el porqué.
   const blockElRefs  = useRef<Record<string, HTMLElement | null>>({});
-  // Asas de borde (hl-<id>/hr-<id>/sh-<leftId>-<rightId>), pintadas junto al
-  // bloque en el mismo bucle rAF — si no, quedan ancladas a la posición
-  // pre-arrastre hasta soltar (ver paintDrag).
+  // Asas de borde (hl-<id>/hr-<id> — cada lado del bloque seleccionado es un
+  // único elemento que muta libre↔compartida), pintadas junto al bloque en el
+  // mismo bucle rAF — si no, quedan ancladas a la posición pre-arrastre
+  // hasta soltar (ver paintCap en paintDrag).
   const handleElRefs = useRef<Record<string, HTMLElement | null>>({});
   const guideElRefs = useRef<(HTMLDivElement | null)[]>([null, null]); // máx. 2 guías simultáneas
   const dragRafRef  = useRef<number | null>(null);
@@ -529,9 +530,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // idéntica fórmula que usa SegBlocks para lPct/rPct/pct al renderizar.
   const pctOfSeg = (t: number, segMin: number, segMax: number) =>
     Math.max(0, ((t - segMin) / ((segMax - segMin) || 1)) * 100);
-  const paintHandlePos = (key: string, leftExpr: string) => {
+  // Pinta la cápsula `key` en su estado VIVO: left a cada frame sin easing
+  // (la variante _DRAG solo anima radio/chevrones; onUp repone la transición
+  // completa para que el reencaje tras soltar anime también la posición).
+  // Muta libre ↔ compartida en mitad del arrastre — el asa acompaña al canto
+  // y se transforma, nunca desaparece ni queda enganchada.
+  const paintCap = (key: string, pct: number, side: "l" | "r", shared: boolean, level: number) => {
     const el = handleElRefs.current[key]; if (!el) return;
-    el.style.left = leftExpr;
+    el.style.transition = SCHEMA_CAP_TRANSITION_DRAG;
+    el.style.left = schemaCapLeft(pct, shared ? "shared" : side);
+    el.style.borderRadius = schemaCapRadius(level, shared ? "shared" : side);
+    const single = el.querySelector<HTMLElement>('[data-chev="single"]');
+    const both   = el.querySelector<HTMLElement>('[data-chev="both"]');
+    if (single) single.style.opacity = shared ? "0" : "1";
+    if (both)   both.style.opacity   = shared ? "1" : "0";
   };
   const paintCascade = (d: any) => {
     if (!d.cascadeIds?.length) return;
@@ -554,18 +566,29 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     } else if (d.type === "move") {
       if (d.liveStart != null) {
         paintBlockPos(d.bid, d.level, d.liveStart, d.liveEnd, d.segMin, d.segMax);
-        paintHandlePos(`hl-${d.bid}`, `${pctOfSeg(d.liveStart, d.segMin, d.segMax)}%`);
-        paintHandlePos(`hr-${d.bid}`, `calc(${pctOfSeg(d.liveEnd, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W}px)`);
+        // Estado vivo de cada asa: compartida si su canto queda imantado a un
+        // vecino del mismo nivel (mismo umbral de adyacencia que SegBlocks,
+        // 0.5s). El asa acompaña al canto y se TRANSFORMA al despegarse o
+        // reencajarse — antes quedaba enganchada en la juntura vieja.
+        const nbs = blocksRef.current.filter((b: Block) => b.id !== d.bid && b.level === d.level && b.repeatId === d.repeatId && b.pass === d.pass && !b.isPreview);
+        const adjL = nbs.some((b: Block) => Math.abs(b.end   - d.liveStart) < 0.5);
+        const adjR = nbs.some((b: Block) => Math.abs(b.start - d.liveEnd)   < 0.5);
+        paintCap(`hl-${d.bid}`, pctOfSeg(d.liveStart, d.segMin, d.segMax), "l", adjL, d.level);
+        paintCap(`hr-${d.bid}`, pctOfSeg(d.liveEnd,   d.segMin, d.segMax), "r", adjR, d.level);
       }
     } else if (d.type === "resize-l") {
       if (d.liveBoundary != null) {
         paintBlockPos(d.bid, d.level, d.liveBoundary, d.oe, d.segMin, d.segMax); paintCascade(d);
-        paintHandlePos(`hl-${d.bid}`, `${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}%`);
+        const leftNb = d.leftId ? blocksRef.current.find((b: Block) => b.id === d.leftId) : null;
+        paintCap(`hl-${d.bid}`, pctOfSeg(d.liveBoundary, d.segMin, d.segMax), "l",
+          !!(leftNb && Math.abs(d.liveBoundary - leftNb.end) < 0.5), d.level);
       }
     } else if (d.type === "resize-r") {
       if (d.liveBoundary != null) {
         paintBlockPos(d.bid, d.level, d.os, d.liveBoundary, d.segMin, d.segMax); paintCascade(d);
-        paintHandlePos(`hr-${d.bid}`, `calc(${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W}px)`);
+        const rightNb = d.rightId ? blocksRef.current.find((b: Block) => b.id === d.rightId) : null;
+        paintCap(`hr-${d.bid}`, pctOfSeg(d.liveBoundary, d.segMin, d.segMax), "r",
+          !!(rightNb && Math.abs(d.liveBoundary - rightNb.start) < 0.5), d.level);
       }
     } else if (d.type === "shared-edge") {
       if (d.liveBoundary != null) {
@@ -574,7 +597,12 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         if (leftB)  paintBlockPos(d.leftId,  d.level, leftB.start, d.liveBoundary, d.segMin, d.segMax);
         if (rightB) paintBlockPos(d.rightId, d.level, d.liveBoundary, rightB.end,  d.segMin, d.segMax);
         paintCascade(d);
-        paintHandlePos(`sh-${d.leftId}-${d.rightId}`, `calc(${pctOfSeg(d.liveBoundary, d.segMin, d.segMax)}% - ${SCHEMA_CAP_W / 2}px)`);
+        // El asa del par es hr- del bloque izquierdo o hl- del derecho, según
+        // cuál esté seleccionado — solo existe la del seleccionado (paintCap
+        // ignora la otra por el null-guard). Sigue compartida todo el drag.
+        const pct = pctOfSeg(d.liveBoundary, d.segMin, d.segMax);
+        paintCap(`hr-${d.leftId}`,  pct, "r", true, d.level);
+        paintCap(`hl-${d.rightId}`, pct, "l", true, d.level);
       }
     }
     const gs = d.liveGuides ?? [];
@@ -720,6 +748,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
     const onUp = (upEvt: any) => {
       const d = dragRef.current; if (!d) return;
+      // Reponer la transición completa de las cápsulas (paintDrag la deja en
+      // la variante de arrastre, sin `left`): así el reencaje del asa tras
+      // soltar — libre ↔ compartida — se anima también en posición. React no
+      // re-escribe un estilo puesto por ref si su prop no cambió.
+      for (const el of Object.values(handleElRefs.current)) if (el) el.style.transition = SCHEMA_CAP_TRANSITION;
       if (d.type === "create") {
         const dur2    = (d.pe ?? d.anchor) - (d.ps ?? d.anchor);
         const elapsed = Date.now() - (d.downTime ?? 0);
@@ -1170,8 +1203,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           </div>
         </div>
 
-        {/* Regla + pistas (layout flex-segmentado) */}
-        <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: schemaZoom > 1 ? 4 : 12, position: "relative" }}
+        {/* Regla + pistas (layout flex-segmentado). El envoltorio relativo SIN
+            recorte existe para la bola del reproductor (Jon, 2026-07-17): la
+            tarjeta NECESITA su overflow:hidden (recorta el contenido escalado
+            por el zoom y las esquinas redondeadas), así que la bola vive fuera,
+            en una capa hermana, y sobresale ENTERA del esquema en los extremos. */}
+        <div style={{ position: "relative", marginBottom: schemaZoom > 1 ? 4 : 12 }}>
+        <div ref={schemaOuterRef} style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", position: "relative" }}
           onTouchStart={handleSchemaPinchStart}
           onTouchMove={handleSchemaPinchMove}
           onTouchEnd={handleSchemaPinchEnd}
@@ -1199,49 +1237,22 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
               selectedRepId={selectedRepId}
               setSelectedRepId={setSelectedRepId}
               onDeselectBlock={() => setSelected(null)}
+              schemaZoom={schemaZoom}
+              schemaScrollFrac={schemaScrollFrac}
             />
           )}
 
           {/* ── REGLA ── */}
+          {/* Sin overflow:hidden (Jon, 2026-07-17): la bola del reproductor
+              debe SOBRESALIR entera en los extremos (en 0:00 quedaba cortada
+              por la mitad). Los segmentos internos siguen recortando lo suyo. */}
           <div ref={rulerContainerRef}
-            style={{ display: "flex", borderBottom: `1px solid ${C.line}`, userSelect: "none", touchAction: "none", overflow: "hidden", position: "relative" }}
+            style={{ display: "flex", borderBottom: `1px solid ${C.line}`, userSelect: "none", touchAction: "none", position: "relative" }}
             {...(listenOnly ? { onMouseDown: handleMarksContainerDown, onTouchStart: handleMarksContainerDown } : {})}>
 
-            {/* ── Playhead global: línea + bola a lo largo de TODA la regla ──
-                 Se calcula con recToVisX para que sea continuo entre segmentos.
-                 En la doble fila (segmento "repeat", vista resumida) la bola se
-                 posiciona en la fila correcta (arriba = 1ª vez, abajo = 2ª vez).
-                 zIndex 30 para aparecer por encima de todo lo demás en la regla. */}
-            {!listenOnly && (() => {
-              // Determinar posición horizontal y vertical de la bola
-              let xPct = recToVisX(time) * 100;
-              // En resumida: bola en fila superior (y=25%) durante la 1ª vez,
-              // y en fila inferior (y=75%) durante la 2ª vez y en secciones normales.
-              // La x se calcula dentro del rango insetado por REPEAT_BARLINE_W en
-              // ambos extremos, igual que la línea vertical del esquema.
-              let yPct = viewMode === "resumida" && hasRepeats ? 75 : 50;
-              for (const sg of segments) {
-                if (sg.type !== "repeat") continue;
-                const fp = sg.rep.first, sp = sg.rep.second;
-                if (time < fp.start || time >= sp.end) continue; // este segmento no contiene el tiempo actual
-                const fd = (fp.end - fp.start) || 1;
-                const sd = (sp.end - sp.start) || 1;
-                const barFrac = rulerW > 0 ? REPEAT_BARLINE_W / rulerW : 0;
-                const segVW   = sg.vEnd - sg.vStart;
-                const innerVW = segVW - 2 * barFrac;
-                if (time >= fp.start && time < fp.end) {
-                  xPct = (sg.vStart + barFrac + (time - fp.start) / fd * innerVW) * 100;
-                  yPct = 25; // centro de la fila 1ª (14 px de 57 px = 24.6 %)
-                } else if (time >= sp.start && time < sp.end) {
-                  xPct = (sg.vStart + barFrac + (time - sp.start) / sd * innerVW) * 100;
-                  yPct = 75; // centro de la fila 2ª
-                }
-                break; // segmento encontrado
-              }
-              return (
-                <div style={{ position: "absolute", top: `${yPct}%`, left: `${xPct}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", pointerEvents: "none", zIndex: 31 }} />
-              );
-            })()}
+            {/* La bola del reproductor ya NO se pinta aquí: vive en la capa
+                hermana de la tarjeta (ver «Bola del reproductor» más abajo),
+                fuera del overflow:hidden, para poder sobresalir entera. */}
 
             {/* ── Guía de resize de barra de repetición ── */}
             {repResizeGuide && (
@@ -1393,10 +1404,15 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 const ticks = rulerTicksForSeg(bounds.min, bounds.max, segWidthPx);
                 return (
                   <div key={si} style={{ flex: seg.canonDur, position: "relative", height: "100%", borderRight: si < segments.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    {/* El translateX(-50%) va en el CONTENEDOR del tick (Jon,
+                        2026-07-17): antes iba en el texto, así que la etiqueta
+                        quedaba centrada en su tiempo pero la rayita se corría
+                        media etiqueta a la derecha — rayita y timestamp deben
+                        estar AMBOS centrados sobre la posición del tiempo. */}
                     {ticks.map(({ t, frac }) => (
-                      <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div key={t} style={{ position: "absolute", top: 0, bottom: 0, left: `${frac * 100}%`, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
                         <div style={{ width: 1, height: 5, background: C.muted, opacity: 0.5 }} />
-                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, fontWeight: 500, transform: "translateX(-50%)", whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmtClock(t)}</span>
+                        <span style={{ fontSize: 8, color: C.muted, fontFamily: FONT_SANS, fontWeight: 500, whiteSpace: "nowrap", lineHeight: 1, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{fmtClock(t)}</span>
                       </div>
                     ))}
                   </div>
@@ -1564,6 +1580,51 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           </div>
           </div>{/* /contenedor de escala */}
         </div>
+
+        {/* ── Bola del reproductor — capa hermana de la tarjeta, SIN recorte ──
+             Línea continua entre segmentos (recToVisX); en la doble fila del
+             segmento "repeat" (vista resumida) se coloca en la fila correcta
+             (arriba = 1ª vez, abajo = 2ª vez). La x se traduce de coordenadas
+             del contenedor de escala a coordenadas de la tarjeta con la MISMA
+             fórmula que su transform (zoom + desplazamiento); fuera de la
+             ventana visible (zoom > 1) la bola no se pinta. */}
+        {!listenOnly && (() => {
+          const ruler = rulerContainerRef.current;
+          if (!ruler) return null; // primer render, aún sin medidas — se repinta enseguida
+          let xPct = recToVisX(time) * 100;
+          let yPct = viewMode === "resumida" && hasRepeats ? 75 : 50;
+          for (const sg of segments) {
+            if (sg.type !== "repeat") continue;
+            const fp = sg.rep.first, sp = sg.rep.second;
+            if (time < fp.start || time >= sp.end) continue; // este segmento no contiene el tiempo actual
+            const fd = (fp.end - fp.start) || 1;
+            const sd = (sp.end - sp.start) || 1;
+            const barFrac = rulerW > 0 ? REPEAT_BARLINE_W / rulerW : 0;
+            const segVW   = sg.vEnd - sg.vStart;
+            const innerVW = segVW - 2 * barFrac;
+            if (time >= fp.start && time < fp.end) {
+              xPct = (sg.vStart + barFrac + (time - fp.start) / fd * innerVW) * 100;
+              yPct = 25; // centro de la fila 1ª (14 px de 57 px = 24.6 %)
+            } else if (time >= sp.start && time < sp.end) {
+              xPct = (sg.vStart + barFrac + (time - sp.start) / sd * innerVW) * 100;
+              yPct = 75; // centro de la fila 2ª
+            }
+            break; // segmento encontrado
+          }
+          const pctCard = xPct * schemaZoom - schemaScrollFrac * (schemaZoom - 1) * 100;
+          if (pctCard < -0.5 || pctCard > 100.5) return null;
+          // y: la regla dentro del contenedor de escala (offsetTop ya incluye la
+          // banda de repetición encima) + su fila; +1 por el borde de la tarjeta.
+          const y = 1 + ruler.offsetTop + (yPct / 100) * ruler.offsetHeight;
+          return (
+            // Sub-capa insetada 1px: su 100% es el ancho INTERIOR de la tarjeta
+            // (sin bordes), el mismo % base que usa el contenedor de escala.
+            <div style={{ position: "absolute", left: 1, right: 1, top: 0, bottom: 0, pointerEvents: "none" }}>
+              <div style={{ position: "absolute", top: y, left: `${pctCard}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", zIndex: 31 }} />
+            </div>
+          );
+        })()}
+        </div>{/* /envoltorio sin recorte de la bola */}
 
         {/* ── Barra de desplazamiento horizontal del esquema ─────────────────
              Aparece debajo del esquema cuando el zoom es > 1.

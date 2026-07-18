@@ -20,6 +20,20 @@ export function _hslToHex(h: number, s: number, l: number): string {
 }
 export function lightenColor(hex: string, lAdd=18, sAdd=-8): string {const[h,s,l]=_hexToHsl(hex);return _hslToHex(h,Math.max(0,Math.min(100,s+sAdd)),Math.max(0,Math.min(100,l+lAdd)));}
 
+// Color identitario ajustado para LEER sobre una pista casi blanca (Jon,
+// 2026-07-16): un trazo fino y su etiqueta pequeña en el color crudo del bloque
+// (p. ej. los grises de Partes #9CA0AC/#8E9EAA o el Texto #8A8478) quedan por
+// debajo del contraste mínimo sobre el carril claro. Conserva el TONO (y sube
+// un pelín la saturación) pero baja la luminosidad a un techo que garantiza
+// contraste; los colores ya oscuros se dejan intactos, y lo que no sea un hex
+// #rrggbb (rgba, "transparent"…) se devuelve sin tocar.
+export function markOnLight(color: string, maxL = 44): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return color;
+  const [h, s, l] = _hexToHsl(color);
+  if (l <= maxL) return color;
+  return _hslToHex(h, Math.min(100, s + 8), maxL);
+}
+
 export const textOn = (hex: string | null | undefined): string => {
   if (!hex || hex[0] !== "#") return "#000";
   const r = parseInt(hex.slice(1, 3), 16);

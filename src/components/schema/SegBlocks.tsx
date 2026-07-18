@@ -24,7 +24,8 @@ import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
 import { harmonyBlockColors } from "../../lib/harmony.js";
 import { partColorFromPalette, phraseColorFromPalette } from "../../lib/palette.js";
-import { SCHEMA_LEVELS, SCHEMA_CAP_W } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_CAP_W, SCHEMA_CAP_TRANSITION, schemaBlockH, schemaCapRouter, schemaCapRadius, schemaCapLeft, isTransitionLabel } from "../../lib/schema.js";
+import { TransitionArrow } from "./TransitionArrow.js";
 
 interface SegBlocksProps {
   seg: any;
@@ -73,19 +74,14 @@ export function SegBlocks({
     return b.repeatId === seg.rep.id && b.pass === pass;
   }), [blocks, lvId, seg, pass, bounds.min, bounds.max]);
 
-  const { real, adjPairs, adjLIds, adjRIds } = useMemo(() => {
+  const { real, adjPairs } = useMemo(() => {
     const realArr = segBlocks.filter(b => !b.isPreview).sort((a, b) => a.start - b.start);
     const pairs = [];
     for (let i = 0; i < realArr.length - 1; i++) {
       if (Math.abs(realArr[i].end - realArr[i + 1].start) < 0.5)
         pairs.push({ left: realArr[i], right: realArr[i + 1] });
     }
-    return {
-      real: realArr,
-      adjPairs: pairs,
-      adjLIds: new Set(pairs.map(p => p.right.id)),
-      adjRIds: new Set(pairs.map(p => p.left.id)),
-    };
+    return { real: realArr, adjPairs: pairs };
   }, [segBlocks]);
 
   // Color por bloque (cadena `harmonyBlockColors`/`partColorFromPalette`/
@@ -128,19 +124,15 @@ export function SegBlocks({
       phPct = ((time - seg.rep.second.start) / (seg.rep.second.end - seg.rep.second.start)) * 100;
   }
 
-  // Altura real del bloque por nivel: la pista mide 62 (Partes) / 52 (Frases)
-  // / 44 (resto) y el bloque va con top:6 bottom:6, así que su alto = pista − 12.
-  const _trackH    = lvId === 1 ? 62 : lvId === 2 ? 52 : 44;
-  const _blockH    = lvId >= 3 ? 32 : _trackH - 12;
-  // Asas como "cápsulas" integradas DENTRO del borde del bloque (no objetos
-  // aparte): un recuadro redondeado en cada extremo, con un chevron que indica
-  // el sentido de arrastre.
+  // Altura del bloque y radio de cápsula/bloque: helpers compartidos con el
+  // paintDrag de SchemaExerciseView (schema.ts) — reposo y arrastre coinciden.
+  const _blockH    = schemaBlockH(lvId);
+  // Asas como "cápsulas" integradas a RAS del borde del bloque (Jon,
+  // 2026-07-16, v2): misma altura que el bloque, sin sombra y ceñidas al canto
+  // visual. El extremo exterior copia el radio del bloque; el canto interior
+  // va SIN redondear, en ángulo recto (estado libre).
   const _capW      = SCHEMA_CAP_W;
-  // Mismo alto y radio que el bloque → las curvaturas del asa coinciden con su borde.
-  // El extremo exterior copia el radio del bloque (semicírculo en píldoras, 5px en
-  // rectángulos); el lado interior lleva un radio menor.
-  const _capRouter = lvId >= 3 ? Math.round(_blockH / 2) : 5;
-  const _capRinner = lvId >= 3 ? 6 : 5;
+  const _capRouter = schemaCapRouter(lvId);
   // Operabilidad por teclado (C4.3h): bloques reales (no preview, no en vista
   // resumida — ahí el arrastre también está deshabilitado) son enfocables y
   // anuncian su posición vía aria-label, actualizado en cada render.
@@ -150,7 +142,7 @@ export function SegBlocks({
     "aria-label": `Bloque ${block.label ?? ""}, de ${fmtClock(block.start)} a ${fmtClock(block.end)}`,
     onKeyDown: (e: any) => handleBlockKeyDown(e, block),
   };
-  const capBase: CSSProperties = { position: "absolute", top: 6, height: _blockH, width: _capW, background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.16)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
+  const capBase: CSSProperties = { position: "absolute", top: 6, height: _blockH, width: _capW, background: "#FFFFFF", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
   const _capChev   = "rgba(35,40,70,0.72)";
   const edgeChevron = (dir: "l" | "r" | "both") => (
     <svg width={dir === "both" ? 14 : 9} height="12" viewBox={dir === "both" ? "0 0 14 12" : "0 0 9 12"} fill="none" style={{ pointerEvents: "none" }}>
@@ -162,6 +154,14 @@ export function SegBlocks({
       </>}
     </svg>
   );
+  // Los DOS chevrones de la cápsula, apilados, con fundido cruzado por opacidad
+  // según el estado (libre = simple, compartida = doble). paintDrag localiza
+  // cada capa por data-chev para poder mutar el estado en mitad del arrastre.
+  const chevLayer: CSSProperties = { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 120ms ease", pointerEvents: "none" };
+  const capChevrons = (side: "l" | "r", shared: boolean) => (<>
+    <span data-chev="single" style={{ ...chevLayer, opacity: shared ? 0 : 1 }}>{edgeChevron(side)}</span>
+    <span data-chev="both"   style={{ ...chevLayer, opacity: shared ? 1 : 0 }}>{edgeChevron("both")}</span>
+  </>);
 
   return (<>
     {/* Cuadrícula de fondo — paso fijo global para que la densidad
@@ -204,6 +204,36 @@ export function SegBlocks({
         wPct = Math.max(0, ((block.end - block.start) / segDur) * 100);
       }
       const { bg: bBg, textColor: bTx } = blockColors.get(block.id)!;
+
+      // ── Bloque de transición (puente/transición/enlace/retransición): FLECHA ──
+      // En cualquier nivel. Se conserva TODO lo interactivo (arrastrar, asas de
+      // redimensión en los cantos, doble clic para renombrar): solo cambia el
+      // relleno por una flecha que rellena el nodo, así paintBlockPos la
+      // redimensiona en vivo sin tocar nada. Durante la edición (editId) cae al
+      // render normal para mostrar el input; al confirmar vuelve a ser flecha.
+      // El inset por nivel coincide con paintBlockPos (rect 1px / píldora 0).
+      if (isTransitionLabel(block.label) && editId !== block.id) {
+        const insT = (lvId === 3 || lvId === 4) ? 0 : 1;
+        return (
+          <div key={block.id} data-block="true" data-transition="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} {...blockA11y(block)} style={{
+            position: "absolute", top: 6, bottom: 6,
+            left: insT ? `calc(${lPct}% + ${insT}px)` : `${lPct}%`,
+            width: insT ? `calc(${wPct}% - ${insT * 2}px)` : `${wPct}%`,
+            // Sin relleno ni borde (lee como flecha sobre la pista, no como
+            // placa); la selección la señalan las asas + un tinte muy tenue.
+            background: isSel ? "rgba(0,0,0,0.05)" : "transparent",
+            borderRadius: _capRouter,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
+            zIndex: isSel ? 7 : isActive ? 4 : 3, boxSizing: "border-box",
+          }}
+            onMouseDown={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+            onTouchStart={e => !(block.isPreview || viewMode === "resumida") && handleBlockDown(e, block, "move")}
+            onDoubleClick={() => { if (!(block.isPreview || viewMode === "resumida" || block.pass === "second")) { setEditId(block.id); setEditVal(block.label ?? ""); } }}>
+            <TransitionArrow color={bBg} label={block.label ?? undefined} />
+          </div>
+        );
+      }
 
       // ── Nivel 3 (Armonía): píldora de color + línea horizontal ─────────
       if (lvId === 3) {
@@ -296,11 +326,15 @@ export function SegBlocks({
       return (
         <div key={block.id} data-block="true" title={block.label ?? undefined} ref={el => { blockElRefs.current[block.id] = el; }} {...blockA11y(block)} style={{
           position: "absolute", top: 6, bottom: 6, left: `calc(${lPct}% + ${ins}px)`, width: `calc(${wPct}% - ${ins * 2}px)`,
-          background: block.isPreview ? `${bBg}38` : bBg, borderRadius: 5,
-          // El borde depende SOLO de la selección (acción del usuario), nunca del
-          // estado "activo" del cursor de reproducción. Ancho constante (2px) y sin
-          // cambio de color al pasar la barra por encima → el bloque no varía nada.
-          border: `2px solid ${isSel ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.18)"}`,
+          // Mismo radio que las asas (_capRouter): al ir la cápsula a ras del
+          // canto, sus curvas exteriores deben coincidir con las del bloque.
+          background: block.isPreview ? `${bBg}38` : bBg, borderRadius: _capRouter,
+          // Borde tenue CONSTANTE (Jon, 2026-07-16): el borde blanco de
+          // selección creaba un halo alrededor del bloque — efecto óptico de
+          // "placa" con las asas a ras. La selección ya la señalan las asas
+          // (solo visibles en el bloque seleccionado) y la sombra; el borde no
+          // cambia ni con la selección ni con el cursor de reproducción.
+          border: "2px solid rgba(255,255,255,0.18)",
           boxShadow: isSel ? "0 2px 10px rgba(0,0,0,0.16)" : "none",
           display: "flex", alignItems: "center", justifyContent: "center",
           overflow: "hidden", cursor: (block.isPreview || viewMode === "resumida") ? "default" : "grab",
@@ -322,49 +356,47 @@ export function SegBlocks({
         </div>
       );
     })}
-    {/* Asas de borde libre — SOLO en el bloque seleccionado (Jon,
-        2026-07-06: antes se veían todas, apagadas al 40%, todo el rato —
-        ahora una asa que no es la del bloque seleccionado no se renderiza,
-        en vez de solo atenuarse). Ocultas también en modo resumida y en
-        bordes bloqueados. */}
+    {/* Asas del bloque seleccionado — SIEMPRE sus dos lados (Jon, 2026-07-16,
+        v3): cada lado es UN único elemento persistente (hl-/hr-) que muta
+        entre "libre" (a ras dentro del canto, chevron simple, redimensiona
+        este bloque) y "compartida" (centrada en la juntura con el vecino
+        imantado, chevron doble, arrastra el borde común de ambos — antes era
+        un tercer elemento sh- aparte). El cambio de estado se anima
+        (SCHEMA_CAP_TRANSITION); durante un arrastre, paintDrag pinta left a
+        cada frame con la variante _DRAG y muta radio/chevrones por ref, así
+        el asa acompaña al canto y se transforma en vez de desaparecer.
+        Ocultas en modo resumida; un canto bloqueado (borde de zona) sin
+        vecino imantado sigue sin asa, como antes. */}
     {viewMode !== "resumida" && real.flatMap(block => {
       if (selected !== block.id) return [];
+      const leftPair  = adjPairs.find(p => p.right.id === block.id);
+      const rightPair = adjPairs.find(p => p.left.id  === block.id);
       const lPct = ((block.start - bounds.min) / segDur) * 100;
       const rPct = ((block.end   - bounds.min) / segDur) * 100;
       const out: ReactNode[] = [];
-      // Ocultar el asa izquierda si el bloque está bloqueado al borde de zona
-      if (!adjLIds.has(block.id) && !block._lockedStart) out.push(
+      if (leftPair || !block._lockedStart) out.push(
         <div key={`hl-${block.id}`} data-block="true" ref={el => { handleElRefs.current[`hl-${block.id}`] = el; }}
-          style={{ ...capBase, borderRadius: `${_capRouter}px ${_capRinner}px ${_capRinner}px ${_capRouter}px`, cursor: "ew-resize", left: `${lPct}%` }}
-          onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}
-          onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-l"); }}>
-          {edgeChevron("l")}
+          style={{ ...capBase, transition: SCHEMA_CAP_TRANSITION, zIndex: leftPair ? 11 : 10,
+                   borderRadius: schemaCapRadius(lvId, leftPair ? "shared" : "l"),
+                   cursor: leftPair ? "col-resize" : "ew-resize",
+                   left: schemaCapLeft(lPct, leftPair ? "shared" : "l") }}
+          onMouseDown={e => { e.stopPropagation(); if (leftPair) handleSharedHandleDown(e, leftPair.left, leftPair.right); else handleBlockDown(e, block, "resize-l"); }}
+          onTouchStart={e => { e.stopPropagation(); if (leftPair) handleSharedHandleDown(e, leftPair.left, leftPair.right); else handleBlockDown(e, block, "resize-l"); }}>
+          {capChevrons("l", !!leftPair)}
         </div>
       );
-      // Ocultar el asa derecha si el bloque está bloqueado al borde de zona
-      if (!adjRIds.has(block.id) && !block._lockedEnd) out.push(
+      if (rightPair || !block._lockedEnd) out.push(
         <div key={`hr-${block.id}`} data-block="true" ref={el => { handleElRefs.current[`hr-${block.id}`] = el; }}
-          style={{ ...capBase, borderRadius: `${_capRinner}px ${_capRouter}px ${_capRouter}px ${_capRinner}px`, cursor: "ew-resize", left: `calc(${rPct}% - ${_capW}px)` }}
-          onMouseDown={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}
-          onTouchStart={e => { e.stopPropagation(); handleBlockDown(e, block, "resize-r"); }}>
-          {edgeChevron("r")}
+          style={{ ...capBase, transition: SCHEMA_CAP_TRANSITION, zIndex: rightPair ? 11 : 10,
+                   borderRadius: schemaCapRadius(lvId, rightPair ? "shared" : "r"),
+                   cursor: rightPair ? "col-resize" : "ew-resize",
+                   left: schemaCapLeft(rPct, rightPair ? "shared" : "r") }}
+          onMouseDown={e => { e.stopPropagation(); if (rightPair) handleSharedHandleDown(e, rightPair.left, rightPair.right); else handleBlockDown(e, block, "resize-r"); }}
+          onTouchStart={e => { e.stopPropagation(); if (rightPair) handleSharedHandleDown(e, rightPair.left, rightPair.right); else handleBlockDown(e, block, "resize-r"); }}>
+          {capChevrons("r", !!rightPair)}
         </div>
       );
       return out;
-    })}
-    {/* Asas de borde compartido — SOLO si uno de los dos bloques que la
-        comparten está seleccionado (antes: siempre visible, apagada al
-        40%). Ocultas también en modo resumida. */}
-    {viewMode !== "resumida" && adjPairs.filter(({ left, right }) => selected === left.id || selected === right.id).map(({ left, right }) => {
-      const pct = ((left.end - bounds.min) / segDur) * 100;
-      return (
-        <div key={`sh-${left.id}-${right.id}`} data-block="true" ref={el => { handleElRefs.current[`sh-${left.id}-${right.id}`] = el; }}
-          style={{ ...capBase, borderRadius: _capRouter, cursor: "col-resize", zIndex: 11, left: `calc(${pct}% - ${_capW / 2}px)` }}
-          onMouseDown={e => handleSharedHandleDown(e, left, right)}
-          onTouchStart={e => handleSharedHandleDown(e, left, right)}>
-          {edgeChevron("both")}
-        </div>
-      );
     })}
   </>);
 }

@@ -35,11 +35,17 @@ interface RepeatBandProps {
   selectedRepId: string | null;
   setSelectedRepId: React.Dispatch<React.SetStateAction<string | null>>;
   onDeselectBlock: () => void;
+  // Zoom actual del esquema — la banda ocupa todo el ancho escalado, pero el
+  // texto de ayuda debe centrarse en la porción VISIBLE, no en la línea de
+  // tiempo entera (por defecto 1/0 ⇒ comportamiento sin zoom, inset:0).
+  schemaZoom?: number;
+  schemaScrollFrac?: number;
 }
 
 export function RepeatBand({
   duration, blocks, localReps, setLocalReps, onSaveRepetitions, onDeleteRepeat,
   selectedRepId, setSelectedRepId, onDeselectBlock,
+  schemaZoom = 1, schemaScrollFrac = 0,
 }: RepeatBandProps) {
   const [bandDrag, setBandDrag] = useState<BandDrag | null>(null);
   // Fuente de verdad SÍNCRONA del arrastre de creación (Jon, 2026-07-06). El
@@ -265,9 +271,12 @@ export function RepeatBand({
           ) : null;
         })()}
 
-        {/* Hint cuando no hay repetición */}
+        {/* Hint cuando no hay repetición — su caja coincide con la porción
+            VISIBLE del esquema (no con el ancho escalado por el zoom), así el
+            flexbox centra el texto en el viewport a cualquier zoom. A zoom 1
+            degrada a left:0 / width:100% (idéntico al inset:0 de antes). */}
         {localReps.length === 0 && !bandDrag && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: `${schemaScrollFrac * (schemaZoom - 1) / schemaZoom * 100}%`, width: `${100 / schemaZoom}%`, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
             <span style={{ fontSize: 10, color: C.muted, letterSpacing: 0.3 }}>Arrastra aquí para crear una repetición</span>
           </div>
         )}

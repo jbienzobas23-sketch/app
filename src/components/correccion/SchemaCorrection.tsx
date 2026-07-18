@@ -7,7 +7,8 @@ import type { CSSProperties } from "react";
 import { C, S, FONT_SANS, FONT_SERIF } from "../../theme/tokens.js";
 import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
-import { SCHEMA_LEVELS } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, isTransitionLabel } from "../../lib/schema.js";
+import { TransitionArrow } from "../schema/TransitionArrow.js";
 import { rowButtonProps } from "../../lib/a11y.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { schemaDiagnostics, nota10 } from "../../lib/scoring.js";
@@ -134,13 +135,30 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                   const { bg, textColor } = schemaBlockColor(b, bks, paletteId);
                   const titleAttr = blockClickable ? `Comentar el bloque ${b.label}` : undefined;
                   const blockA11yProps = blockClickable ? rowButtonProps(() => onBlockClick?.(b)) : {};
-                  if (lv.id === 3) {
+                  // Bloque de transición (puente/transición/enlace): flecha, no
+                  // bloque — mismo lenguaje visual que el editor. Sigue siendo
+                  // clicable para comentar cuando la tira es interactiva.
+                  if (isTransitionLabel(b.label)) {
                     return (
-                      <div key={i} onClick={onBlk(b)} title={titleAttr} {...blockA11yProps} style={{ position: "absolute", top: 6, bottom: 6, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden", ...blockEvents }}>
-                        <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, minWidth: 0 }}>
+                      <div key={i} data-transition="true" onClick={onBlk(b)} title={titleAttr ?? b.label} {...blockA11yProps} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", ...blockEvents }}>
+                        <TransitionArrow color={bg} label={b.label ?? undefined} />
+                      </div>
+                    );
+                  }
+                  if (lv.id === 3) {
+                    // Los bloques de armonía son casi puntuales: la píldora se
+                    // pinta a su ancho NATURAL (antes, `width: wPct%` +
+                    // overflow:hidden la recortaba al ancho del bloque). El
+                    // espaciador flexible la sitúa en su tiempo y cede lo justo
+                    // junto al borde derecho para que nunca salga cortada del
+                    // carril; la línea de extensión se pinta aparte, bajo ella.
+                    return (
+                      <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: 0, right: 0, display: "flex", alignItems: "center", pointerEvents: "none" }}>
+                        {wPct >= 4 && <div style={{ position: "absolute", left: `${lPct}%`, width: `${Math.min(wPct, 100 - lPct)}%`, height: 2.5, background: bg, opacity: 0.55, borderRadius: 1.5 }} />}
+                        <div aria-hidden="true" style={{ width: `${lPct}%`, flexShrink: 1, minWidth: 0 }} />
+                        <div onClick={onBlk(b)} title={titleAttr} {...blockA11yProps} style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, position: "relative", ...blockEvents }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
                         </div>
-                        {wPct >= 4 && <div style={{ flex: 1, height: 2.5, background: bg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5 }} />}
                       </div>
                     );
                   }

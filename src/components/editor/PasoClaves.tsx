@@ -6,8 +6,9 @@
 // siempre (?paso=4 se conserva al volver, M5.6).
 import { useState } from "react";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
-import { SCHEMA_LEVELS } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, isTransitionLabel } from "../../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
+import { TransitionArrow } from "../schema/TransitionArrow.js";
 import { answerFor, keyReadyOf, partKeyReadyOf } from "../../lib/domain.js";
 import { MODEL_META } from "../../lib/modelMeta.js";
 import type { Exercise, Part } from "../../lib/types.js";
@@ -405,6 +406,13 @@ export function PasoClaves({ ed, num, total, plantillasInstrumento, onChangePlan
                                 const lPct = (b.start / exDur) * 100;
                                 const wPct = Math.max(((b.end - b.start) / exDur) * 100, 0.5);
                                 const { bg, textColor } = schemaBlockColor(b, key, (exercise.schemaPalette as string | undefined) || SCHEMA_PALETTE_DEFAULT);
+                                if (isTransitionLabel(b.label)) {
+                                  return (
+                                    <div key={i} data-transition="true" style={{ position: "absolute", top: 2, bottom: 2, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                      <TransitionArrow color={bg} label={b.label ?? undefined} thickness={1.5} headW={7} labelSize={8} gap={1} pad={4} />
+                                    </div>
+                                  );
+                                }
                                 if (lv.id === 3) {
                                   return (
                                     <div key={i} style={{ position: "absolute", top: 4, bottom: 4, left: `${lPct}%`, width: `${wPct}%`, display: "flex", alignItems: "center", overflow: "hidden" }}>
