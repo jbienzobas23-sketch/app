@@ -24,7 +24,7 @@ import type { Block } from "../../lib/repeats.js";
 import { getSegBounds } from "../../lib/repeats.js";
 import { harmonyBlockColors } from "../../lib/harmony.js";
 import { partColorFromPalette, phraseColorFromPalette } from "../../lib/palette.js";
-import { SCHEMA_LEVELS, SCHEMA_CAP_W, SCHEMA_CAP_TRANSITION, schemaBlockH, schemaCapRouter, schemaCapRadius, schemaCapLeft, isTransitionLabel } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_CAP_W, SCHEMA_CAP_TRANSITION, SCHEMA_ARMONIA_EXT_MIN, SCHEMA_CAP_PILL_LEVEL, SCHEMA_CAP_PILL_INSET, schemaBlockH, schemaCapRouter, schemaCapRadius, schemaCapLeft, isTransitionLabel } from "../../lib/schema.js";
 import { TransitionArrow } from "./TransitionArrow.js";
 
 interface SegBlocksProps {
@@ -142,7 +142,10 @@ export function SegBlocks({
     "aria-label": `Bloque ${block.label ?? ""}, de ${fmtClock(block.start)} a ${fmtClock(block.end)}`,
     onKeyDown: (e: any) => handleBlockKeyDown(e, block),
   };
-  const capBase: CSSProperties = { position: "absolute", top: 6, height: _blockH, width: _capW, background: "#FFFFFF", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
+  // En niveles de píldora el grip se inserta hacia dentro (arriba/abajo) para no
+  // pisar el canto redondeado del bloque — el inset lateral lo pone schemaCapLeft.
+  const _capPad = lvId >= SCHEMA_CAP_PILL_LEVEL ? SCHEMA_CAP_PILL_INSET : 0;
+  const capBase: CSSProperties = { position: "absolute", top: 6 + _capPad, height: _blockH - _capPad * 2, width: _capW, background: "#FFFFFF", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" };
   const _capChev   = "rgba(35,40,70,0.72)";
   const edgeChevron = (dir: "l" | "r" | "both") => (
     <svg width={dir === "both" ? 14 : 9} height="12" viewBox={dir === "both" ? "0 0 14 12" : "0 0 9 12"} fill="none" style={{ pointerEvents: "none" }}>
@@ -203,6 +206,14 @@ export function SegBlocks({
         lPct = Math.max(0, ((block.start - bounds.min) / segDur) * 100);
         wPct = Math.max(0, ((block.end - block.start) / segDur) * 100);
       }
+      // Armonía extendida más allá de la zona en el segmento COLAPSADO de la
+      // vista resumida (Jon, 2026-07-18): el desbordamiento NO se pinta aquí —
+      // la escala de este wrapper (insetado por las barras de repetición) no
+      // es la del segmento normal siguiente y la línea acababa corta. Se
+      // recorta el bloque al borde de la zona y la cola la dibuja
+      // SchemaExerciseView con timeToVisFrac, idéntica muestre la vez que
+      // muestre la fila.
+      if (seg.type === "repeat" && lvId === 3) wPct = Math.min(wPct, Math.max(0, 100 - lPct));
       const { bg: bBg, textColor: bTx } = blockColors.get(block.id)!;
 
       // ── Bloque de transición (puente/transición/enlace/retransición): FLECHA ──
@@ -270,9 +281,14 @@ export function SegBlocks({
                 )}
               </div>
             )}
-            {/* Línea horizontal hasta el borde derecho */}
-            {wPct >= 3 && (
-              <div style={{ flex: 1, minWidth: 0, height: 2.5, background: pillBg, opacity: 0.55, marginLeft: 4, borderRadius: 1.5, flexShrink: 1 }} />
+            {/* Línea de extensión hasta el borde derecho, pegada ABAJO (Jon,
+                2026-07-18): alineada al canto inferior — se lee como «la
+                tonalidad llega hasta aquí», no como un subrayado centrado — y
+                solo cuando el bloque tiene extensión mínima real en segundos
+                (SCHEMA_ARMONIA_EXT_MIN); por debajo quedaba un guion corto sin
+                significado junto a la píldora. */}
+            {(block.end - block.start) >= SCHEMA_ARMONIA_EXT_MIN && (
+              <div style={{ flex: 1, minWidth: 0, alignSelf: "flex-end", height: 2.5, background: pillBg, opacity: 0.55, marginLeft: 4, marginBottom: 2, borderRadius: 1.5, flexShrink: 1 }} />
             )}
           </div>
         );
@@ -379,7 +395,7 @@ export function SegBlocks({
           style={{ ...capBase, transition: SCHEMA_CAP_TRANSITION, zIndex: leftPair ? 11 : 10,
                    borderRadius: schemaCapRadius(lvId, leftPair ? "shared" : "l"),
                    cursor: leftPair ? "col-resize" : "ew-resize",
-                   left: schemaCapLeft(lPct, leftPair ? "shared" : "l") }}
+                   left: schemaCapLeft(lPct, leftPair ? "shared" : "l", lvId) }}
           onMouseDown={e => { e.stopPropagation(); if (leftPair) handleSharedHandleDown(e, leftPair.left, leftPair.right); else handleBlockDown(e, block, "resize-l"); }}
           onTouchStart={e => { e.stopPropagation(); if (leftPair) handleSharedHandleDown(e, leftPair.left, leftPair.right); else handleBlockDown(e, block, "resize-l"); }}>
           {capChevrons("l", !!leftPair)}
@@ -390,7 +406,7 @@ export function SegBlocks({
           style={{ ...capBase, transition: SCHEMA_CAP_TRANSITION, zIndex: rightPair ? 11 : 10,
                    borderRadius: schemaCapRadius(lvId, rightPair ? "shared" : "r"),
                    cursor: rightPair ? "col-resize" : "ew-resize",
-                   left: schemaCapLeft(rPct, rightPair ? "shared" : "r") }}
+                   left: schemaCapLeft(rPct, rightPair ? "shared" : "r", lvId) }}
           onMouseDown={e => { e.stopPropagation(); if (rightPair) handleSharedHandleDown(e, rightPair.left, rightPair.right); else handleBlockDown(e, block, "resize-r"); }}
           onTouchStart={e => { e.stopPropagation(); if (rightPair) handleSharedHandleDown(e, rightPair.left, rightPair.right); else handleBlockDown(e, block, "resize-r"); }}>
           {capChevrons("r", !!rightPair)}

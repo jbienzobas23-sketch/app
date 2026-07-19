@@ -166,6 +166,25 @@ describe("syncSecondPassBlocks (con makeId determinista inyectado)", () => {
     expect(synced).toMatchObject({ start: 120, end: 140, _lockedStart: false, _lockedEnd: true });
   });
 
+  it("ARMONÍA (nivel 3) al fin de zona: el fin NO se ancla (_lockedEnd false) — la tonalidad puede seguir", () => {
+    const rep = { id: "r1", first: { start: 0, end: 10 }, second: { start: 20, end: 30 } };
+    const b1 = { id: "b1", start: 0, end: 10, repeatId: "r1", pass: "first", level: 3, label: "Do M" };
+    const result = syncSecondPassBlocks([b1], [rep], makeCounter());
+    const created = result.find((b) => b.id !== "b1");
+    expect(created).toMatchObject({ _lockedStart: true, _lockedEnd: false, level: 3 });
+  });
+
+  it("ARMONÍA extendida más allá del fin de zona: la re-sincronización conserva el end manual", () => {
+    const rep = { id: "r1", first: { start: 0, end: 20 }, second: { start: 100, end: 140 } };
+    const b1 = { id: "b1", start: 10, end: 20, repeatId: "r1", pass: "first", level: 3 }; // al fin de zona
+    // El alumno extendió la 2ª vez hasta 155 (la tonalidad sigue tras la repetición).
+    const b2 = { id: "b2", start: 120, end: 155, repeatId: "r1", pass: "second", mirrorId: "b1", level: 3, overridden: true };
+    const result = syncSecondPassBlocks([b1, b2], [rep], makeCounter());
+    const synced = result.find((b) => b.id === "b2");
+    expect(synced.end).toBe(155);          // ni clamp a 140 ni duración proporcional
+    expect(synced._lockedEnd).toBe(false); // el asa derecha sigue disponible
+  });
+
   it("ratio de la 2ª vez ≠ 1ª (más corta): la duración derivada se escala, no se copia", () => {
     const rep = { id: "r1", first: { start: 0, end: 10 }, second: { start: 50, end: 55 } }; // fd=10, sd=5, ratio=0.5
     const b1 = { id: "b1", start: 2, end: 6, repeatId: "r1", pass: "first" }; // ancho 4, ni inicio ni fin de zona

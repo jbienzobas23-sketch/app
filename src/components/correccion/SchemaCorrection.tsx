@@ -7,7 +7,7 @@ import type { CSSProperties } from "react";
 import { C, S, FONT_SANS, FONT_SERIF } from "../../theme/tokens.js";
 import { scoreColor } from "../../lib/color.js";
 import { fmtClock } from "../../lib/time.js";
-import { SCHEMA_LEVELS, isTransitionLabel } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_ARMONIA_EXT_MIN, isTransitionLabel } from "../../lib/schema.js";
 import { TransitionArrow } from "../schema/TransitionArrow.js";
 import { rowButtonProps } from "../../lib/a11y.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
@@ -154,7 +154,9 @@ export function SchemaCorrection({ exercise, result, onBack, isTeacherMode = fal
                     // carril; la línea de extensión se pinta aparte, bajo ella.
                     return (
                       <div key={i} style={{ position: "absolute", top: 6, bottom: 6, left: 0, right: 0, display: "flex", alignItems: "center", pointerEvents: "none" }}>
-                        {wPct >= 4 && <div style={{ position: "absolute", left: `${lPct}%`, width: `${Math.min(wPct, 100 - lPct)}%`, height: 2.5, background: bg, opacity: 0.55, borderRadius: 1.5 }} />}
+                        {/* Línea de extensión pegada abajo y solo con extensión
+                            mínima real — mismo criterio que el editor. */}
+                        {(b.end - b.start) >= SCHEMA_ARMONIA_EXT_MIN && <div style={{ position: "absolute", bottom: 1, left: `${lPct}%`, width: `${Math.min(wPct, 100 - lPct)}%`, height: 2.5, background: bg, opacity: 0.55, borderRadius: 1.5 }} />}
                         <div aria-hidden="true" style={{ width: `${lPct}%`, flexShrink: 1, minWidth: 0 }} />
                         <div onClick={onBlk(b)} title={titleAttr} {...blockA11yProps} style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 10px", flexShrink: 0, position: "relative", ...blockEvents }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>

@@ -99,13 +99,7 @@ export function BlockDetailPanel({
             </button>
           </div>
         );
-      })() : (
-        <div style={{ flex: 1, fontSize: 12.5, color: C.muted, padding: "8px 10px", lineHeight: 1.5 }}>
-          {blocks.filter(b => !b.isPreview).length === 0
-            ? "Arrastra sobre cualquier pista para crear un bloque · doble toque para renombrar."
-            : `${blocks.filter(b => !b.isPreview).length} bloque${blocks.filter(b => !b.isPreview).length !== 1 ? "s" : ""} · selecciona uno para editarlo.`}
-        </div>
-      )}
+      })() : null}
 
       {/* Área de texto (nivel 4) — ancho completo bajo el panel de selección */}
       {selBlock?.level === 4 && !selBlock.isPreview && (

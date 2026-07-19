@@ -54,6 +54,9 @@ export function useInjectFonts(): void {
         +   ".fa-actionbar{flex-wrap:wrap;gap:8px}"
         +   ".fa-actionbar-primary{flex-basis:100%;order:3}"
         +   ".fa-actionbar-primary>*{flex:1;justify-content:center}"
+        // Variante sin texto de estado (info=null): todo cabe en una sola fila
+        +   ".fa-actionbar-nowrap{flex-wrap:nowrap}"
+        +   ".fa-actionbar-nowrap .fa-actionbar-primary{flex-basis:auto;order:0}"
         + "}"
         + ".fa-pressable{transition:transform .08s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease}"
         + ".fa-pressable:active{transform:scale(.97)}"

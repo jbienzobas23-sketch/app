@@ -119,6 +119,10 @@ export function syncSecondPassBlocks(blocks: Block[], reps: Rep[], makeId: () =>
       const isAtZoneStart = Math.abs(fb.start - rep.first.start) < 0.08;
       const isAtZoneEnd   = Math.abs(fb.end   - rep.first.end)   < 0.08;
       const derivedDur    = (fb.end - fb.start) * ratio;
+      // Un bloque de ARMONÍA de la 2ª vez nunca ancla su fin al borde de zona:
+      // la tonalidad puede continuar más allá de la repetición, así que su asa
+      // derecha debe seguir disponible para extenderlo (Jon, 2026-07-18).
+      const lockEnd = isAtZoneEnd && fb.level !== 3;
       // Posición por defecto (sin override)
       const ds = isAtZoneStart ? rep.second.start : rep.second.start + ((fb.start - rep.first.start) / fd) * sd;
       const de = isAtZoneEnd   ? rep.second.end   : ds + derivedDur;
@@ -139,11 +143,14 @@ export function syncSecondPassBlocks(blocks: Block[], reps: Rep[], makeId: () =>
         }
         newStart = Math.max(rep.second.start, newStart);
         newEnd   = Math.min(rep.second.end,   newEnd);
-        newSecond.push({ ...mirror, start: newStart, end: newEnd, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+        // Extensión manual de armonía más allá del fin de zona: se conserva
+        // tal cual — ni la duración proporcional ni el clamp la recortan.
+        if (fb.level === 3 && mirror.end > rep.second.end + 0.01) newEnd = mirror.end;
+        newSecond.push({ ...mirror, start: newStart, end: newEnd, _lockedStart: isAtZoneStart, _lockedEnd: lockEnd });
       } else if (mirror) {
-        newSecond.push({ ...mirror, start: ds, end: de, label: fb.label, level: fb.level, customColor: fb.customColor, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+        newSecond.push({ ...mirror, start: ds, end: de, label: fb.label, level: fb.level, customColor: fb.customColor, _lockedStart: isAtZoneStart, _lockedEnd: lockEnd });
       } else {
-        newSecond.push({ ...fb, id: makeId(), pass: "second", mirrorId: fb.id, start: ds, end: de, _lockedStart: isAtZoneStart, _lockedEnd: isAtZoneEnd });
+        newSecond.push({ ...fb, id: makeId(), pass: "second", mirrorId: fb.id, start: ds, end: de, _lockedStart: isAtZoneStart, _lockedEnd: lockEnd });
       }
     }
     // Overridden sin espejo primario: conservar

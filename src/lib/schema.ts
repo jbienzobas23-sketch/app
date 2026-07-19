@@ -36,6 +36,14 @@ export function isTransitionLabel(label?: string | null): boolean {
   return first != null && TRANSITION_WORDS.has(first);
 }
 
+// Extensión mínima (s) de un bloque de armonía para pintar su línea de
+// extensión (Jon, 2026-07-18): la línea significa «la tonalidad llega hasta
+// aquí» — por debajo de este umbral quedaba como un guion corto sin sentido
+// pegado a la píldora. En segundos (no en % del segmento) para que el criterio
+// sea musical e independiente del zoom. Compartida por las tres vistas que
+// pintan esquema (SegBlocks, SchemaStrip de la corrección, PasoClaves).
+export const SCHEMA_ARMONIA_EXT_MIN = 5;
+
 // Radio de imantación (Jon, 2026-07-06: reducido de 2.8 a 2 — se notaba
 // demasiado generoso, imantaba antes de acercar el borde de verdad).
 export const SCHEMA_SNAP_THR       = 2;
@@ -77,12 +85,25 @@ export const schemaBlockH = (level: number): number =>
 // coincidan: semicírculo en niveles de píldora (3+), 5px en rectángulos.
 export const schemaCapRouter = (level: number): number =>
   level >= 3 ? Math.round(schemaBlockH(level) / 2) : 5;
+// Niveles de "píldora" (Armonía/Texto): el bloque tiene los cantos totalmente
+// redondeados (radio = mitad de la altura). Un asa a ras del canto tapaba ese
+// canto con su cápsula blanca, así que el extremo del bloque se «veía» blanco
+// (Jon, 2026-07-18). En estos niveles el asa NO llega al canto: se insertan
+// `SCHEMA_CAP_PILL_INSET` px hacia dentro (canto exterior + arriba/abajo, este
+// último se aplica en el `capBase` de SegBlocks) y se dibuja como un grip
+// redondeado independiente, dejando el canto de color del bloque intacto.
+export const SCHEMA_CAP_PILL_LEVEL = 3;
+export const SCHEMA_CAP_PILL_INSET = 5;
+export const SCHEMA_CAP_PILL_R     = 5;
 export const schemaCapRadius = (level: number, side: SchemaCapSide): string => {
+  if (level >= SCHEMA_CAP_PILL_LEVEL && side !== "shared") return `${SCHEMA_CAP_PILL_R}px`;
   const r = schemaCapRouter(level);
   return side === "shared" ? `${r}px` : side === "l" ? `${r}px 0 0 ${r}px` : `0 ${r}px ${r}px 0`;
 };
 // `pct` es el borde del bloque (libre) o la juntura (compartida), en % del segmento.
-export const schemaCapLeft = (pct: number, side: SchemaCapSide): string =>
-  side === "shared" ? `calc(${pct}% - ${SCHEMA_CAP_W / 2}px)`
-  : side === "l"    ? `calc(${pct}% + ${SCHEMA_CAP_INSET}px)`
-  :                   `calc(${pct}% - ${SCHEMA_CAP_W + SCHEMA_CAP_INSET}px)`;
+export const schemaCapLeft = (pct: number, side: SchemaCapSide, level = 0): string => {
+  const pad = level >= SCHEMA_CAP_PILL_LEVEL && side !== "shared" ? SCHEMA_CAP_PILL_INSET : 0;
+  return side === "shared" ? `calc(${pct}% - ${SCHEMA_CAP_W / 2}px)`
+    : side === "l"    ? `calc(${pct}% + ${SCHEMA_CAP_INSET + pad}px)`
+    :                   `calc(${pct}% - ${SCHEMA_CAP_W + SCHEMA_CAP_INSET + pad}px)`;
+};

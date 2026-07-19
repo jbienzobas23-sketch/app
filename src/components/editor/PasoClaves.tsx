@@ -6,7 +6,7 @@
 // siempre (?paso=4 se conserva al volver, M5.6).
 import { useState } from "react";
 import { C, S, FONT_SANS } from "../../theme/tokens.js";
-import { SCHEMA_LEVELS, isTransitionLabel } from "../../lib/schema.js";
+import { SCHEMA_LEVELS, SCHEMA_ARMONIA_EXT_MIN, isTransitionLabel } from "../../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, schemaBlockColor } from "../../lib/palette.js";
 import { TransitionArrow } from "../schema/TransitionArrow.js";
 import { answerFor, keyReadyOf, partKeyReadyOf } from "../../lib/domain.js";
@@ -419,7 +419,7 @@ export function PasoClaves({ ed, num, total, plantillasInstrumento, onChangePlan
                                       <div style={{ background: bg, borderRadius: 999, display: "flex", alignItems: "center", padding: "2px 7px", flexShrink: 0 }}>
                                         <span style={{ fontSize: 9, fontWeight: 700, color: textColor, fontFamily: FONT_SANS, whiteSpace: "nowrap" }}>{b.label}</span>
                                       </div>
-                                      {wPct >= 4 && <div style={{ flex: 1, height: 2, background: bg, opacity: 0.5, marginLeft: 3, borderRadius: 1 }} />}
+                                      {(b.end - b.start) >= SCHEMA_ARMONIA_EXT_MIN && <div style={{ flex: 1, minWidth: 0, alignSelf: "flex-end", height: 2, background: bg, opacity: 0.5, marginLeft: 3, marginBottom: 1, borderRadius: 1 }} />}
                                     </div>
                                   );
                                 }

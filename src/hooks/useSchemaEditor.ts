@@ -26,6 +26,7 @@ export interface SchemaEditorState {
   // contrato que usaban ya todos los handlers de arrastre.
   setBlocksSnap: (updater: Block[] | ((prev: Block[]) => Block[])) => void;
   undo: () => void;
+  redo: () => void;
   // No toca `localReps` — el llamador (dueño de esa parte) compone su propio
   // reset añadiendo `setLocalReps([])`.
   resetBlocks: () => void;
@@ -42,11 +43,28 @@ export function useSchemaEditor(
   // Eleva el borrador al padre (SessionShell, M4.1) en cada cambio.
   useEffect(() => { onDraftChange?.(blocks); }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
   const [history, setHistory] = useState<Block[][]>([]);
+  // Pila de rehacer (Jon, 2026-07-18): deshacer apila aquí el presente.
+  // CUALQUIER cambio de bloques ajeno a undo/redo la invalida (los estados
+  // apilados ya no describen un futuro alcanzable) — ver el efecto de abajo,
+  // que observa `blocks` en vez de envolver cada push de historial (los hay
+  // repartidos por los handlers de arrastre, teclado y panel).
+  const [redoStack, setRedoStack] = useState<Block[][]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [editId,  setEditId]  = useState<string | null>(null);
   const [editVal, setEditVal] = useState("");
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  // Espejos síncronos para undo/redo (sin efectos secundarios dentro de
+  // updaters de estado, que StrictMode invoca dos veces en desarrollo).
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const redoRef = useRef(redoStack);
+  redoRef.current = redoStack;
+  const undoingRef = useRef(false);
+  useEffect(() => {
+    if (undoingRef.current) { undoingRef.current = false; return; }
+    if (redoRef.current.length) { redoRef.current = []; setRedoStack([]); }
+  }, [blocks]);
 
   const localRepsForSync = useRef(localReps);
   localRepsForSync.current = localReps;
@@ -64,12 +82,28 @@ export function useSchemaEditor(
       return next;
     });
   };
-  const undo = () => setHistory(p => {
-    if (!p.length) return p;
+  const undo = () => {
+    const p = historyRef.current;
+    if (!p.length) return;
+    undoingRef.current = true;
+    redoRef.current = [...redoRef.current, blocksRef.current];
+    setRedoStack(redoRef.current);
+    historyRef.current = p.slice(0, -1);
+    setHistory(historyRef.current);
     setBlocks(p[p.length - 1]);
     setSelected(null); setEditId(null); setEditVal("");
-    return p.slice(0, -1);
-  });
+  };
+  const redo = () => {
+    const r = redoRef.current;
+    if (!r.length) return;
+    undoingRef.current = true;
+    historyRef.current = [...historyRef.current, blocksRef.current];
+    setHistory(historyRef.current);
+    redoRef.current = r.slice(0, -1);
+    setRedoStack(redoRef.current);
+    setBlocks(r[r.length - 1]);
+    setSelected(null); setEditId(null); setEditVal("");
+  };
   const resetBlocks = () => { setHistory([]); setBlocks([]); setSelected(null); setEditId(null); setEditVal(""); };
 
   const commitEdit = () => {
@@ -91,6 +125,6 @@ export function useSchemaEditor(
     history, setHistory,
     selected, setSelected,
     editId, setEditId, editVal, setEditVal,
-    setBlocksSnap, undo, resetBlocks, commitEdit,
+    setBlocksSnap, undo, redo, resetBlocks, commitEdit,
   };
 }

@@ -13,7 +13,7 @@
 // extrajo aparte (C4.3e → components/schema/SegBlocks.tsx): no toca los refs
 // de drag directamente, solo invoca handleBlockDown/handleSharedHandleDown
 // (ya cerrados sobre ellos en este fichero), así que salió sin ese riesgo.
-import React, { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, type ReactNode } from "react";
 import type { Exercise } from "../lib/types.js";
 import type { Block, Rep } from "../lib/repeats.js";
 import { C, F, S, FONT_SANS } from "../theme/tokens.js";
@@ -22,6 +22,7 @@ import { fmtClock } from "../lib/time.js";
 import { SCHEMA_LEVELS, SCHEMA_DEFAULT_LABELS, SCHEMA_SNAP_THR, SCHEMA_MIN_DUR, SCHEMA_CLICK_MS, SCHEMA_CLICK_MOVE_THR, SCHEMA_CLICK_DUR_FRAC, SCHEMA_CAP_TRANSITION, SCHEMA_CAP_TRANSITION_DRAG, schemaCapLeft, schemaCapRadius } from "../lib/schema.js";
 import { SCHEMA_PALETTE_DEFAULT, snapToNearest } from "../lib/palette.js";
 import { buildRepeatSegments, buildCompleteViewSegments, syncSecondPassBlocks, getSegBounds, REPEAT_BARLINE_W, rulerTicksForSeg } from "../lib/repeats.js";
+import { harmonyBlockColors } from "../lib/harmony.js";
 import { useAudioPlayer } from "../hooks/useAudioPlayer.js";
 import { useSchemaZoom } from "../hooks/useSchemaZoom.js";
 import { useSchemaEditor } from "../hooks/useSchemaEditor.js";
@@ -114,7 +115,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     history, setHistory,
     selected, setSelected,
     editId, setEditId, editVal, setEditVal,
-    setBlocksSnap, undo, resetBlocks, commitEdit,
+    setBlocksSnap, undo, redo, resetBlocks, commitEdit,
   } = useSchemaEditor(initialDraft ?? (exercise.blocks as Block[] | undefined) ?? [], viewMode, localReps, onDraftChange);
   const resetAll = () => { resetBlocks(); setLocalReps([]); };
 
@@ -493,6 +494,18 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   // arrastre por ratón/táctil (onUp, C4.3g) y el redimensionado por teclado
   // (handleBlockKeyDown, C4.3h) — ambos calculan `cascadeIds` de la misma forma
   // (ver handleBlockDown) y solo necesitan aplicar el nuevo valor de borde.
+  // Tope de extensión de un bloque de ARMONÍA de 2ª vez MÁS ALLÁ del fin de
+  // su zona (Jon, 2026-07-18): la tonalidad puede continuar tras la
+  // repetición, así que su fin puede cruzar el borde — hasta la siguiente
+  // zona de repetición, el siguiente bloque de armonía del contexto normal,
+  // o el final de la pieza, lo que llegue antes.
+  const harmonyExtMax = (zoneEnd: number): number => {
+    const cands = [duration];
+    for (const r2 of localRepsRef.current) if (r2.first.start >= zoneEnd - 0.01) cands.push(r2.first.start);
+    for (const b of blocksRef.current) if (b.level === 3 && !b.repeatId && !b.isPreview && b.start >= zoneEnd - 0.01) cands.push(b.start);
+    return Math.min(...cands);
+  };
+
   const cascadeBoundary = (arr: Block[], cascadeIds: { id: string; side: string }[] | undefined, newT: number) => {
     if (!cascadeIds?.length) return arr;
     return arr.map((b: Block) => {
@@ -538,7 +551,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
   const paintCap = (key: string, pct: number, side: "l" | "r", shared: boolean, level: number) => {
     const el = handleElRefs.current[key]; if (!el) return;
     el.style.transition = SCHEMA_CAP_TRANSITION_DRAG;
-    el.style.left = schemaCapLeft(pct, shared ? "shared" : side);
+    el.style.left = schemaCapLeft(pct, shared ? "shared" : side, level);
     el.style.borderRadius = schemaCapRadius(level, shared ? "shared" : side);
     const single = el.querySelector<HTMLElement>('[data-chev="single"]');
     const both   = el.querySelector<HTMLElement>('[data-chev="both"]');
@@ -627,7 +640,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
       const el = trackSegRefs.current[d.segKey]; if (!el) return d.anchor;
       const r = el.getBoundingClientRect();
       const x = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
-      return d.segMin + Math.max(0, Math.min(1, (x - r.left) / r.width)) * (d.segMax - d.segMin);
+      const raw = (x - r.left) / r.width;
+      // allowBeyondSegEnd (armonía de 2ª vez, resize-r): la fracción puede
+      // pasar de 1 — el fin cruza el borde de la zona; el tope real es extMax.
+      const f = d.allowBeyondSegEnd ? Math.max(0, raw) : Math.max(0, Math.min(1, raw));
+      return d.segMin + f * (d.segMax - d.segMin);
     };
 
     const onMove = (e: any) => {
@@ -732,7 +749,8 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
       if (d.type === "resize-r") {
         const rightNb = d.rightId ? all.find(b => b.id === d.rightId) : null;
-        const maxNe   = rightNb ? rightNb.start : d.segMax;
+        // extMax (armonía de 2ª vez): el fin puede cruzar el borde de zona.
+        const maxNe   = rightNb ? rightNb.start : (d.extMax ?? d.segMax);
         let ne = cl(snapBounds(t), d.os + SCHEMA_MIN_DUR, maxNe);
         // Imán al vecino inmediato del mismo nivel (ver resize-l).
         if (rightNb && Math.abs(ne - rightNb.start) < SCHEMA_SNAP_THR) ne = rightNb.start;
@@ -915,6 +933,11 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
     if (type === "resize-r") {
       const rn = ctx.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
       extra = { rightId: rn?.id, rightEnd: rn?.end };
+      // Armonía en la 2ª vez: su fin puede cruzar el borde de la zona (la
+      // tonalidad sigue tras la repetición) — pixToTime deja pasar la
+      // fracción de 1 y el clamp real lo pone extMax en la rama resize-r.
+      if (block.level === 3 && block.pass === "second")
+        extra = { ...extra, allowBeyondSegEnd: true, extMax: harmonyExtMax(bounds.max) };
     } else if (type === "resize-l") {
       const ln = ctx.filter(b => b.end <= block.start + 0.5).sort((a, b) => b.end - a.end)[0];
       extra = { leftId: ln?.id, leftStart: ln?.start };
@@ -1071,7 +1094,9 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
     if (mode === "resize-r") {
       const rightNb = sameLevel.filter(b => b.start >= block.end - 0.5).sort((a, b) => a.start - b.start)[0];
-      const maxNe = rightNb ? rightNb.start : bounds.max;
+      // Mismo tope extendido que el asa del ratón (armonía de 2ª vez).
+      const maxNe = rightNb ? rightNb.start
+        : (block.level === 3 && block.pass === "second" ? harmonyExtMax(bounds.max) : bounds.max);
       let ne = stepSnap(block.end);
       ne = Math.max(block.start + SCHEMA_MIN_DUR, Math.min(maxNe, ne));
       setBlocks(prev => cascadeBoundary(
@@ -1090,6 +1115,105 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         computeCascade(block.start), ns));
     }
   };
+
+  // ── Atajos de teclado estándar (Jon, 2026-07-18) ─────────────────────────
+  // Ctrl/Cmd+Z deshace y Ctrl/Cmd+Shift+Z (o Ctrl+Y) rehace; Ctrl/Cmd+C copia
+  // el bloque seleccionado, Ctrl/Cmd+X lo corta y Ctrl/Cmd+V pega una copia en
+  // el playhead (mismo nivel; si pisa un bloque se encaja tras él y se recorta
+  // al hueco disponible); Supr/Retroceso elimina igual que el botón «Eliminar»
+  // del panel. El portapapeles es interno del editor (no el del sistema). No
+  // se intercepta nada mientras se escribe (inputs/textarea, incluida la
+  // edición de etiqueta), ni en solo-escucha; las mutaciones se desactivan en
+  // vista resumida (solo lectura) — deshacer/rehacer sí funcionan siempre.
+  const clipboardRef = useRef<{ level: number; label?: string; customColor?: string; bodyText?: string; dur: number } | null>(null);
+  const pasteAtPlayhead = () => {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    const t0 = timeRef.current ?? 0;
+    const seg = segmentsRef.current.find((sg: any) => {
+      if (sg.type === "normal") return t0 >= sg.recStart - 0.01 && t0 < sg.recEnd + 0.01;
+      if (sg.type === "repeat-first")  return t0 >= sg.rep.first.start  && t0 < sg.rep.first.end;
+      if (sg.type === "repeat-second") return t0 >= sg.rep.second.start && t0 < sg.rep.second.end;
+      return false;
+    });
+    if (!seg) return;
+    const repeatId = seg.type === "normal" ? null : seg.rep.id;
+    const pass     = seg.type === "normal" ? null : seg.type === "repeat-second" ? "second" : "first";
+    const bounds   = getSegBounds(seg, pass ?? "normal");
+    let ns = Math.max(bounds.min, Math.min(t0, bounds.max - SCHEMA_MIN_DUR));
+    let ne = Math.min(ns + clip.dur, bounds.max);
+    // Sin solapes con el mismo nivel y contexto: se encaja tras el bloque que
+    // pise (ordenados, la recolocación cascada bien) y se recorta al hueco.
+    const ctx = blocksRef.current
+      .filter(b => b.level === clip.level && (b.repeatId ?? null) === repeatId && (b.pass ?? null) === pass && !b.isPreview)
+      .sort((a, b) => a.start - b.start);
+    for (const nb of ctx) {
+      if (ns < nb.end - 0.01 && ne > nb.start + 0.01) { ns = nb.end; ne = Math.min(ns + clip.dur, bounds.max); }
+    }
+    const next = ctx.find(b => b.start >= ns - 0.01 && b.start < ne);
+    if (next) ne = next.start;
+    if (ne - ns < SCHEMA_MIN_DUR) return; // sin hueco razonable donde pegar
+    const nuevo: Block = {
+      id: uid("sb"), level: clip.level, start: ns, end: ne,
+      label: clip.label, customColor: clip.customColor,
+      ...(clip.bodyText ? { bodyText: clip.bodyText } : {}),
+      repeatId, pass,
+      ...(pass === "second" ? { overridden: true } : {}),
+    };
+    setBlocksSnap(prev => [...prev, nuevo]);
+    setSelected(nuevo.id);
+  };
+  useEffect(() => {
+    if (listenOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tg = e.target as HTMLElement | null;
+      if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.isContentEditable)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (mod && ((k === "z" && e.shiftKey) || k === "y")) { e.preventDefault(); redo(); return; }
+      const readOnly = viewModeRef.current === "resumida";
+      if (mod && (k === "c" || k === "x")) {
+        const sel = blocksRef.current.find(b => b.id === selected && !b.isPreview);
+        if (!sel) return;
+        e.preventDefault();
+        clipboardRef.current = { level: sel.level ?? 3, label: sel.label, customColor: sel.customColor, bodyText: sel.bodyText, dur: sel.end - sel.start };
+        if (k === "x" && !readOnly) {
+          setHistory(prev => [...prev, blocksRef.current]);
+          setBlocks(prev => prev.filter(b => b.id !== sel.id));
+          setSelected(null);
+        }
+        return;
+      }
+      if (mod && k === "v") { if (!readOnly) { e.preventDefault(); pasteAtPlayhead(); } return; }
+      if ((e.key === "Delete" || e.key === "Backspace") && selected && !readOnly) {
+        e.preventDefault();
+        const id = selected;
+        setHistory(prev => [...prev, blocksRef.current]);
+        setBlocks(prev => prev.filter(b => b.id !== id));
+        setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // `selected` en deps para leerlo fresco; el resto se lee por refs y los
+    // callbacks del hook son seguros ante closures viejos (usan updaters/refs).
+  }, [listenOnly, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Vertical de la bola del reproductor (Jon, 2026-07-18) ────────────────
+  // La bola vive fuera de la tarjeta (capa sin recorte) y su `top` se calcula
+  // midiendo la regla. Pero medir DURANTE el render de un cambio de layout
+  // (p. ej. completa→resumida) devuelve el layout ANTERIOR y, con la
+  // reproducción en pausa, ningún render posterior lo corrige — la bola
+  // quedaba flotando entre las filas 1ª/2ª. Este efecto re-mide tras CADA
+  // commit, con el layout ya actualizado (barato: una escritura de estilo).
+  const ballElRef   = useRef<HTMLDivElement | null>(null);
+  const ballYPctRef = useRef(50);
+  useLayoutEffect(() => {
+    const el = ballElRef.current, ruler = rulerContainerRef.current;
+    if (!el || !ruler) return;
+    el.style.top = `${1 + ruler.offsetTop + (ballYPctRef.current / 100) * ruler.offsetHeight}px`;
+  });
 
   const exSchemaLevels = exercise.schemaLevels as number[] | undefined;
   const activeLevels = SCHEMA_LEVELS.filter(lv =>
@@ -1120,7 +1244,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
 
   // ── JSX principal ────────────────────────────────────────────────────────
   return (
-    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}>
+    // La deselección por clic vive en el contenedor EXTERIOR (Jon, 2026-07-18):
+    // antes estaba en la columna central (maxWidth 980) y pinchar en los
+    // márgenes laterales de la página no deseleccionaba el bloque. La guarda
+    // (ni bloque, ni botón, ni input) protege igual todos los interactivos.
+    <div style={{ ...S.app, display: "flex", flexDirection: "column" }}
+      onMouseDown={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
+      onTouchStart={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
       <SessionHeader exercise={exercise} onBack={onBack} modelId="esquema" />
 
       {showRepModal && (
@@ -1131,9 +1261,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           onClose={() => setShowRepModal(false)} />
       )}
 
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}
-        onMouseDown={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}
-        onTouchStart={e => { const tg = e.target as HTMLElement; if (!tg.closest("[data-block]") && !tg.closest("button") && !tg.closest("input")) { setSelected(null); setSelectedRepId(null); } }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 24px", flex: 1 }}>
 
         {modelToggleNode}
 
@@ -1269,8 +1397,13 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     ref={el => { trackSegRefs.current[`ruler_${si}_normal`] = el; }}
                     style={{ flex: seg.canonDur, position: "relative", height: viewMode === "resumida" && hasRepeats ? 57 : 28, background: C.paper2, cursor: listenOnly ? "crosshair" : "pointer", overflow: "hidden" }}
                     {...(!listenOnly ? { onMouseDown: e => handleSegRulerDown(e, seg, "normal"), onTouchStart: e => handleSegRulerDown(e, seg, "normal") } : {})}>
-                    {/* Pista horizontal — en resumida alineada con el centro de la 2ª vez */}
-                    <div style={{ position: "absolute", top: viewMode === "resumida" && hasRepeats ? "75%" : "50%", left: 0, right: 0, height: 2.5, background: `${C.muted}55`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3 }} />
+                    {/* Pista horizontal — en resumida alineada con el centro EXACTO
+                        de la fila 2ª: 43px = fila 1ª (28) + separador (1) + media
+                        fila (14). El 75% de antes daba 42.75 y el cuarto de píxel
+                        rasterizaba como escalón/cambio de grosor en la unión con
+                        el carril de la zona. Mismo tono que los carriles
+                        inactivos (40) para que la unión sea invisible. */}
+                    <div style={{ position: "absolute", top: viewMode === "resumida" && hasRepeats ? 43 : "50%", left: 0, right: 0, height: 2.5, background: viewMode === "resumida" && hasRepeats ? `${C.muted}40` : `${C.muted}55`, transform: "translateY(-50%)", pointerEvents: "none", zIndex: 3 }} />
                     {/* Marcas listen-only */}
                     {listenOnly && schemaMarks.filter(mt => mt >= bounds.min && mt < bounds.max).map((mt, mi) => {
                       const pct = ((mt - bounds.min) / segDur) * 100;
@@ -1476,8 +1609,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                 const { rep } = seg;
                 const isFA = time >= rep.first.start  && time < rep.first.end;
                 const isSA = time >= rep.second.start && time < rep.second.end;
-                // Qué vez mostrar: la que suena, o la seleccionada manualmente
-                const displayPass = isFA ? "first" : isSA ? "second" : (selectedPass[rep.id] || "first");
+                // Qué vez mostrar: la que suena, o la seleccionada manualmente.
+                // Pasada ya la 2ª vez, por defecto se queda la 2ª (Jon,
+                // 2026-07-18): es la capa musicalmente vigente y la única que
+                // puede llevar una armonía extendida más allá de la zona — con
+                // "first" la línea de extensión desaparecía en cuanto la
+                // reproducción superaba la segunda repetición.
+                const displayPass = isFA ? "first" : isSA ? "second"
+                  : (selectedPass[rep.id] || (time >= rep.second.end ? "second" : "first"));
                 // Barlines en todos los niveles del esquema
                 const barInset = REPEAT_BARLINE_W;
 
@@ -1503,6 +1642,29 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
                     </div>
                   </div>
                 );
+              })}
+
+              {/* Cola de armonía más allá de la 2ª repetición (Jon, 2026-07-18):
+                  la continuación de la tonalidad es un dato de la PIEZA, no de
+                  una vez concreta, así que en resumida se ve SIEMPRE — muestre
+                  la fila la vez que muestre (el bloque de la 2ª ya no pinta su
+                  desbordamiento en el segmento colapsado: SegBlocks lo recorta
+                  al borde de la zona, porque su escala insetada por las barras
+                  acababa la línea corta). La posición usa timeToVisFrac —la
+                  misma proyección continua que la bola— para caer con escala
+                  correcta sobre el segmento normal que sigue a la zona. */}
+              {lv.id === 3 && viewMode === "resumida" && hasRepeats && localReps.map(rep => {
+                return blocks
+                  .filter(b => b.level === 3 && b.pass === "second" && b.repeatId === rep.id && !b.isPreview && b.end > rep.second.end + 0.05)
+                  .map(m => {
+                    const f0 = timeToVisFrac(rep.second.end);
+                    const f1 = timeToVisFrac(m.end);
+                    if (f1 - f0 < 0.001) return null;
+                    const col = m.customColor ? harmonyBlockColors(null, m.customColor).bg : harmonyBlockColors(m.label ?? null, lv.color).bg;
+                    return (
+                      <div key={`cola-${m.id}`} style={{ position: "absolute", left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`, bottom: 8, height: 2.5, background: col, opacity: 0.55, borderRadius: 1.5, pointerEvents: "none", zIndex: 4 }} />
+                    );
+                  });
               })}
             </div>
           ))}
@@ -1596,14 +1758,20 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           for (const sg of segments) {
             if (sg.type !== "repeat") continue;
             const fp = sg.rep.first, sp = sg.rep.second;
-            if (time < fp.start || time >= sp.end) continue; // este segmento no contiene el tiempo actual
+            // Media segunda de tolerancia ANTES de la zona (Jon, 2026-07-18):
+            // una repetición creada «en 0» suele empezar en 0.2-0.4s por el
+            // redondeo del arrastre, y en t=0 la bola caía a la fila de abajo
+            // (sección "normal") aunque visualmente la zona arranca al borde —
+            // con la tolerancia monta ya en la fila 1ª, que es donde va a
+            // entrar la reproducción.
+            if (time < fp.start - 0.5 || time >= sp.end) continue;
             const fd = (fp.end - fp.start) || 1;
             const sd = (sp.end - sp.start) || 1;
             const barFrac = rulerW > 0 ? REPEAT_BARLINE_W / rulerW : 0;
             const segVW   = sg.vEnd - sg.vStart;
             const innerVW = segVW - 2 * barFrac;
-            if (time >= fp.start && time < fp.end) {
-              xPct = (sg.vStart + barFrac + (time - fp.start) / fd * innerVW) * 100;
+            if (time < fp.end) {
+              xPct = (sg.vStart + barFrac + Math.max(0, time - fp.start) / fd * innerVW) * 100;
               yPct = 25; // centro de la fila 1ª (14 px de 57 px = 24.6 %)
             } else if (time >= sp.start && time < sp.end) {
               xPct = (sg.vStart + barFrac + (time - sp.start) / sd * innerVW) * 100;
@@ -1615,12 +1783,16 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
           if (pctCard < -0.5 || pctCard > 100.5) return null;
           // y: la regla dentro del contenedor de escala (offsetTop ya incluye la
           // banda de repetición encima) + su fila; +1 por el borde de la tarjeta.
+          // Es solo el valor INICIAL: el useLayoutEffect de la bola lo re-mide
+          // tras cada commit — medir aquí, en pleno render de un cambio de
+          // layout (completa↔resumida), da el layout anterior.
+          ballYPctRef.current = yPct;
           const y = 1 + ruler.offsetTop + (yPct / 100) * ruler.offsetHeight;
           return (
             // Sub-capa insetada 1px: su 100% es el ancho INTERIOR de la tarjeta
             // (sin bordes), el mismo % base que usa el contenedor de escala.
             <div style={{ position: "absolute", left: 1, right: 1, top: 0, bottom: 0, pointerEvents: "none" }}>
-              <div style={{ position: "absolute", top: y, left: `${pctCard}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", zIndex: 31 }} />
+              <div ref={ballElRef} style={{ position: "absolute", top: y, left: `${pctCard}%`, transform: "translate(-50%,-50%)", width: 14, height: 14, borderRadius: "50%", background: C.danger, border: `2px solid ${C.paper}`, boxShadow: "0 1px 4px rgba(0,0,0,0.25)", zIndex: 31 }} />
             </div>
           );
         })()}
@@ -1674,7 +1846,14 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
         secondary={listenOnly ? null : (
           <div style={{ display: "flex", gap: 8 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
             <BarIconButton onClick={undo} disabled={history.length === 0} title="Deshacer">↩</BarIconButton>
-            <BarIconButton onClick={resetAll} disabled={blocks.filter(b => !b.isPreview).length === 0} title="Borrar todo" danger>✕</BarIconButton>
+            {(() => { const disabled = blocks.filter(b => !b.isPreview).length === 0; return (
+              <button onClick={resetAll} disabled={disabled} className="fa-pressable" style={{
+                height: 40, borderRadius: 10, flexShrink: 0, padding: "0 14px",
+                background: C.paper, border: "1px solid rgba(184,74,58,0.4)", color: C.danger,
+                cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.35 : 1,
+                fontFamily: F.sans, fontSize: 12.5, fontWeight: 600,
+              }}>Borrar todo</button>
+            ); })()}
           </div>
         )}
         info={
@@ -1685,14 +1864,7 @@ export function SchemaExerciseView({ exercise, mode, onSubmit, onBack, modelTogg
               </span>
               <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Toca la regla para añadir una marca</span>
             </>
-          ) : (
-            <>
-              <span style={{ fontFamily: F.sans, fontSize: 13, fontWeight: 600, color: C.ink }}>
-                {(() => { const n = blocks.filter(b => !b.isPreview).length; return n === 0 ? "Sin bloques todavía" : `${n} ${n === 1 ? "bloque" : "bloques"}`; })()}
-              </span>
-              <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>Arrastra en una pista para crear</span>
-            </>
-          )
+          ) : null
         }>
         <BarSubmitButton onClick={handleSubmit} accent={C.fnD}>
           {mode === "record" ? "Guardar clave" : mode === "preview" ? "Ver resultado" : "Entregar"}

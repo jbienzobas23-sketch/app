@@ -431,7 +431,12 @@ export function SessionHint({ modelId, extra = null }: SessionHintProps) {
 // Barra de acción inferior fija. Garantiza que la acción principal (Entregar /
 // Guardar clave) esté siempre visible y al alcance del pulgar en móvil.
 // `secondary` permite añadir controles a la izquierda (deshacer, borrar…).
+// En móvil la barra tapa parte del lienzo, así que una pestañita en su borde
+// superior permite plegarla/desplegarla (Jon, 2026-07-18).
 export function StickyActionBar({ children, secondary = null, info = null }: StickyActionBarProps) {
+  const isMobile = useIsMobile();
+  const [collapsed, setCollapsed] = useState(false);
+  const hidden = isMobile && collapsed;
   return (
     <div className="fa-sticky-bar" style={{
       background: "rgba(255,255,255,0.86)",
@@ -439,16 +444,35 @@ export function StickyActionBar({ children, secondary = null, info = null }: Sti
       WebkitBackdropFilter: "saturate(180%) blur(12px)",
       borderTop: `1px solid ${C.line}`,
       marginTop: "auto",   // en flex-column empuja la barra al fondo
-      padding: "10px 16px",
-      paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
+      padding: hidden ? "0 16px" : "10px 16px",
+      paddingBottom: hidden ? "env(safe-area-inset-bottom, 0px)" : "calc(10px + env(safe-area-inset-bottom, 0px))",
       boxShadow: "0 -6px 22px rgba(26,25,21,0.06)",
     }}>
-      <div className="fa-actionbar" style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+      {isMobile && (
+        <button onClick={() => setCollapsed(c => !c)} className="fa-pressable"
+          aria-label={collapsed ? "Mostrar barra de acciones" : "Ocultar barra de acciones"}
+          aria-expanded={!collapsed}
+          style={{
+            position: "absolute", top: 0, right: 14, transform: "translateY(-100%)",
+            background: "rgba(255,255,255,0.86)",
+            backdropFilter: "saturate(180%) blur(12px)",
+            WebkitBackdropFilter: "saturate(180%) blur(12px)",
+            border: `1px solid ${C.line}`, borderBottom: "none",
+            borderRadius: "9px 9px 0 0", padding: "4px 14px 3px",
+            cursor: "pointer", display: "flex", alignItems: "center",
+          }}>
+          <Chevron open={collapsed} color={C.muted} />
+        </button>
+      )}
+      {/* Sin `info` la barra queda en una sola fila también en móvil (nowrap) */}
+      <div className={`fa-actionbar${info != null ? "" : " fa-actionbar-nowrap"}`} style={{ maxWidth: 980, margin: "0 auto", display: hidden ? "none" : "flex", alignItems: "center", gap: 10 }}>
         {secondary}
-        <div className="fa-actionbar-info" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-          {info}
-        </div>
-        <div className="fa-actionbar-primary" style={{ flexShrink: 0, display: "flex" }}>
+        {info != null && (
+          <div className="fa-actionbar-info" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+            {info}
+          </div>
+        )}
+        <div className="fa-actionbar-primary" style={info != null ? { flexShrink: 0, display: "flex" } : { flex: 1, minWidth: 0, display: "flex", justifyContent: "flex-end" }}>
           {children}
         </div>
       </div>

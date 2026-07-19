@@ -583,7 +583,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
         }
 
         const nowMs = (typeof performance !== "undefined" ? performance.now() : Date.now());
-        const ANIM_MS = 260;
+        const ANIM_MS = 320;
         ctx.font = `700 10px ${FONT_SANS}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -593,25 +593,26 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
           const x2 = (Math.min(iv.end, dur) - t) * pxPerSec + W / 2;
           if (x2 <= 0 || x1 >= W) continue;
 
-          // Relleno animado (snap sobre pista): revela el bloque de izquierda a
-          // derecha y sube la opacidad con easeOutCubic. Sin _anim → instantáneo.
-          let animAlpha = 1, rightAbs = x2;
+          // Relleno animado (snap sobre pista): fundido del bloque COMPLETO
+          // (Jon, 2026-07-18 — antes se revelaba de izquierda a derecha y leía
+          // mecánico): opacidad 0→1 con easeOutCubic, a anchura y altura
+          // finales desde el primer frame. Etiqueta y bloque funden como una
+          // sola pieza. Sin _anim → instantáneo.
+          let animAlpha = 1;
           if (iv._anim) {
             const prog = Math.min(1, (nowMs - iv._anim) / ANIM_MS);
-            const e = 1 - Math.pow(1 - prog, 3);
-            animAlpha = 0.3 + 0.7 * e;
-            rightAbs = x1 + (x2 - x1) * e;
+            animAlpha = 1 - Math.pow(1 - prog, 3);
           }
 
-          const cx1 = Math.max(0, x1), cx2 = Math.min(W, rightAbs), bw = cx2 - cx1;
+          const cx1 = Math.max(0, x1), cx2 = Math.min(W, x2), bw = cx2 - cx1;
           if (bw < 0.5) continue;
           ctx.globalAlpha = (iv.id === "live" ? 0.5 : 1) * animAlpha;
           ctx.fillStyle = (cmap && cmap[iv.fn]) || "rgba(26,25,21,0.4)";
           drawPill(cx1, bandTop, bw, BAND_H);
-          // Etiqueta solo cuando el bloque ya está casi/totalmente revelado
+          // La etiqueta acompaña al fundido (misma alpha que el bloque)
           const fullBw = Math.min(W, x2) - Math.max(0, x1);
-          if (fullBw > 14 && (!iv._anim || animAlpha > 0.85)) {
-            ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
+          if (fullBw > 14) {
+            ctx.globalAlpha = (iv.id === "live" ? 0.75 : 1) * animAlpha;
             ctx.fillStyle = C.paper;
             const cx = (Math.max(0, x1) + Math.min(W, x2)) / 2;
             const cy = bandTop + BAND_H / 2 + 0.5;
@@ -639,10 +640,10 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
               ctx.font = `700 13px ${FONT_SANS}`;
               ctx.fillText(iv.fn, cx, cy);
             }
-          } else if (fullBw > 3 && (!iv._anim || animAlpha > 0.85)) {
+          } else if (fullBw > 3) {
             // A5-02/A5-03: bloque demasiado estrecho para la etiqueta completa —
             // nunca queda sin NINGÚN carácter visible (garantía CVD mínima).
-            ctx.globalAlpha = iv.id === "live" ? 0.75 : 1;
+            ctx.globalAlpha = (iv.id === "live" ? 0.75 : 1) * animAlpha;
             ctx.fillStyle = C.paper;
             const cx = (Math.max(0, x1) + Math.min(W, x2)) / 2;
             const cy = bandTop + BAND_H / 2 + 0.5;
